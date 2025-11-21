@@ -1,0 +1,5 @@
+{
+  "name": "Stripe Dispute Dashboard",
+  "description": "An MVP dashboard to display and manage Stripe disputes. It listens to Stripe webhooks, stores data in Firestore, and presents it in a clean, filterable React interface.",
+  "requestFramePermissions": []
+}
