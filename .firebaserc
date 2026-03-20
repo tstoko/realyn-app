@@ -1,5 +1,17 @@
 {
   "projects": {
     "default": "realyn-app"
+  },
+  "targets": {
+    "realyn-app": {
+      "hosting": {
+        "website": [
+          "realyn-app"
+        ],
+        "dashboard": [
+          "realyn-dashboard"
+        ]
+      }
+    }
   }
 }

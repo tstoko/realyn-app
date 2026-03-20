@@ -1,6 +1,8 @@
-# Dependencies
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
 node_modules/
-.pnp
+/.pnp
 .pnp.js
 
 # Testing
@@ -35,3 +37,23 @@ lerna-debug.log*
 # OS
 Thumbs.db
 
+# Firebase
+.firebase/
+firebase-debug*.log
+firestore-debug.log
+
+# Secrets
+functions/.secret.local
+.env.production
+
+# Turbo
+.turbo/
+
+# Firebase Functions
+functions/lib/
+
+# Build output
+packages/*/build/
+
+# Cursor
+.cursor/

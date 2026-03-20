@@ -3,6 +3,9 @@ import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import Stripe from "stripe";
 import { Request, Response } from "express";
+import { getOrganizationIdFromStripeEvent, getPaymentMetadata } from "./utils/stripeHelpers";
+import { normalizeStripeDispute } from "./utils/disputeNormalizer";
+import { upsertUnifiedDispute, updateDisputeStatus as updateUnifiedDisputeStatus } from "./services/disputeService";
 
 admin.initializeApp();
 
@@ -19,7 +22,7 @@ const webhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
 export const stripeWebhook = onRequest(
   {
     secrets: [stripeSecretKey, webhookSecret],
-    cors: true,
+    cors: false,
   },
   async (req: Request, res: Response) => {
     // Validate configuration
@@ -40,7 +43,6 @@ export const stripeWebhook = onRequest(
 
     // Initialize Stripe
     const stripe = new Stripe(stripeKey, { apiVersion: "2023-10-16" });
-    const db = admin.firestore();
 
     // Attempt to get raw body for signature verification
     let event: Stripe.Event;
@@ -55,15 +57,14 @@ export const stripeWebhook = onRequest(
         return;
       }
     } else {
-      // Fallback: use parsed body (signature verification skipped)
-      // This is a limitation of Firebase Functions v2
-      console.warn("Raw body unavailable - skipping signature verification");
-      event = req.body as Stripe.Event;
+      console.error("Raw body unavailable - cannot verify webhook signature. Use Firebase Functions v1 or Cloud Run for proper signature verification.");
+      res.status(400).json({ error: "Unable to verify webhook signature" });
+      return;
     }
 
     // Process event
     try {
-      await processStripeEvent(event, db);
+      await processStripeEvent(event, stripe);
       res.json({ received: true });
     } catch (error: any) {
       console.error("Error processing webhook:", error);
@@ -87,91 +88,38 @@ function getRawBody(req: Request): Buffer | null {
 }
 
 /**
- * Process Stripe webhook events
+ * Process Stripe webhook events using the unified dispute pipeline
  */
-async function processStripeEvent(event: Stripe.Event, db: admin.firestore.Firestore): Promise<void> {
+async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<void> {
   const dispute = event.data.object as Stripe.Dispute;
 
   switch (event.type) {
     case "charge.dispute.created":
-      await upsertDispute(dispute, db);
+    case "charge.dispute.updated": {
+      const organizationId = await getOrganizationIdFromStripeEvent(event, stripe);
+      const paymentMeta = dispute.payment_intent
+        ? await getPaymentMetadata(dispute.payment_intent as string, stripe)
+        : {};
+      const normalized = normalizeStripeDispute(
+        dispute,
+        organizationId,
+        paymentMeta.transactionDate,
+        paymentMeta.last4
+      );
+      await upsertUnifiedDispute(normalized);
+      console.log(`Upserted Stripe dispute ${dispute.id} for org ${organizationId}`);
       break;
-    case "charge.dispute.updated":
-      await upsertDispute(dispute, db);
+    }
+    case "charge.dispute.closed": {
+      const { mapStripeStatus } = await import("./utils/disputeNormalizer");
+      await updateUnifiedDisputeStatus("stripe", dispute.id, mapStripeStatus(dispute.status));
+      console.log(`Closed Stripe dispute: ${dispute.id}`);
       break;
-    case "charge.dispute.closed":
-      await updateDisputeStatus(dispute, db);
-      break;
+    }
     default:
       console.log(`Unhandled event type: ${event.type}`);
   }
 }
 
-/**
- * Create or update a dispute in Firestore
- */
-async function upsertDispute(dispute: Stripe.Dispute, db: admin.firestore.Firestore): Promise<void> {
-  const disputeData = {
-    stripeDisputeId: dispute.id,
-    stripePaymentIntentId: dispute.payment_intent as string,
-    status: mapStripeStatus(dispute.status),
-    reason: dispute.reason || null,
-    amount: dispute.amount,
-    currency: dispute.currency,
-    createdAt: admin.firestore.Timestamp.fromDate(new Date(dispute.created * 1000)),
-    respondBy: dispute.evidence_details?.due_by
-      ? admin.firestore.Timestamp.fromDate(new Date(dispute.evidence_details.due_by * 1000))
-      : null,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  };
-
-  const existing = await db
-    .collection("disputes")
-    .where("stripeDisputeId", "==", dispute.id)
-    .limit(1)
-    .get();
-
-  if (existing.empty) {
-    await db.collection("disputes").add(disputeData);
-    console.log(`Created dispute: ${dispute.id}`);
-  } else {
-    await db.collection("disputes").doc(existing.docs[0].id).update(disputeData);
-    console.log(`Updated dispute: ${dispute.id}`);
-  }
-}
-
-/**
- * Update dispute status when closed
- */
-async function updateDisputeStatus(dispute: Stripe.Dispute, db: admin.firestore.Firestore): Promise<void> {
-  const existing = await db
-    .collection("disputes")
-    .where("stripeDisputeId", "==", dispute.id)
-    .limit(1)
-    .get();
-
-  if (!existing.empty) {
-    await db.collection("disputes").doc(existing.docs[0].id).update({
-      status: mapStripeStatus(dispute.status),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    console.log(`Closed dispute: ${dispute.id}`);
-  }
-}
-
-/**
- * Map Stripe dispute status to internal status
- */
-function mapStripeStatus(stripeStatus: Stripe.Dispute.Status): string {
-  const statusMap: Record<string, string> = {
-    warning_needs_response: "needs_response",
-    warning_under_review: "under_review",
-    warning_closed: "warning_closed",
-    needs_response: "needs_response",
-    under_review: "under_review",
-    won: "won",
-    lost: "lost",
-  };
-
-  return statusMap[stripeStatus] || "under_review";
-}
+export { testOperaCloudConnection } from "./handlers/operaCloudConnectionTest";
+export { seedPitchDemo } from "./handlers/seedPitchDemo";

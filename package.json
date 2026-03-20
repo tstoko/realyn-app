@@ -1,18 +1,19 @@
 {
-  "name": "realyn",
-  "version": "1.0.0",
+  "name": "realyn-app",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "packages/*"
   ],
   "scripts": {
-    "dev:web": "cd apps/web && npm run dev",
-    "build:web": "cd apps/web && npm run build",
-    "preview:web": "cd apps/web && npm run preview",
-    "install:all": "npm install"
+    "build": "turbo build",
+    "build:website": "turbo build --filter=@realyn/website",
+    "build:dashboard": "turbo build --filter=@realyn/dashboard",
+    "dev:website": "turbo dev --filter=@realyn/website",
+    "dev:dashboard": "turbo dev --filter=@realyn/dashboard"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "packageManager": "npm@11.6.2",
+  "devDependencies": {
+    "turbo": "^2"
   }
 }
-

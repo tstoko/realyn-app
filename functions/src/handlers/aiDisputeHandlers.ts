@@ -1,0 +1,531 @@
+import * as functions from "firebase-functions/v2";
+import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
+import {
+  triggerEvidencePlanning,
+  regenerateEvidencePlan,
+  updateEvidenceItemStatus,
+  getEvidenceProgress,
+  toggleAIPlanMode,
+} from "../services/ai/evidencePlanningService";
+import { buildDisputeCase } from "../services/ai/disputeCaseBuilder";
+import { generateDisputeArgument } from "../services/ai/argumentGenerator";
+import { EvidencePlan, EvidenceItem, ArgumentVersion } from "../types/aiDispute";
+import { applyRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from "../utils/rateLimiter";
+import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+
+// ============================================================
+// AI Dispute Handlers
+// HTTP endpoints for AI evidence planning
+// ============================================================
+
+/**
+ * Helper to remove undefined values from an object
+ * Firestore doesn't accept undefined values
+ */
+function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      // Recursively clean nested objects (but not arrays)
+      if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+        cleaned[key] = removeUndefinedFields(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  }
+  return cleaned as T;
+}
+
+/**
+ * Generate evidence plan for a dispute (async pattern)
+ * POST /ai/disputes/:id/plan-evidence
+ * 
+ * Returns immediately with status: "generating" while processing continues
+ * in background. Frontend uses Firestore real-time listener to detect completion.
+ */
+export const planEvidence = functions.https.onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+    secrets: ["OPENAI_API_KEY"],
+    timeoutSeconds: 300, // 5 min – pipeline is sequential (6 LLM calls + revision loop)
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    // Only allow POST
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    // Apply rate limiting (by IP for unauthenticated, or by org if provided)
+    const rateLimitKey = req.body?.organizationId || getClientIP(req);
+    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
+    if (!allowed) return;
+
+    const db = admin.firestore();
+    let disputeId: string | undefined;
+
+    try {
+      disputeId = req.query.disputeId as string;
+      const { organizationId, regenerate } = req.body;
+
+      if (!disputeId) {
+        res.status(400).json({ error: "Missing disputeId parameter" });
+        return;
+      }
+
+      if (!organizationId) {
+        res.status(400).json({ error: "Missing organizationId in request body" });
+        return;
+      }
+
+      // Verify the dispute exists and belongs to the organization
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+
+      if (!disputeDoc.exists) {
+        res.status(404).json({ error: "Dispute not found" });
+        return;
+      }
+
+      const dispute = disputeDoc.data();
+      if (dispute?.organizationId !== organizationId) {
+        res.status(403).json({ error: "Dispute does not belong to organization" });
+        return;
+      }
+
+      // Mark as "generating" immediately
+      await db.collection("disputes").doc(disputeId).update({
+        evidencePlanStatus: "generating",
+        evidencePlanError: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Return immediately - don't wait for generation
+      res.json({
+        success: true,
+        status: "generating",
+        message: "Evidence plan generation started. You will be notified when complete.",
+      });
+
+      // Continue processing in background (after response is sent)
+      const planningPromise = regenerate
+        ? regenerateEvidencePlan(disputeId, organizationId)
+        : triggerEvidencePlanning(disputeId, organizationId);
+
+      planningPromise
+        .then(async (result) => {
+          if (result.success) {
+            // Update status to complete (plan data is already saved by triggerEvidencePlanning)
+            await db.collection("disputes").doc(disputeId!).update({
+              evidencePlanStatus: "complete",
+              evidencePlanError: null,
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            console.log(`Evidence plan generation completed for dispute ${disputeId}`);
+          } else {
+            // Update status to error
+            await db.collection("disputes").doc(disputeId!).update({
+              evidencePlanStatus: "error",
+              evidencePlanError: result.error || "Unknown error during plan generation",
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+            console.error(`Evidence plan generation failed for dispute ${disputeId}: ${result.error}`);
+          }
+        })
+        .catch(async (error) => {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error(`Error in background evidence planning for ${disputeId}:`, errorMessage);
+          
+          // Update status to error
+          try {
+            await db.collection("disputes").doc(disputeId!).update({
+              evidencePlanStatus: "error",
+              evidencePlanError: errorMessage,
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          } catch (updateError) {
+            console.error(`Failed to update error status for ${disputeId}:`, updateError);
+          }
+        });
+
+    } catch (error) {
+      console.error("Error in planEvidence:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      
+      // If we have a disputeId, try to update the status to error
+      if (disputeId) {
+        try {
+          await db.collection("disputes").doc(disputeId).update({
+            evidencePlanStatus: "error",
+            evidencePlanError: message,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } catch (updateError) {
+          console.error("Failed to update error status:", updateError);
+        }
+      }
+      
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * Update evidence item status
+ * POST /ai/disputes/:id/evidence-item
+ */
+export const updateEvidenceItem = functions.https.onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const authResult = await verifyUser(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
+    try {
+      const disputeId = req.query.disputeId as string;
+      const {
+        organizationId,
+        requirementId,
+        status,
+        fileId,
+        fileName,
+        uploadedBy,
+        notes,
+      } = req.body;
+
+      if (!disputeId || !requirementId || !status) {
+        res.status(400).json({
+          error: "Missing required fields: disputeId, requirementId, status",
+        });
+        return;
+      }
+
+      // Validate status
+      const validStatuses = ["pending", "uploaded", "not_available", "not_applicable"];
+      if (!validStatuses.includes(status)) {
+        res.status(400).json({
+          error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        });
+        return;
+      }
+
+      // Verify the dispute exists and belongs to the organization
+      const db = admin.firestore();
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+
+      if (!disputeDoc.exists) {
+        res.status(404).json({ error: "Dispute not found" });
+        return;
+      }
+
+      const dispute = disputeDoc.data();
+      const effectiveOrgId = organizationId || authResult.organizationId;
+      if (effectiveOrgId && dispute?.organizationId !== effectiveOrgId) {
+        res.status(403).json({ error: "Dispute does not belong to organization" });
+        return;
+      }
+
+      // Update the evidence item
+      const success = await updateEvidenceItemStatus(
+        disputeId,
+        requirementId,
+        status,
+        fileId,
+        fileName,
+        uploadedBy,
+        notes
+      );
+
+      if (!success) {
+        res.status(500).json({ error: "Failed to update evidence item" });
+        return;
+      }
+
+      // Get updated progress
+      const progress = await getEvidenceProgress(disputeId);
+
+      res.json({
+        success: true,
+        progress,
+      });
+    } catch (error) {
+      console.error("Error in updateEvidenceItem:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * Get evidence progress for a dispute
+ * GET /ai/disputes/:id/progress
+ */
+export const getProgress = functions.https.onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "GET") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const authResult = await verifyUser(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
+    try {
+      const disputeId = req.query.disputeId as string;
+
+      if (!disputeId) {
+        res.status(400).json({ error: "Missing disputeId parameter" });
+        return;
+      }
+
+      const progress = await getEvidenceProgress(disputeId);
+
+      if (!progress) {
+        res.status(404).json({ error: "Dispute not found or no evidence plan" });
+        return;
+      }
+
+      res.json({
+        success: true,
+        progress,
+      });
+    } catch (error) {
+      console.error("Error in getProgress:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * Toggle AI plan mode
+ * POST /ai/disputes/:id/toggle-ai-plan
+ */
+export const toggleAIPlan = functions.https.onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const disputeId = req.query.disputeId as string;
+      const { organizationId, useAIPlan } = req.body;
+
+      if (!disputeId || useAIPlan === undefined) {
+        res.status(400).json({
+          error: "Missing required fields: disputeId, useAIPlan",
+        });
+        return;
+      }
+
+      // Verify the dispute exists and belongs to the organization
+      const db = admin.firestore();
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+
+      if (!disputeDoc.exists) {
+        res.status(404).json({ error: "Dispute not found" });
+        return;
+      }
+
+      const dispute = disputeDoc.data();
+      if (organizationId && dispute?.organizationId !== organizationId) {
+        res.status(403).json({ error: "Dispute does not belong to organization" });
+        return;
+      }
+
+      const success = await toggleAIPlanMode(disputeId, useAIPlan);
+
+      if (!success) {
+        res.status(500).json({ error: "Failed to toggle AI plan mode" });
+        return;
+      }
+
+      res.json({
+        success: true,
+        useAIPlan,
+      });
+    } catch (error) {
+      console.error("Error in toggleAIPlan:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * Draft argument for a dispute
+ * POST /ai/disputes/:id/draft-argument
+ */
+export const draftArgument = functions.https.onRequest(
+  {
+    region: "us-central1",
+    cors: true,
+    secrets: ["OPENAI_API_KEY"],
+    timeoutSeconds: 180,
+    memory: "512MiB",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    // Apply rate limiting
+    const rateLimitKey = req.body?.organizationId || getClientIP(req);
+    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
+    if (!allowed) return;
+
+    try {
+      const disputeId = req.query.disputeId as string;
+      const { organizationId, regenerate } = req.body;
+
+      if (!disputeId) {
+        res.status(400).json({ error: "Missing disputeId parameter" });
+        return;
+      }
+
+      if (!organizationId) {
+        res.status(400).json({ error: "Missing organizationId in request body" });
+        return;
+      }
+
+      // Fetch dispute data
+      const db = admin.firestore();
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+
+      if (!disputeDoc.exists) {
+        res.status(404).json({ error: "Dispute not found" });
+        return;
+      }
+
+      const dispute = disputeDoc.data();
+      if (dispute?.organizationId !== organizationId) {
+        res.status(403).json({ error: "Dispute does not belong to organization" });
+        return;
+      }
+
+      // Check if evidence plan exists
+      const evidencePlan = dispute.evidencePlan as EvidencePlan | undefined;
+      if (!evidencePlan) {
+        res.status(400).json({ 
+          error: "Evidence plan not generated yet",
+          message: "Please generate an evidence plan before drafting an argument",
+        });
+        return;
+      }
+
+      // Check if we already have a draft and not regenerating
+      if (dispute.argumentDraft && !regenerate) {
+        res.json({
+          success: true,
+          argument: dispute.argumentDraft,
+          cached: true,
+        });
+        return;
+      }
+
+      // Build the DisputeCase
+      const disputeCase = await buildDisputeCase(disputeId, organizationId);
+      if (!disputeCase) {
+        res.status(500).json({ error: "Failed to build dispute case" });
+        return;
+      }
+
+      // Get evidence items
+      const evidenceItems = (dispute.evidenceItems || []) as EvidenceItem[];
+
+      // Generate the argument using GPT-5.2 vision
+      // Pass disputeId so the generator can fetch actual evidence files
+      console.log(`Generating argument for dispute ${disputeId} using GPT-5.2 vision`);
+      const argument = await generateDisputeArgument(
+        disputeCase,
+        evidencePlan,
+        evidenceItems,
+        disputeId
+      );
+
+      if (!argument) {
+        res.status(500).json({ error: "Failed to generate argument" });
+        return;
+      }
+
+      // Get existing argument versions or initialize
+      const existingVersions: ArgumentVersion[] = 
+        (dispute?.argumentVersions as ArgumentVersion[]) || [];
+      
+      // Determine next version number
+      const nextVersion = existingVersions.length > 0
+        ? Math.max(...existingVersions.map(v => v.version || 0)) + 1
+        : 1;
+
+      // Mark all previous versions as not current
+      const updatedVersions = existingVersions.map(v => ({
+        ...v,
+        isCurrent: false,
+      }));
+
+      // Clean the argument to remove undefined fields (Firestore doesn't accept undefined)
+      const cleanedArgument = removeUndefinedFields(argument);
+
+      // Create new version entry
+      const newVersion: ArgumentVersion = {
+        argument: cleanedArgument,
+        generatedAt: new Date(),
+        version: nextVersion,
+        isCurrent: true,
+        isSubmitted: false,
+      };
+
+      // Add to versions array
+      updatedVersions.push(newVersion);
+
+      // Save the draft to Firestore - update both current fields and versions array
+      await db.collection("disputes").doc(disputeId).update({
+        argumentDraft: cleanedArgument, // Keep current draft for backward compatibility
+        argumentDraftGeneratedAt: FieldValue.serverTimestamp(),
+        argumentVersions: updatedVersions, // Store all versions
+        lifecycleStatus: "draft_ready",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      console.log(`Argument version ${nextVersion} generated and saved for dispute ${disputeId}`);
+
+      res.json({
+        success: true,
+        argument,
+        cached: false,
+        version: nextVersion,
+      });
+    } catch (error) {
+      console.error("Error in draftArgument:", error);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
