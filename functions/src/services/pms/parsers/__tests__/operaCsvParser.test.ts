@@ -257,6 +257,94 @@ describe("OperaCSVParser", () => {
       expect(result).toHaveLength(1);
       expect(result[0].totalAmount).toBe(120050);
     });
+
+    it("should parse integer cent amounts without decimal", () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS"];
+      const rows = [
+        ["400006", "Guest", "2026-01-01", "2026-01-02", "45000", "USD", "CHECKED_OUT"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result).toHaveLength(1);
+      expect(result[0].totalAmount).toBe(45000);
+    });
+
+    it("should parse negative amounts", () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS"];
+      const rows = [
+        ["400007", "Guest", "2026-01-01", "2026-01-02", "-519.50", "USD", "CHECKED_OUT"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result).toHaveLength(1);
+      expect(result[0].totalAmount).toBe(-51950);
+    });
+
+    it("should map IN_HOUSE status to checked_in", () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS"];
+      const rows = [
+        ["400008", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "IN_HOUSE"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].status).toBe("checked_in");
+    });
+
+    it("should default status to confirmed for unknown values", () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS"];
+      const rows = [
+        ["400009", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "WEIRD_STATUS"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].status).toBe("confirmed");
+    });
+
+    it("should handle missing optional columns gracefully", () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE"];
+      const rows = [["400010", "Test Guest", "2026-06-01", "2026-06-03"]];
+      const result = parser.parseReservations(headers, rows);
+      expect(result).toHaveLength(1);
+      expect(result[0].totalAmount).toBe(0);
+      expect(result[0].currency).toBe("USD");
+      expect(result[0].roomNumber).toBeUndefined();
+    });
+
+    it('should parse "0" as 0 for adults and children', () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS", "ADULTS", "CHILDREN"];
+      const rows = [
+        ["400011", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "CHECKED_OUT", "0", "0"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].adults).toBe(0);
+      expect(result[0].children).toBe(0);
+    });
+
+    it('should parse "N/A" as undefined for adults and children', () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS", "ADULTS", "CHILDREN"];
+      const rows = [
+        ["400012", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "CHECKED_OUT", "N/A", "N/A"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].adults).toBeUndefined();
+      expect(result[0].children).toBeUndefined();
+    });
+
+    it('should parse "" as undefined for adults and children', () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS", "ADULTS", "CHILDREN"];
+      const rows = [
+        ["400013", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "CHECKED_OUT", "", ""],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].adults).toBeUndefined();
+      expect(result[0].children).toBeUndefined();
+    });
+
+    it('should parse "2" as 2 for adults and children', () => {
+      const headers = ["CONFIRMATION_NO", "GUEST_NAME", "ARRIVAL", "DEPARTURE", "TOTAL_REVENUE", "CURRENCY", "RESV_STATUS", "ADULTS", "CHILDREN"];
+      const rows = [
+        ["400014", "Guest", "2026-01-01", "2026-01-02", "10000", "USD", "CHECKED_OUT", "2", "2"],
+      ];
+      const result = parser.parseReservations(headers, rows);
+      expect(result[0].adults).toBe(2);
+      expect(result[0].children).toBe(2);
+    });
   });
 
   // =========================================================================
@@ -320,6 +408,29 @@ describe("OperaCSVParser", () => {
     it("should parse line references", () => {
       expect(folios[0].lines[0].reference).toBe("RC-001");
     });
+
+    it("should track currency per confirmation number", () => {
+      const headers = ["CONFIRMATION_NO", "TRX_DATE", "TRX_DESCRIPTION", "TRX_AMOUNT", "TRX_TYPE", "CURRENCY", "REFERENCE"];
+      const rows = [
+        ["C1", "2026-01-15", "Room Charge", "15000", "CHARGE", "USD", ""],
+        ["C2", "2026-01-15", "Room Charge", "12000", "CHARGE", "EUR", ""],
+      ];
+      const result = parser.parseFolios(headers, rows);
+      expect(result).toHaveLength(2);
+      const c1 = result.find((f) => f.confirmationNumber === "C1");
+      const c2 = result.find((f) => f.confirmationNumber === "C2");
+      expect(c1?.currency).toBe("USD");
+      expect(c2?.currency).toBe("EUR");
+    });
+
+    it("should default currency to USD when not specified", () => {
+      const headers = ["CONFIRMATION_NO", "TRX_DATE", "TRX_DESCRIPTION", "TRX_AMOUNT", "TRX_TYPE", "REFERENCE"];
+      const rows = [
+        ["C3", "2026-01-15", "Room Charge", "15000", "CHARGE", ""],
+      ];
+      const result = parser.parseFolios(headers, rows);
+      expect(result[0].currency).toBe("USD");
+    });
   });
 
   // =========================================================================
@@ -355,6 +466,10 @@ describe("OperaCSVParser", () => {
 
     it("should parse performedBy", () => {
       expect(logs[0].performedBy).toBe("Front Desk Agent J. Wilson");
+    });
+
+    it("should include confirmationNumber from CONFIRMATION_NO column", () => {
+      expect(logs[0].confirmationNumber).toBe("100001");
     });
   });
 });
