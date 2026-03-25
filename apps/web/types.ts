@@ -107,7 +107,7 @@ export interface PSPIntegration {
 }
 
 export interface PMSIntegration {
-    type: 'none' | 'mews' | 'opera_cloud' | 'opera_5';
+    type: 'none' | 'mews' | 'opera_cloud' | 'opera_5' | 'realyn_standard';
     status: 'not_connected' | 'connected' | 'error';
 }
 

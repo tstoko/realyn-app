@@ -378,6 +378,7 @@ const IntegrationsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<R
                             <option value="mews">Mews</option>
                             <option value="opera_cloud">OPERA Cloud</option>
                             <option value="opera_5">OPERA 5</option>
+                            <option value="realyn_standard">Realyn Standard CSV (Universal)</option>
                         </select>
                     </div>
                      <div className="flex items-center space-x-4 mt-2">
@@ -388,6 +389,42 @@ const IntegrationsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<R
                         </button>
                     </div>
                 </div>
+                {formData.integrations.pms.type === 'realyn_standard' && (
+                    <div className="mt-4 p-3 bg-indigo-900/20 border border-indigo-800 rounded-md">
+                        <p className="text-sm text-indigo-300 font-medium mb-2">Realyn Standard CSV Format</p>
+                        <p className="text-xs text-indigo-200 mb-2">
+                            Export data from any PMS and map it to this simple CSV format. All amounts should be in the main currency unit (e.g. 450.00, not cents). Dates should be ISO format (YYYY-MM-DD).
+                        </p>
+                        <div className="text-xs text-indigo-200 space-y-2">
+                            <div>
+                                <p className="font-medium">Reservation columns:</p>
+                                <p>CONFIRMATION_NO (required), GUEST_NAME (required), CHECK_IN (required, YYYY-MM-DD), CHECK_OUT (required, YYYY-MM-DD), TOTAL_AMOUNT (required), ROOM_NUMBER, ROOM_TYPE, RATE_PLAN, CURRENCY, STATUS, CARD_LAST4, BOOKING_SOURCE, ADULTS, CHILDREN</p>
+                            </div>
+                            <div>
+                                <p className="font-medium">Folio columns:</p>
+                                <p>CONFIRMATION_NO (required), TRX_DATE (required), TRX_DESCRIPTION (required), TRX_AMOUNT (required), TRX_CATEGORY, CURRENCY, REFERENCE</p>
+                            </div>
+                            <div>
+                                <p className="font-medium">Activity log columns:</p>
+                                <p>CONFIRMATION_NO (required), TIMESTAMP (required), ACTION (required), DETAILS, PERFORMED_BY</p>
+                            </div>
+                        </div>
+                        <p className="text-xs text-indigo-200 mt-2">
+                            Upload one or more CSV files below. The format is auto-detected. Card numbers are stripped on upload (PCI compliance).
+                        </p>
+                        <div className="mt-4 flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors border-slate-700 hover:border-slate-500 hover:bg-slate-800/50">
+                            <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <p className="text-sm text-slate-400">
+                                Click or drag a PMS export file to upload
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Realyn Standard CSV files, max 10MB
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
