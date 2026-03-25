@@ -26,7 +26,16 @@ import type {
 } from "../../types/pmsData";
 import {logOrgAuditEvent} from "../../utils/orgAuditLogger";
 
-// Available parsers (add new PMS parsers here)
+/**
+ * Available parsers, ordered by specificity (most specific first).
+ *
+ * Order matters: the first parser whose canParse() returns true is used.
+ * - System-specific parsers (Opera XML, Opera CSV) go first
+ * - Universal/generic parsers (Realyn Standard) go last
+ *
+ * When adding a new PMS-specific parser, insert it before the Realyn Standard
+ * parser but after other system-specific parsers.
+ */
 const PARSERS: PMSParser[] = [new OperaXMLParser(), new OperaCSVParser(), new RealynStandardParser()];
 
 export interface ImportSummary {
