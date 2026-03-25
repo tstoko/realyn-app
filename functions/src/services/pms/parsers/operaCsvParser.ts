@@ -62,6 +62,36 @@ const ALL_KNOWN_COLUMNS = [
   ...new Set([...RESERVATION_COLUMNS, ...FOLIO_COLUMNS, ...ACTIVITY_COLUMNS]),
 ];
 
+/**
+ * Opera-specific columns that do NOT appear in the Realyn Standard format.
+ * Used to distinguish Opera exports from Realyn Standard CSV files.
+ */
+const OPERA_DISTINGUISHING_COLUMNS = [
+  "ARRIVAL",
+  "DEPARTURE",
+  "RESV_NAME_ID",
+  "RESV_STATUS",
+  "ROOM",
+  "RATE_CODE",
+  "TOTAL_REVENUE",
+  "TRX_TYPE",
+  "PAYMENT_METHOD",
+];
+
+/**
+ * Realyn Standard columns that differ from Opera.
+ * If these are present and no Opera-specific columns are found, this is NOT an Opera file.
+ */
+const REALYN_ONLY_COLUMNS = [
+  "CHECK_IN",
+  "CHECK_OUT",
+  "ROOM_NUMBER",
+  "RATE_PLAN",
+  "TOTAL_AMOUNT",
+  "STATUS",
+  "TRX_CATEGORY",
+];
+
 const MIN_MATCH_THRESHOLD = 3;
 
 // ============================================================
@@ -76,7 +106,15 @@ export class OperaCSVParser implements PMSParser {
 
     const normalised = headers.map((h) => normalizeHeader(h));
     const matchCount = ALL_KNOWN_COLUMNS.filter((col) => normalised.includes(col)).length;
-    return matchCount >= MIN_MATCH_THRESHOLD;
+    if (matchCount < MIN_MATCH_THRESHOLD) return false;
+
+    // Reject if this looks like a Realyn Standard file: Realyn-specific columns
+    // present but no Opera-specific columns found.
+    const hasOperaSpecific = OPERA_DISTINGUISHING_COLUMNS.some((col) => normalised.includes(col));
+    const hasRealynSpecific = REALYN_ONLY_COLUMNS.some((col) => normalised.includes(col));
+    if (hasRealynSpecific && !hasOperaSpecific) return false;
+
+    return true;
   }
 
   parseReservations(headers: string[], rows: string[][]): PMSReservation[] {
