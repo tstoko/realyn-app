@@ -206,6 +206,14 @@ export async function processFileImport(
   }
 
   const logsByConfirmation = new Map<string, PMSActivityLog[]>();
+  for (const log of activityLogs) {
+    if (log.confirmationNumber) {
+      if (!logsByConfirmation.has(log.confirmationNumber)) {
+        logsByConfirmation.set(log.confirmationNumber, []);
+      }
+      logsByConfirmation.get(log.confirmationNumber)!.push(log);
+    }
+  }
 
   for (const reservation of reservations) {
     const resDoc: PMSReservationDocument = {

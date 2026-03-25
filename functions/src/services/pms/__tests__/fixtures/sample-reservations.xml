@@ -84,12 +84,14 @@
   </FolioTransactions>
   <ActivityLogs>
     <Activity>
+      <ConfirmationNumber>500001</ConfirmationNumber>
       <Timestamp>2026-01-15T14:30:00</Timestamp>
       <Action>Check In</Action>
       <Details>Guest checked in to room 405</Details>
       <PerformedBy>front_desk_01</PerformedBy>
     </Activity>
     <Activity>
+      <ConfirmationNumber>500001</ConfirmationNumber>
       <Timestamp>2026-01-18T11:00:00</Timestamp>
       <Action>Check Out</Action>
       <Details>Guest checked out</Details>

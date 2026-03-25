@@ -214,6 +214,7 @@ export class OperaCSVParser implements PMSParser {
           action,
           details: getCell(row, colMap, "DETAILS"),
           performedBy: getCell(row, colMap, "PERFORMED_BY"),
+          confirmationNumber: getCell(row, colMap, "CONFIRMATION_NO"),
         });
       } catch (err) {
         console.warn(`[OperaCSVParser] Skipping activity row: ${(err as Error).message}`);

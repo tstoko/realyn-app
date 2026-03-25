@@ -206,12 +206,14 @@ export class OperaXMLParser implements PMSParser {
 
         const actionRaw = str(a.Action) ?? str(a.action) ?? str(a.ActivityType) ?? "unknown";
         const action = actionRaw.toLowerCase().replace(/\s+/g, "_");
+        const confirmationNumber = str(a.ConfirmationNumber) ?? str(a.confirmationNumber);
 
         results.push({
           timestamp,
           action,
           details: str(a.Details) ?? str(a.details) ?? str(a.Description),
           performedBy: str(a.PerformedBy) ?? str(a.performedBy) ?? str(a.User) ?? str(a.user),
+          confirmationNumber,
         });
       } catch (err) {
         console.warn(`[OperaXMLParser] Skipping activity: ${(err as Error).message}`);
