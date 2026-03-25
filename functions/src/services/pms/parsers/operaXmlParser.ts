@@ -14,6 +14,7 @@ import type {
   PMSActivityLog,
 } from "../../../types/pmsData";
 import {parseOperaDate, parseAmount, mapStatus, mapTrxType} from "./operaParserUtils";
+import {sanitizePAN} from "../sanitizer";
 
 /**
  * Ensure a value is always an array. XML parsers collapse single-element
@@ -100,7 +101,7 @@ export class OperaXMLParser implements PMSParser {
           currency: str(r.Currency) ?? str(r.currency) ?? "USD",
           status: mapStatus(str(r.ReservationStatus) ?? str(r.reservationStatus) ?? str(r.Status) ?? str(r.status)),
           bookingSource: str(r.BookingSource) ?? str(r.bookingSource),
-          paymentMethodLast4: str(r.CardLast4) ?? str(r.cardLast4) ?? str(r.PaymentMethodLast4),
+          paymentMethodLast4: sanitizePAN(str(r.CardLast4) ?? str(r.cardLast4) ?? str(r.PaymentMethodLast4) ?? "") || undefined,
           adults: adultsParsed !== undefined && !isNaN(adultsParsed) ? adultsParsed : undefined,
           children: childrenParsed !== undefined && !isNaN(childrenParsed) ? childrenParsed : undefined,
         });
