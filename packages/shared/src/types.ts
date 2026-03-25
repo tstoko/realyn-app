@@ -344,7 +344,7 @@ export interface PSPIntegrationsConfig {
 // ---------------------------------------------------------------------------
 
 export interface PMSIntegration {
-  type: 'none' | 'opera_csv' | 'opera_xml' | 'opera_delimited' | 'mews_api';
+  type: 'none' | 'opera_csv' | 'opera_xml' | 'opera_delimited' | 'mews_api' | 'realyn_standard';
   reservationCount?: number;
   lastImportAt?: Date;
   lastImportId?: string;

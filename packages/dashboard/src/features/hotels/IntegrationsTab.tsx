@@ -946,6 +946,7 @@ const FORMAT_LABELS: Record<string, string> = {
   opera_xml: 'XML',
   opera_delimited: 'Delimited',
   mews_api: 'Mews',
+  realyn_standard: 'Standard CSV',
 };
 
 const FormatBadge: React.FC<{ format: string }> = ({ format }) => {
@@ -1050,6 +1051,7 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
             <option value="opera_xml">Oracle Opera (XML Export)</option>
             <option value="opera_delimited">Oracle Opera (Delimited Text)</option>
             <option value="mews_api">Mews (API)</option>
+            <option value="realyn_standard">Realyn Standard CSV (Universal)</option>
           </select>
         </div>
         <div className="flex items-center space-x-4 mt-2">
@@ -1066,8 +1068,9 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
         </div>
       </div>
 
-      {(pmsType === 'opera_csv' || pmsType === 'opera_xml' || pmsType === 'opera_delimited') && (
+      {(pmsType === 'opera_csv' || pmsType === 'opera_xml' || pmsType === 'opera_delimited' || pmsType === 'realyn_standard') && (
         <div className="mt-4 pt-4 border-t border-slate-800 space-y-4">
+          {(pmsType === 'opera_csv' || pmsType === 'opera_xml' || pmsType === 'opera_delimited') && (
           <div className="p-3 bg-indigo-900/20 border border-indigo-800 rounded-md">
             <p className="text-sm text-indigo-300 font-medium mb-2">How to Export from Opera</p>
             <ol className="text-xs text-indigo-200 space-y-1 list-decimal list-inside">
@@ -1081,6 +1084,33 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
               Card numbers are stripped on upload (PCI compliance).
             </p>
           </div>
+          )}
+
+          {pmsType === 'realyn_standard' && (
+          <div className="p-3 bg-indigo-900/20 border border-indigo-800 rounded-md">
+            <p className="text-sm text-indigo-300 font-medium mb-2">Realyn Standard CSV Format</p>
+            <p className="text-xs text-indigo-200 mb-2">
+              Export data from any PMS and map it to this simple CSV format. All amounts should be in the main currency unit (e.g. 450.00, not cents). Dates should be ISO format (YYYY-MM-DD).
+            </p>
+            <div className="text-xs text-indigo-200 space-y-2">
+              <div>
+                <p className="font-medium">Reservation columns:</p>
+                <p>CONFIRMATION_NO (required), GUEST_NAME (required), CHECK_IN (required, YYYY-MM-DD), CHECK_OUT (required, YYYY-MM-DD), TOTAL_AMOUNT (required), ROOM_NUMBER, ROOM_TYPE, RATE_PLAN, CURRENCY, STATUS, CARD_LAST4, BOOKING_SOURCE, ADULTS, CHILDREN</p>
+              </div>
+              <div>
+                <p className="font-medium">Folio columns:</p>
+                <p>CONFIRMATION_NO (required), TRX_DATE (required), TRX_DESCRIPTION (required), TRX_AMOUNT (required), TRX_CATEGORY, CURRENCY, REFERENCE</p>
+              </div>
+              <div>
+                <p className="font-medium">Activity log columns:</p>
+                <p>CONFIRMATION_NO (required), TIMESTAMP (required), ACTION (required), DETAILS, PERFORMED_BY</p>
+              </div>
+            </div>
+            <p className="text-xs text-indigo-200 mt-2">
+              Upload one or more CSV files below. The format is auto-detected. Card numbers are stripped on upload (PCI compliance).
+            </p>
+          </div>
+          )}
 
           {/* Drop zone */}
           <div
@@ -1118,7 +1148,11 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
                 <p className="text-sm text-slate-400">
                   {isDragActive ? 'Drop file here' : 'Click or drag a PMS export file to upload'}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Opera CSV, XML, or delimited text exports, max 10MB</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {pmsType === 'realyn_standard'
+                    ? 'Realyn Standard CSV files, max 10MB'
+                    : 'Opera CSV, XML, or delimited text exports, max 10MB'}
+                </p>
               </>
             )}
           </div>
