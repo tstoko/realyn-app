@@ -123,3 +123,4 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
 
 export { testOperaCloudConnection } from "./handlers/operaCloudConnectionTest";
 export { seedPitchDemo } from "./handlers/seedPitchDemo";
+export { processCSVImportHandler as processCSVImport } from "./handlers/csvImportHandler";
