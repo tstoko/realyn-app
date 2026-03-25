@@ -136,7 +136,7 @@ export class OperaCSVParser implements PMSParser {
   parseFolios(headers: string[], rows: string[][]): PMSFolio[] {
     const colMap = buildColumnMap(headers.map(normalizeHeader));
     const folioMap = new Map<string, PMSFolioLine[]>();
-    let currency = "USD";
+    const currencyMap = new Map<string, string>();
 
     for (const row of rows) {
       try {
@@ -151,7 +151,9 @@ export class OperaCSVParser implements PMSParser {
         const trxType = getCell(row, colMap, "TRX_TYPE");
         const reference = getCell(row, colMap, "REFERENCE");
         const rowCurrency = getCell(row, colMap, "CURRENCY");
-        if (rowCurrency) currency = rowCurrency;
+        if (rowCurrency) {
+          currencyMap.set(confirmationNumber, rowCurrency);
+        }
 
         const category = mapTrxType(trxType, description, amount);
 
@@ -183,7 +185,7 @@ export class OperaCSVParser implements PMSParser {
         totalCharges: charges,
         totalPayments: payments,
         balance: charges - payments,
-        currency,
+        currency: currencyMap.get(confirmationNumber) || "USD",
       });
     }
 

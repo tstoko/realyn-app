@@ -119,7 +119,7 @@ export class OperaXMLParser implements PMSParser {
   parseFolios(_headers: string[], _rows: string[][]): PMSFolio[] {
     const root = this.xmlData;
     const folioMap = new Map<string, PMSFolioLine[]>();
-    let currency = "USD";
+    const currencyMap = new Map<string, string>();
 
     const txnNodes = this.findNodes(root, [
       "FolioTransactions.Transaction",
@@ -143,7 +143,9 @@ export class OperaXMLParser implements PMSParser {
         const trxType = str(t.TransactionType) ?? str(t.transactionType) ?? str(t.TrxType);
         const reference = str(t.Reference) ?? str(t.reference);
         const rowCurrency = str(t.Currency) ?? str(t.currency);
-        if (rowCurrency) currency = rowCurrency;
+        if (rowCurrency) {
+          currencyMap.set(confirmationNumber, rowCurrency);
+        }
 
         const category = mapTrxType(trxType, description, amount);
 
@@ -169,7 +171,7 @@ export class OperaXMLParser implements PMSParser {
         totalCharges: charges,
         totalPayments: payments,
         balance: charges - payments,
-        currency,
+        currency: currencyMap.get(confirmationNumber) || "USD",
       });
     }
 
