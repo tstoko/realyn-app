@@ -105,6 +105,8 @@ export class OperaCSVParser implements PMSParser {
 
         const adultsRaw = getCell(row, colMap, "ADULTS");
         const childrenRaw = getCell(row, colMap, "CHILDREN");
+        const adultsParsed = adultsRaw ? parseInt(adultsRaw, 10) : undefined;
+        const childrenParsed = childrenRaw ? parseInt(childrenRaw, 10) : undefined;
 
         results.push({
           confirmationNumber,
@@ -119,8 +121,8 @@ export class OperaCSVParser implements PMSParser {
           status: mapStatus(getCell(row, colMap, "RESV_STATUS")),
           bookingSource: getCell(row, colMap, "BOOKING_SOURCE"),
           paymentMethodLast4: paymentLast4,
-          adults: adultsRaw ? parseInt(adultsRaw, 10) || undefined : undefined,
-          children: childrenRaw ? parseInt(childrenRaw, 10) ?? undefined : undefined,
+          adults: adultsParsed !== undefined && !isNaN(adultsParsed) ? adultsParsed : undefined,
+          children: childrenParsed !== undefined && !isNaN(childrenParsed) ? childrenParsed : undefined,
         });
       } catch (err) {
         // Row-level isolation: log and skip

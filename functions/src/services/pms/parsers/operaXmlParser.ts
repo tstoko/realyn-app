@@ -85,6 +85,8 @@ export class OperaXMLParser implements PMSParser {
 
         const adultsRaw = str(r.Adults) ?? str(r.adults);
         const childrenRaw = str(r.Children) ?? str(r.children);
+        const adultsParsed = adultsRaw ? parseInt(adultsRaw, 10) : undefined;
+        const childrenParsed = childrenRaw ? parseInt(childrenRaw, 10) : undefined;
 
         results.push({
           confirmationNumber,
@@ -99,8 +101,8 @@ export class OperaXMLParser implements PMSParser {
           status: mapStatus(str(r.ReservationStatus) ?? str(r.reservationStatus) ?? str(r.Status) ?? str(r.status)),
           bookingSource: str(r.BookingSource) ?? str(r.bookingSource),
           paymentMethodLast4: str(r.CardLast4) ?? str(r.cardLast4) ?? str(r.PaymentMethodLast4),
-          adults: adultsRaw ? parseInt(adultsRaw, 10) || undefined : undefined,
-          children: childrenRaw ? parseInt(childrenRaw, 10) || undefined : undefined,
+          adults: adultsParsed !== undefined && !isNaN(adultsParsed) ? adultsParsed : undefined,
+          children: childrenParsed !== undefined && !isNaN(childrenParsed) ? childrenParsed : undefined,
         });
       } catch (err) {
         console.warn(`[OperaXMLParser] Skipping reservation: ${(err as Error).message}`);
