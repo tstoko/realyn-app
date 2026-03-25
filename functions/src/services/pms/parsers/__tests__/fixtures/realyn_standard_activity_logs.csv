@@ -1,0 +1,6 @@
+CONFIRMATION_NO,TIMESTAMP,ACTION,DETAILS,PERFORMED_BY
+RS-001,2026-01-15T14:30:00,check_in,Guest checked in to Room 405,Jane Wilson
+RS-001,2026-01-15T14:35:00,key_encoded,Key card encoded for Room 405,Jane Wilson
+RS-001,2026-01-18T11:00:00,check_out,Guest checked out from Room 405,Sam Park
+RS-002,2026-01-20T15:00:00,check_in,Guest checked in to Room 312,Front Desk
+RS-002,2026-01-22T10:30:00,check_out,Guest checked out from Room 312,Front Desk

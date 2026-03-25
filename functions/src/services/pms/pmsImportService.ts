@@ -12,6 +12,7 @@ import {FieldValue} from "firebase-admin/firestore";
 import {XMLParser} from "fast-xml-parser";
 import {OperaCSVParser} from "./parsers/operaCsvParser";
 import {OperaXMLParser} from "./parsers/operaXmlParser";
+import {RealynStandardParser} from "./parsers/realynStandardParser";
 import {parseCSVBuffer} from "./parsers/csvUtils";
 import {detectDelimiter, parseDelimitedBuffer} from "./parsers/delimitedUtils";
 import {sanitizeRowValues} from "./sanitizer";
@@ -26,7 +27,7 @@ import type {
 import {logOrgAuditEvent} from "../../utils/orgAuditLogger";
 
 // Available parsers (add new PMS parsers here)
-const PARSERS: PMSParser[] = [new OperaXMLParser(), new OperaCSVParser()];
+const PARSERS: PMSParser[] = [new OperaXMLParser(), new OperaCSVParser(), new RealynStandardParser()];
 
 export interface ImportSummary {
   importId: string;
@@ -136,7 +137,7 @@ export async function processFileImport(
       isXml ?
         "Unrecognised XML format. Expected OPERA Cloud XML export." :
         `Unrecognised file format. Headers: [${headers.slice(0, 5).join(", ")}...]. ` +
-          "Expected Opera PMS export columns.",
+          "Expected Opera PMS export or Realyn Standard CSV columns.",
     );
   }
   console.log(`[PMSImport] Detected format: ${parser.pmsType}`);

@@ -1,0 +1,6 @@
+CONFIRMATION_NO,GUEST_NAME,CHECK_IN,CHECK_OUT,ROOM_NUMBER,ROOM_TYPE,RATE_PLAN,TOTAL_AMOUNT,CURRENCY,STATUS,CARD_LAST4,BOOKING_SOURCE,ADULTS,CHILDREN
+RS-001,"Smith, John",2026-01-15,2026-01-18,405,Deluxe,Standard,450.00,USD,checked_out,4242,Booking.com,2,0
+RS-002,"Mueller, Anna",2026-01-20,2026-01-22,312,Standard,Corporate,280.00,EUR,checked_out,5678,Direct,1,0
+RS-003,"O'Brien, Mary-Jane",2026-02-01,2026-02-05,801,Suite,Premium,1200.50,GBP,checked_in,,Expedia,2,1
+RS-004,"Garcia, Carlos",2026-02-10,2026-02-12,215,Standard,Standard,320.00,USD,cancelled,,,1,0
+RS-005,"Tanaka, Yuki",2026-02-14,2026-02-16,602,Deluxe,Standard,550.00,USD,no_show,,OTA,2,0

@@ -13,7 +13,7 @@ import { z } from "zod";
 // =============================================================================
 
 export const PMSSourceSchema = z.object({
-  type: z.enum(["opera_csv", "opera_xml", "opera_delimited", "mews_api", "manual_entry"]),
+  type: z.enum(["opera_csv", "opera_xml", "opera_delimited", "mews_api", "manual_entry", "realyn_standard"]),
   fileName: z.string().optional(),
   apiVersion: z.string().optional(),
 });
@@ -162,7 +162,7 @@ export interface PMSReservationDocument {
 // =============================================================================
 
 export interface PMSIntegrationConfig {
-  type: "opera_csv" | "opera_xml" | "opera_delimited" | "mews_api" | "none";
+  type: "opera_csv" | "opera_xml" | "opera_delimited" | "mews_api" | "none" | "realyn_standard";
   lastImportAt?: Date;
   lastImportId?: string;
   reservationCount?: number;

@@ -56,7 +56,7 @@ export interface HotelUser {
 }
 
 export interface PMSIntegrationConfig {
-  type: "opera_csv" | "opera_xml" | "opera_delimited" | "mews_api" | "none";
+  type: "opera_csv" | "opera_xml" | "opera_delimited" | "mews_api" | "none" | "realyn_standard";
   lastImportAt?: admin.firestore.Timestamp;
   lastImportId?: string;
   reservationCount?: number;
