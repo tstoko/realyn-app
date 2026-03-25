@@ -164,5 +164,69 @@ describe("OperaXMLParser", () => {
       const result = parser.parseActivityLogs(["__XML__"], []);
       expect(result).toHaveLength(0);
     });
+
+    it("should include confirmationNumber from XML activity nodes", () => {
+      const data = loadFixture("sample-reservations.xml");
+      setAndParse(data);
+
+      const result = parser.parseActivityLogs(["__XML__"], []);
+      expect(result[0].confirmationNumber).toBe("500001");
+      expect(result[1].confirmationNumber).toBe("500001");
+    });
+  });
+
+  describe("PAN sanitization", () => {
+    it("should sanitize full PAN numbers to last 4 digits", () => {
+      const data = {
+        Reservations: {
+          Reservation: {
+            ConfirmationNumber: "PAN01",
+            GuestName: "Card, Test",
+            ArrivalDate: "2026-01-01",
+            DepartureDate: "2026-01-03",
+            CardLast4: "4111111111111111",
+            Currency: "USD",
+          },
+        },
+      };
+      setAndParse(data);
+      const result = parser.parseReservations(["__XML__"], []);
+      expect(result[0].paymentMethodLast4).toBe("1111");
+    });
+
+    it("should pass through already-truncated last4 values", () => {
+      const data = {
+        Reservations: {
+          Reservation: {
+            ConfirmationNumber: "PAN02",
+            GuestName: "Short, Card",
+            ArrivalDate: "2026-01-01",
+            DepartureDate: "2026-01-03",
+            CardLast4: "4242",
+            Currency: "USD",
+          },
+        },
+      };
+      setAndParse(data);
+      const result = parser.parseReservations(["__XML__"], []);
+      expect(result[0].paymentMethodLast4).toBe("4242");
+    });
+
+    it("should handle missing card data", () => {
+      const data = {
+        Reservations: {
+          Reservation: {
+            ConfirmationNumber: "PAN03",
+            GuestName: "No, Card",
+            ArrivalDate: "2026-01-01",
+            DepartureDate: "2026-01-03",
+            Currency: "USD",
+          },
+        },
+      };
+      setAndParse(data);
+      const result = parser.parseReservations(["__XML__"], []);
+      expect(result[0].paymentMethodLast4).toBeUndefined();
+    });
   });
 });
