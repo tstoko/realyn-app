@@ -11,7 +11,7 @@ import { mapEvidenceFilesToAdyen, buildAdyenDefenseComment } from "../utils/adye
 import axios from "axios";
 import { AdyenClient } from "../services/psp/adyenClient";
 import { DisputeArgument, ArgumentVersion } from "../types/aiDispute";
-import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
 
 /**
  * Build full argument text from DisputeArgument for Stripe's uncategorized_text field
@@ -74,12 +74,6 @@ export const submitStripeDisputeResponse = onRequest(
       return res.status(405).send("Method Not Allowed");
     }
 
-    // Verify authentication
-    const authResult = await verifyUser(req);
-    if (!authResult.success) {
-      return sendAuthError(res, authResult);
-    }
-
     const { disputeId, organizationId, evidence } = req.body;
 
     if (!disputeId || !organizationId) {
@@ -87,6 +81,12 @@ export const submitStripeDisputeResponse = onRequest(
         success: false,
         message: "Missing disputeId or organizationId",
       });
+    }
+
+    // Verify authentication AND organization membership
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      return sendAuthError(res, authResult);
     }
 
     let retries = 0;
@@ -339,12 +339,6 @@ export const submitAdyenDisputeResponse = onRequest(
       return res.status(405).send("Method Not Allowed");
     }
 
-    // Verify authentication
-    const authResult = await verifyUser(req);
-    if (!authResult.success) {
-      return sendAuthError(res, authResult);
-    }
-
     const { disputeId, organizationId, evidence } = req.body;
 
     if (!disputeId || !organizationId) {
@@ -352,6 +346,12 @@ export const submitAdyenDisputeResponse = onRequest(
         success: false,
         message: "Missing disputeId or organizationId",
       });
+    }
+
+    // Verify authentication AND organization membership
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      return sendAuthError(res, authResult);
     }
 
     let dispute: any;
