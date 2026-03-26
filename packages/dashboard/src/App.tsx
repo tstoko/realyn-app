@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/shared/ProtectedRoute';
 import { DemoModeBanner } from './components/layout/DemoModeBanner';
 import { AppShell } from './components/layout/AppShell';
 import { PolicyConsentModal } from './components/shared/PolicyConsentModal';
+import { LoginPage } from './pages/LoginPage';
 
 const HotelSelectionPage = lazy(() => import('./features/hotels/HotelSelectionPage').then(m => ({ default: m.HotelSelectionPage })));
 const HotelAnalyticsPage = lazy(() => import('./features/hotels/HotelAnalyticsPage').then(m => ({ default: m.HotelAnalyticsPage })));
@@ -21,6 +22,13 @@ const CommandPalette = lazy(() => import('./features/settings/CommandPalette').t
 const KeyboardShortcutsModal = lazy(() => import('./features/settings/KeyboardShortcutsModal').then(m => ({ default: m.KeyboardShortcutsModal })));
 
 const WEBSITE_URL = import.meta.env.VITE_WEBSITE_URL || 'https://www.realyn.com';
+
+const LoginPageRoute: React.FC = () => {
+  const { user, loading } = useAuthContext();
+  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Spinner /></div>;
+  if (user) return <Navigate to="/" replace />;
+  return <LoginPage />;
+};
 
 const PageSpinner = () => (
   <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -248,6 +256,7 @@ const App: React.FC = () => {
       <CookieConsent />
       <Suspense fallback={<PageSpinner />}>
         <Routes>
+          <Route path="/login" element={<LoginPageRoute />} />
           <Route path="/dashboard" element={<ProtectedRoute><DashboardRedirect /></ProtectedRoute>} />
           <Route path="/*" element={
             <ProtectedRoute>

@@ -143,5 +143,49 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
   }
 }
 
+// --- HTTP / scheduled handlers (re-exported for deployment) ---
+export {
+  planEvidence,
+  updateEvidenceItem,
+  getProgress,
+  toggleAIPlan,
+  draftArgument,
+} from "./handlers/aiDisputeHandlers";
+export { testStripeConnection, testAdyenConnection } from "./handlers/pspConnectionTest";
+export {
+  submitStripeDisputeResponse,
+  submitAdyenDisputeResponse,
+} from "./handlers/submitDisputeResponse";
+export { adyenWebhook } from "./handlers/adyenWebhook";
+export { adyenManualSync } from "./handlers/adyenManualSync";
+export { processCSVImportHandler as processCSVImport } from "./handlers/csvImportHandler";
+export {
+  createUserHandler,
+  updateUserHandler,
+  deleteUserHandler,
+  updateSelfProfileHandler,
+} from "./handlers/userManagementHandler";
+export {
+  deleteOrganization,
+  deleteDispute,
+  deleteUser,
+  anonymizeDisputeHandler,
+  exportOrganization,
+  exportUser,
+} from "./handlers/dataRetention";
+export { dataRetentionCleanup } from "./handlers/dataRetentionScheduler";
+export {
+  archiveOrganizationDisputes,
+  getArchivedDisputesHandler,
+} from "./handlers/disputeArchiveHandler";
+export { seedOrganizationsHandler } from "./handlers/seedOrganizationsHandler";
+export { seedUsersHandler } from "./handlers/seedUsersHandler";
+export { seedTestDisputes } from "./handlers/seedTestDisputes";
+export { seedCustomDispute } from "./handlers/seedCustomDispute";
+export { seedDemoData } from "./handlers/seedDemoData";
+export { resetTestEnvironmentHandler } from "./handlers/resetTestEnvironment";
+export { clearDisputesHandler } from "./handlers/clearDisputes";
+export { adminUpdateDispute } from "./handlers/adminUpdateDispute";
+export { updateWebhookSecretHandler } from "./handlers/updateWebhookSecretHandler";
 export { testOperaCloudConnection } from "./handlers/operaCloudConnectionTest";
 export { seedPitchDemo } from "./handlers/seedPitchDemo";
