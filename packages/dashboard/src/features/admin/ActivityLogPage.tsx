@@ -1,10 +1,13 @@
 
 import React from 'react';
 import { useActivityLog } from '../../hooks/useActivityLog';
-import { Spinner } from '@realyn/shared';
+import { Spinner, useAuthContext } from '@realyn/shared';
 
 export const ActivityLogPage: React.FC = () => {
-  const { activityLog, loading } = useActivityLog();
+  const { user } = useAuthContext();
+  // Use the current user's organization for the activity log.
+  // Admin users may belong to a specific org or see a global view.
+  const { activityLog, loading } = useActivityLog(user?.organizationId);
 
   const timeAgo = (date: Date) => {
     const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);

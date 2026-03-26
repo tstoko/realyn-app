@@ -1,64 +1,98 @@
 import { useState, useEffect } from 'react';
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  type Timestamp,
+} from 'firebase/firestore';
+import { db } from '@realyn/shared';
 import type { ActivityLogItem } from '@realyn/shared';
 
-const now = new Date();
-const oneHour = 60 * 60 * 1000;
+/**
+ * Hook to fetch real-time activity log from the organization's auditLog
+ * subcollection in Firestore.
+ *
+ * @param organizationId - The organization ID to fetch logs for.
+ *   When undefined/null, returns an empty list (e.g. before org is selected).
+ * @param maxItems - Maximum number of log entries to fetch (default 50).
+ */
+export const useActivityLog = (organizationId?: string | null, maxItems = 50) => {
+  const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-const mockActivityLog: ActivityLogItem[] = [
-  {
-    id: 'act_1',
-    user: { name: 'Alex Admin', id: 'user_admin' },
-    action: 'updated automation settings for',
-    target: { type: 'Hotel', name: 'Grand Palace Hotel' },
-    timestamp: new Date(now.getTime() - (0.5 * oneHour)),
-  },
-  {
-    id: 'act_2',
-    user: { name: 'Jamie Frontdesk', id: 'user_001' },
-    action: 'approved the AI draft for',
-    target: { type: 'Dispute', name: 'dp_dummy_4' },
-    timestamp: new Date(now.getTime() - (1 * oneHour)),
-  },
-  {
-    id: 'act_3',
-    user: { name: 'Casey Manager', id: 'user_002' },
-    action: 'submitted evidence for',
-    target: { type: 'Dispute', name: 'dp_dummy_5' },
-    timestamp: new Date(now.getTime() - (2.5 * oneHour)),
-  },
-  {
-    id: 'act_4',
-    user: { name: 'Alex Admin', id: 'user_admin' },
-    action: 'removed the hotel',
-    target: { type: 'Hotel', name: 'City Center Inn (Removed)' },
-    timestamp: new Date(now.getTime() - (4 * oneHour)),
-  },
-    {
-    id: 'act_5',
-    user: { name: 'Taylor Finance', id: 'user_003' },
-    action: 'added an internal note to',
-    target: { type: 'Dispute', name: 'dp_dummy_7' },
-    timestamp: new Date(now.getTime() - (6 * oneHour)),
-  },
-  {
-    id: 'act_6',
-    user: { name: 'Alex Admin', id: 'user_admin' },
-    action: 'viewed the portfolio analytics',
-    target: { type: 'Page', name: 'Portfolio Analytics' },
-    timestamp: new Date(now.getTime() - (25 * oneHour)),
-  },
-];
+  useEffect(() => {
+    if (!organizationId) {
+      setActivityLog([]);
+      setLoading(false);
+      return;
+    }
 
-export const useActivityLog = () => {
-    const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
-    const [loading, setLoading] = useState(true);
+    setLoading(true);
 
-    useEffect(() => {
-        setTimeout(() => {
-            setActivityLog(mockActivityLog.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
-            setLoading(false);
-        }, 500);
-    }, []);
-    
-    return { activityLog, loading };
+    const auditLogRef = collection(
+      db,
+      'organizations',
+      organizationId,
+      'auditLog',
+    );
+
+    const q = query(
+      auditLogRef,
+      orderBy('timestamp', 'desc'),
+      limit(maxItems),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ActivityLogItem[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          const ts = data.timestamp as Timestamp | undefined;
+
+          // Map the org audit event shape to ActivityLogItem
+          return {
+            id: doc.id,
+            user: {
+              name: data.actor?.email || data.actor?.userId || 'System',
+              id: data.actor?.userId || 'system',
+            },
+            action: data.action || 'unknown action',
+            target: {
+              type: data.details?.targetType || inferTargetType(data.action),
+              name: data.details?.targetName || data.details?.fileName || data.details?.importId || '',
+            },
+            timestamp: ts?.toDate() || new Date(),
+          };
+        });
+
+        setActivityLog(items);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[useActivityLog] Error listening to audit log:', error);
+        setActivityLog([]);
+        setLoading(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [organizationId, maxItems]);
+
+  return { activityLog, loading };
 };
+
+/**
+ * Infer a human-readable target type from the audit action string.
+ */
+function inferTargetType(action?: string): string {
+  if (!action) return 'Unknown';
+  if (action.includes('pms')) return 'PMS Import';
+  if (action.includes('dispute')) return 'Dispute';
+  if (action.includes('evidence')) return 'Evidence';
+  if (action.includes('integration')) return 'Integration';
+  if (action.includes('user')) return 'User';
+  if (action.includes('organization') || action.includes('hotel')) return 'Hotel';
+  return 'System';
+}
