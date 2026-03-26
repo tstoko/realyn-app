@@ -12,6 +12,8 @@ import axios from "axios";
 import { AdyenClient } from "../services/psp/adyenClient";
 import { DisputeArgument, ArgumentVersion } from "../types/aiDispute";
 import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { createPSPAdapter } from "../services/psp/pspFactory";
+import type { PSPProvider } from "../types/dispute";
 
 /**
  * Build full argument text from DisputeArgument for Stripe's uncategorized_text field
@@ -514,5 +516,122 @@ export const submitAdyenDisputeResponse = onRequest(
       });
     }
   }
+);
+
+// =============================================================================
+// Unified Submission Handler (PSP-agnostic)
+// =============================================================================
+
+/**
+ * Unified dispute response submission handler.
+ *
+ * Reads the dispute to determine the PSP provider, resolves credentials from
+ * the organization document, and delegates to the appropriate PSPAdapter.
+ *
+ * This is the recommended handler for new integrations. The Stripe- and
+ * Adyen-specific handlers above are kept for backward compatibility.
+ */
+export const submitDisputeResponse = onRequest(
+  {
+    cors: true,
+  },
+  async (req: Request, res: Response) => {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    const { disputeId, organizationId } = req.body;
+
+    if (!disputeId || !organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing disputeId or organizationId",
+      });
+    }
+
+    // Verify authentication AND organization membership
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      return sendAuthError(res, authResult);
+    }
+
+    try {
+      const db = admin.firestore();
+
+      // Get dispute to determine PSP provider
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+      if (!disputeDoc.exists) {
+        return res.status(404).json({ success: false, message: "Dispute not found" });
+      }
+
+      const dispute = disputeDoc.data()!;
+      const provider = dispute.pspProvider as PSPProvider;
+
+      if (!provider) {
+        return res.status(400).json({
+          success: false,
+          message: "Dispute has no PSP provider set",
+        });
+      }
+
+      // Get organization credentials
+      const organization = await getOrganization(organizationId);
+      if (!organization || !organization.pspIntegrations) {
+        return res.status(400).json({
+          success: false,
+          message: "Organization PSP integrations not configured",
+        });
+      }
+
+      // Create the appropriate adapter
+      const adapter = createPSPAdapter(provider, organization.pspIntegrations);
+
+      // Gather evidence
+      const evidenceFiles = await getEvidenceFiles(disputeId);
+      const argument: DisputeArgument | undefined = dispute.argumentDraft;
+      const textEvidence = req.body.evidence?.textEvidence || {};
+
+      // Submit defense
+      const result = await adapter.submitDefense(
+        disputeId,
+        dispute.pspDisputeId,
+        { files: evidenceFiles, argument, textEvidence },
+      );
+
+      if (result.success) {
+        // Update dispute status
+        const updateData: Record<string, any> = {
+          lifecycleStatus: "submitted",
+          automationStatus: "submitted",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (argument) {
+          updateData.argumentSubmittedAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+
+        await db.collection("disputes").doc(disputeId).update(updateData);
+
+        console.log(
+          `Successfully submitted ${provider} dispute ${dispute.pspDisputeId} ` +
+          `for organization ${organizationId} via unified handler`,
+        );
+      }
+
+      return res.status(result.success ? 200 : 500).json({
+        success: result.success,
+        message: result.message,
+        disputeStatus: result.status,
+        evidenceFilesSubmitted: evidenceFiles.length,
+        pspResponseId: result.pspResponseId,
+      });
+    } catch (error: any) {
+      console.error("Error in unified dispute submission:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to submit dispute response",
+      });
+    }
+  },
 );
 
