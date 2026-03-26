@@ -34,6 +34,65 @@ export async function getEvidenceFiles(disputeId: string): Promise<EvidenceFile[
 }
 
 /**
+ * Register an evidence file in the disputes/{disputeId}/evidence subcollection.
+ *
+ * This is the canonical way to make evidence visible to all downstream consumers:
+ * - getEvidenceFiles() / getEnrichedEvidence() (AI argument generation)
+ * - PSP evidence mappers (Stripe / Adyen submission)
+ * - Dashboard evidence list
+ *
+ * Both manual uploads (from the dashboard) and automated uploads (PMS auto-collector)
+ * MUST call this function so that evidence appears in the subcollection.
+ *
+ * @returns The Firestore document ID assigned to the evidence file.
+ */
+export async function registerEvidenceFile(params: {
+  disputeId: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  storagePath: string;
+  downloadURL: string;
+  uploadedBy: string;
+  category: EvidenceFile["category"];
+  requirementId?: string;
+}): Promise<string> {
+  const db = admin.firestore();
+  const evidenceDocId = `evidence_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+
+  const batch = db.batch();
+
+  // Write to evidence subcollection
+  const evidenceRef = db
+    .collection("disputes")
+    .doc(params.disputeId)
+    .collection("evidence")
+    .doc(evidenceDocId);
+
+  batch.set(evidenceRef, {
+    id: evidenceDocId,
+    fileName: params.fileName,
+    fileSize: params.fileSize,
+    fileType: params.fileType,
+    storagePath: params.storagePath,
+    downloadURL: params.downloadURL,
+    uploadedBy: params.uploadedBy,
+    category: params.category,
+    ...(params.requirementId ? { requirementId: params.requirementId } : {}),
+    uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Update dispute's evidenceFiles array
+  const disputeRef = db.collection("disputes").doc(params.disputeId);
+  batch.update(disputeRef, {
+    evidenceFiles: admin.firestore.FieldValue.arrayUnion(evidenceDocId),
+  });
+
+  await batch.commit();
+  return evidenceDocId;
+}
+
+/**
  * Vision-compatible file for GPT-5.2-Pro analysis
  */
 export interface VisionEvidenceFile {

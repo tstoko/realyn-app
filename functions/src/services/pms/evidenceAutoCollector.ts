@@ -21,6 +21,7 @@ import {
   generateEvidencePacketPDF,
 } from "./pdfGenerator";
 import {updateEvidenceItemStatus} from "../ai/evidencePlanningService";
+import {registerEvidenceFile} from "../evidenceService";
 import {createSystemAuditEntry, createErrorAuditEntry} from "../../utils/auditTrailHelper";
 import type {EvidencePlan, EvidenceItem, EvidenceRequirement} from "../../types/aiDispute";
 
@@ -160,14 +161,28 @@ export async function autoCollectFromPMS(
         },
       });
 
-      await file.getSignedUrl({action: "read", expires: "2099-12-31"});
+      const [signedUrl] = await file.getSignedUrl({action: "read", expires: "2099-12-31"});
 
-      // Mark the evidence item as uploaded
+      // Register in the evidence subcollection so downstream consumers
+      // (getEvidenceFiles, getEnrichedEvidence, PSP mappers) can find it
+      const evidenceDocId = await registerEvidenceFile({
+        disputeId,
+        fileName,
+        fileSize: pdfBuffer.length,
+        fileType: "application/pdf",
+        storagePath,
+        downloadURL: signedUrl,
+        uploadedBy: "system:pms_auto_collect",
+        category: "pms",
+        requirementId: requirement.id,
+      });
+
+      // Mark the evidence item as uploaded (pass the Firestore doc ID, not the storage path)
       const success = await updateEvidenceItemStatus(
           disputeId,
           requirement.id,
           "uploaded",
-          storagePath,
+          evidenceDocId,
           fileName,
           "system:pms_auto_collect",
           `Auto-collected from PMS data (source: ${source}, ` +
@@ -219,7 +234,23 @@ export async function autoCollectFromPMS(
         },
       },
     });
-    console.log(`[AutoCollect] Generated evidence packet for dispute ${disputeId}`);
+
+    const [packetSignedUrl] = await packetFile.getSignedUrl({action: "read", expires: "2099-12-31"});
+
+    // Register the evidence packet in the subcollection so it's visible to
+    // AI argument generation and PSP submission
+    await registerEvidenceFile({
+      disputeId,
+      fileName: "EvidencePacket.pdf",
+      fileSize: packetBuffer.length,
+      fileType: "application/pdf",
+      storagePath: packetPath,
+      downloadURL: packetSignedUrl,
+      uploadedBy: "system:pms_auto_collect",
+      category: "pms",
+    });
+
+    console.log(`[AutoCollect] Generated and registered evidence packet for dispute ${disputeId}`);
   } catch (err) {
     console.error(`[AutoCollect] Failed to generate evidence packet: ${(err as Error).message}`);
     await createErrorAuditEntry(
