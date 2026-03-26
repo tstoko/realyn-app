@@ -19,6 +19,13 @@ export interface RateLimitConfig {
   windowSeconds: number;
   /** Identifier type for rate limiting */
   keyType: "ip" | "user" | "organization" | "custom";
+  /**
+   * Behavior when the rate limiter encounters an internal error (e.g. Firestore failure).
+   * - 'open': allow the request through (safe for webhooks that must not lose events)
+   * - 'closed': deny the request (safe for expensive operations like AI calls, PSP submissions)
+   * Defaults to 'open' for backward compatibility.
+   */
+  failMode?: "open" | "closed";
 }
 
 export interface RateLimitResult {
@@ -33,35 +40,40 @@ export interface RateLimitResult {
 // ============================================================
 
 export const RATE_LIMIT_CONFIGS = {
-  /** Webhook endpoints - high limit for legitimate traffic */
+  /** Webhook endpoints - high limit, fail-open (must not lose events) */
   webhook: {
     maxRequests: 1000,
     windowSeconds: 60,
     keyType: "ip" as const,
+    failMode: "open" as const,
   },
-  /** AI endpoints - moderate limit to control costs */
+  /** AI endpoints - moderate limit, fail-closed (expensive operations) */
   ai: {
     maxRequests: 30,
     windowSeconds: 60,
     keyType: "user" as const,
+    failMode: "closed" as const,
   },
-  /** Data export - low limit to prevent abuse */
+  /** Data export - low limit, fail-closed (prevent abuse) */
   dataExport: {
     maxRequests: 5,
     windowSeconds: 3600, // 1 hour
     keyType: "user" as const,
+    failMode: "closed" as const,
   },
-  /** Data deletion - very low limit for safety */
+  /** Data deletion - very low limit, fail-closed (safety-critical) */
   dataDeletion: {
     maxRequests: 3,
     windowSeconds: 86400, // 24 hours
     keyType: "user" as const,
+    failMode: "closed" as const,
   },
-  /** General API - moderate limit */
+  /** General API - moderate limit, fail-open */
   general: {
     maxRequests: 100,
     windowSeconds: 60,
     keyType: "ip" as const,
+    failMode: "open" as const,
   },
 } as const;
 
@@ -127,7 +139,20 @@ export class RateLimiter {
       return result;
     } catch (error) {
       console.error("Rate limiter error:", error);
-      // On error, allow the request but log the issue
+      const failMode = config.failMode || "open";
+      if (failMode === "closed") {
+        // Fail-closed: deny the request when the limiter can't verify the count.
+        // Use this for expensive operations (AI calls, PSP submissions) to prevent
+        // abuse when Firestore is unavailable.
+        console.warn(`Rate limiter fail-CLOSED for key ${docId} — denying request`);
+        return {
+          allowed: false,
+          remaining: 0,
+          resetAt: new Date(now + config.windowSeconds * 1000),
+          retryAfter: config.windowSeconds,
+        };
+      }
+      // Fail-open: allow the request through (default for webhooks, general API).
       return {
         allowed: true,
         remaining: config.maxRequests,
@@ -169,9 +194,10 @@ export class RateLimiter {
       };
     } catch (error) {
       console.error("Rate limiter status error:", error);
+      const failMode = config.failMode || "open";
       return {
-        allowed: true,
-        remaining: config.maxRequests,
+        allowed: failMode === "open",
+        remaining: failMode === "open" ? config.maxRequests : 0,
         resetAt: new Date(now + config.windowSeconds * 1000),
       };
     }
