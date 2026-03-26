@@ -97,6 +97,28 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
     case "charge.dispute.created":
     case "charge.dispute.updated": {
       const organizationId = await getOrganizationIdFromStripeEvent(event, stripe);
+
+      if (!organizationId) {
+        // Cannot determine org — log for manual triage, do NOT assign to random org
+        const db = admin.firestore();
+        await db.collection("unmatchedWebhookEvents").add({
+          provider: "stripe",
+          eventId: event.id,
+          eventType: event.type,
+          disputeId: dispute.id,
+          paymentIntentId: dispute.payment_intent || null,
+          amount: dispute.amount,
+          currency: dispute.currency,
+          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reason: "Could not resolve organizationId from event metadata",
+        });
+        console.warn(
+          `[StripeWebhook] Logged unmatched event ${event.id} (dispute ${dispute.id}) ` +
+          "to unmatchedWebhookEvents for manual triage"
+        );
+        return;
+      }
+
       const paymentMeta = dispute.payment_intent
         ? await getPaymentMetadata(dispute.payment_intent as string, stripe)
         : {};
