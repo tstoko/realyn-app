@@ -9,9 +9,11 @@ interface PolicyConsentModalProps {
 
 export const PolicyConsentModal: React.FC<PolicyConsentModalProps> = ({ userId, onAccept }) => {
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAccept = async () => {
     setSaving(true);
+    setError(null);
     try {
       const userRef = doc(db, 'users', userId);
       await setDoc(userRef, {
@@ -20,11 +22,13 @@ export const PolicyConsentModal: React.FC<PolicyConsentModalProps> = ({ userId, 
         privacyAcceptedAt: Timestamp.now(),
         privacyVersion: CURRENT_POLICY_VERSION,
       }, { merge: true });
+      // Only mark as accepted if the write succeeded
+      onAccept();
     } catch (err) {
       console.error('Failed to save policy consent:', err);
+      setError('Failed to save your consent. Please try again.');
     } finally {
       setSaving(false);
-      onAccept();
     }
   };
 
@@ -54,6 +58,9 @@ export const PolicyConsentModal: React.FC<PolicyConsentModalProps> = ({ userId, 
             Privacy Policy
           </a>
         </div>
+        {error && (
+          <p className="text-sm text-red-400 mb-3">{error}</p>
+        )}
         <button
           onClick={handleAccept}
           disabled={saving}
