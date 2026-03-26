@@ -172,7 +172,7 @@ async function findFirestoreMatch(
     if (data.folio) {
       folios.push(data.folio);
     }
-    if (data.activityLogs && data.activityLogs.length > 0) {
+    if (data.activityLogs && data.activityLogs.length > 0 && data.reservation) {
       activityLogMap.set(data.reservation.confirmationNumber, data.activityLogs);
     }
   }

@@ -147,9 +147,13 @@ export interface PMSImportDocument {
 
 /**
  * Stored in organizations/{orgId}/pmsReservations/{confirmationNo}
+ *
+ * reservation is null when only a folio was imported without a matching
+ * reservation record (e.g. standalone folio export). The document is still
+ * stored so folio data is available for dispute matching and evidence.
  */
 export interface PMSReservationDocument {
-  reservation: PMSReservation;
+  reservation: PMSReservation | null;
   folio?: PMSFolio;
   activityLogs: PMSActivityLog[];
   sourceImportId: string;

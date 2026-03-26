@@ -238,7 +238,19 @@ export async function processFileImport(
           .collection("pmsReservations").doc(folio.confirmationNumber);
       const existing = await resDocRef.get();
       if (existing.exists) {
+        // Reservation doc already exists (from a prior import) — just attach the folio
         batch.update(resDocRef, {folio, sourceImportId: importId});
+      } else {
+        // No matching reservation anywhere — create a stub so the folio is
+        // still available for dispute matching and evidence collection
+        batch.set(resDocRef, {
+          reservation: null,
+          folio,
+          activityLogs: [],
+          sourceImportId: importId,
+          importedAt: new Date(),
+          organizationId,
+        } as PMSReservationDocument);
       }
     }
   }
