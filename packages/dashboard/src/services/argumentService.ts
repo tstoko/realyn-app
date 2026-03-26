@@ -1,7 +1,23 @@
 import { doc, updateDoc, getDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@realyn/shared';
+import { db, auth } from '@realyn/shared';
 import type { DisputeArgument, ArgumentVersion } from '@realyn/shared';
 import { FUNCTIONS_BASE_URL } from '../config/environment';
+
+/**
+ * Get authenticated headers for Cloud Function calls.
+ * Includes the Firebase Auth ID token as a Bearer token.
+ */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('User not authenticated');
+  }
+  const idToken = await currentUser.getIdToken();
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${idToken}`,
+  };
+}
 
 // ============================================================
 // Argument Service
@@ -29,13 +45,12 @@ export async function generateArgument(
   regenerate: boolean = false
 ): Promise<GenerateArgumentResponse> {
   try {
+    const headers = await getAuthHeaders();
     const response = await fetch(
       `${FUNCTIONS_BASE_URL}/draftArgument?disputeId=${encodeURIComponent(disputeId)}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           organizationId,
           regenerate,
@@ -241,13 +256,12 @@ export async function submitArgumentToPsp(
       ? 'submitStripeDisputeResponse'
       : 'submitAdyenDisputeResponse';
     
+    const headers = await getAuthHeaders();
     const response = await fetch(
       `${FUNCTIONS_BASE_URL}/${endpoint}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           disputeId,
           organizationId,
