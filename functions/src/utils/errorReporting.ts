@@ -115,24 +115,47 @@ export class ErrorReporter {
   }
 
   /**
-   * Hook for sending to external error tracking services
-   * Override this method to integrate with Sentry, etc.
+   * Send error to external error tracking service (Sentry).
+   *
+   * This is a no-op when SENTRY_DSN is not configured. To enable:
+   * 1. Install @sentry/node in the functions package
+   * 2. Set SENTRY_DSN environment variable (Firebase Functions config or .env)
+   * 3. Errors will be sent automatically
    */
   protected sendToExternalService(error: ReportedError): void {
-    // Placeholder for external service integration
-    // 
-    // To integrate Sentry:
-    // 1. npm install @sentry/node
-    // 2. Initialize Sentry in index.ts
-    // 3. Uncomment the following:
-    //
-    // if (process.env.SENTRY_DSN) {
-    //   Sentry.captureException(new Error(error.message), {
-    //     extra: error.context,
-    //     level: error.severity === "critical" ? "fatal" : "error",
-    //   });
-    // }
+    const sentryDsn = process.env.SENTRY_DSN;
+    if (!sentryDsn) return;
+
+    try {
+      // Dynamic import to avoid breaking when @sentry/node is not installed
+      const Sentry = require("@sentry/node");
+
+      // Initialize on first call (idempotent — Sentry ignores duplicate init)
+      if (!ErrorReporter._sentryInitialized) {
+        Sentry.init({
+          dsn: sentryDsn,
+          environment: process.env.FUNCTIONS_EMULATOR ? "development" : (process.env.GCLOUD_PROJECT?.includes("staging") ? "staging" : "production"),
+          tracesSampleRate: 0.1,
+        });
+        ErrorReporter._sentryInitialized = true;
+      }
+
+      Sentry.captureException(new Error(error.message), {
+        extra: error.context,
+        level: error.severity === "critical" ? "fatal" : "error",
+        tags: {
+          functionName: error.context.functionName,
+          organizationId: error.context.organizationId,
+        },
+      });
+    } catch (sentryError) {
+      // Sentry integration is non-blocking — never let it crash the function
+      console.warn("Failed to send error to Sentry:", sentryError);
+    }
   }
+
+  /** Track whether Sentry has been initialized */
+  private static _sentryInitialized = false;
 }
 
 // ============================================================
