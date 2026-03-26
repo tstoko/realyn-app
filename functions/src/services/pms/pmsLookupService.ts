@@ -10,8 +10,8 @@
 import * as admin from "firebase-admin";
 import {findBestMatches, isAmbiguousMatch, type DisputeMatchInput} from "./disputeMatcher";
 import type {PMSReservationDocument, PMSReservation, PMSFolio, PMSActivityLog} from "../../types/pmsData";
-import {OperaCloudClient} from "../../integrations/operaCloud/operaClient";
-import {fetchReservationEvidence, fetchFolioEvidence} from "../../integrations/operaCloud/operaEvidence";
+import type {PMSLiveClient} from "./types";
+import {OperaCloudLiveClient} from "../../integrations/operaCloud/operaCloudLiveClient";
 import type {OperaCloudConfig} from "../../integrations/operaCloud/types";
 
 export interface PMSMatchResult {
@@ -52,15 +52,15 @@ export async function findPMSMatchForDispute(
     return dispute.pmsMatch as PMSMatchResult;
   }
 
-  // Try OPERA Cloud (OHIP) first if configured
-  const operaResult = await findOperaCloudMatch(
+  // Try live PMS API first (Opera Cloud, Mews, etc.) if configured
+  const liveResult = await findLivePMSMatch(
       disputeId,
       organizationId,
       disputeData.confirmationNumber || disputeData.reservationId,
   );
-  if (operaResult) {
-    await cacheMatchResult(db, disputeId, operaResult);
-    return operaResult;
+  if (liveResult) {
+    await cacheMatchResult(db, disputeId, liveResult);
+    return liveResult;
   }
 
   // Fall back to CSV-imported Firestore data
@@ -68,10 +68,28 @@ export async function findPMSMatchForDispute(
 }
 
 /**
- * Try to match via OPERA Cloud OHIP API using direct reservation lookup.
- * Returns null if OHIP is not configured or lookup fails (non-blocking).
+ * Create a PMS live client based on the organization's configuration.
+ * Returns null if no live PMS API is configured.
+ *
+ * To add a new live PMS integration, add a case here and implement PMSLiveClient.
  */
-async function findOperaCloudMatch(
+function createPMSClient(orgData: FirebaseFirestore.DocumentData): PMSLiveClient | null {
+  const operaConfig = orgData?.operaCloudIntegration as OperaCloudConfig | undefined;
+  if (operaConfig && operaConfig.status === "connected") {
+    return new OperaCloudLiveClient(operaConfig);
+  }
+
+  // Future: if (orgData?.mewsIntegration?.status === 'connected') return new MewsClient(...)
+  // Future: if (orgData?.cloudbedsIntegration?.status === 'connected') return new CloudbedsClient(...)
+
+  return null;
+}
+
+/**
+ * Try to match via a live PMS API using direct reservation lookup.
+ * Returns null if no live PMS is configured or lookup fails (non-blocking).
+ */
+async function findLivePMSMatch(
     disputeId: string,
     organizationId: string,
     confirmationNumber?: string,
@@ -81,27 +99,24 @@ async function findOperaCloudMatch(
   const db = admin.firestore();
   const orgDoc = await db.collection("organizations").doc(organizationId).get();
   const orgData = orgDoc.data();
-  const config = orgData?.operaCloudIntegration as OperaCloudConfig | undefined;
+  if (!orgData) return null;
 
-  if (!config || config.status !== "connected") return null;
-
-  const hotelCode = config.hotelCodes?.[0];
-  if (!hotelCode) return null;
+  const client = createPMSClient(orgData);
+  if (!client) return null;
 
   try {
     console.log(
-        `[PMSLookup] Trying OPERA Cloud lookup for dispute ${disputeId}, ` +
-      `confirmation=${confirmationNumber}, hotel=${hotelCode}`,
+        `[PMSLookup] Trying ${client.pmsType} lookup for dispute ${disputeId}, ` +
+      `confirmation=${confirmationNumber}`,
     );
 
-    const client = new OperaCloudClient(config);
-    const [reservation, folio] = await Promise.all([
-      fetchReservationEvidence(client, hotelCode, confirmationNumber),
-      fetchFolioEvidence(client, hotelCode, confirmationNumber).catch(() => undefined),
-    ]);
+    const reservation = await client.fetchReservation(confirmationNumber);
+    if (!reservation) return null;
+
+    const folio = await client.fetchFolio(confirmationNumber);
 
     console.log(
-        `[PMSLookup] OPERA Cloud match found: confirmation=${reservation.confirmationNumber}, ` +
+        `[PMSLookup] ${client.pmsType} match found: confirmation=${reservation.confirmationNumber}, ` +
       `guest=${reservation.guestName}`,
     );
 
@@ -115,7 +130,7 @@ async function findOperaCloudMatch(
     };
   } catch (err) {
     console.error(
-        `[PMSLookup] OPERA Cloud lookup failed for dispute ${disputeId}:`,
+        `[PMSLookup] ${client.pmsType} lookup failed for dispute ${disputeId}:`,
         (err as Error).message,
     );
     return null;
