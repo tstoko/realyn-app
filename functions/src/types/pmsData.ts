@@ -100,6 +100,7 @@ export const PMSActivityLogSchema = z.object({
   action: z.string(), // 'check_in', 'check_out', 'key_encoded', 'room_move', etc.
   details: z.string().optional(),
   performedBy: z.string().optional(),
+  confirmationNumber: z.string().optional(), // Links log to a reservation; PMS-agnostic (any parser can supply it)
 });
 
 export type PMSActivityLog = z.infer<typeof PMSActivityLogSchema>;
