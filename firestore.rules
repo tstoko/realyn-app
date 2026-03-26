@@ -1,19 +1,103 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Disputes collection
-    // Allow public read access for the dashboard
-    // Cloud Functions using admin SDK automatically bypass rules for writes
-    match /disputes/{disputeId} {
-      allow read: if true;
-      // Writes are handled by Cloud Functions with admin privileges
-      // No client-side writes needed for now
+
+    // =========================================================================
+    // Helper Functions
+    // =========================================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
     }
-    
+
+    // Check if the user is reading their own document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // =========================================================================
+    // Disputes Collection
+    // =========================================================================
+    // Reads require authentication.
+    // Writes are handled exclusively by Cloud Functions using the admin SDK
+    // (which bypasses these rules). No client-side writes are permitted.
+    match /disputes/{disputeId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      // Evidence subcollection
+      match /evidence/{evidenceId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // =========================================================================
+    // Organizations Collection
+    // =========================================================================
+    // Reads require authentication (dashboard needs to list/read orgs).
+    // Writes are handled by Cloud Functions with admin SDK.
+    match /organizations/{orgId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      // PMS imports subcollection
+      match /pmsImports/{importId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+
+      // PMS reservations subcollection
+      match /pmsReservations/{resId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+
+      // Audit log subcollection
+      match /auditLog/{logId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // =========================================================================
+    // Users Collection
+    // =========================================================================
+    // Users can read their own document. Admins may need broader read access
+    // but that's handled by Cloud Functions. Writes go through Cloud Functions.
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Dispute History (Archive)
+    // =========================================================================
+    match /disputes_history/{disputeId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Rate Limiting (internal — no client access)
+    // =========================================================================
+    match /_rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Unmatched Webhook Events (internal — no client access)
+    // =========================================================================
+    match /unmatchedWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
     // Default: deny all other access
+    // =========================================================================
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-
