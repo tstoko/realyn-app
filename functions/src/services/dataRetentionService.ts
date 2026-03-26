@@ -172,7 +172,7 @@ export async function deleteOrganizationData(
     let historyDeleted = 0;
     for (const disputeId of disputeIds) {
       const historyQuery = db
-        .collection("disputeHistory")
+        .collection("disputes_history")
         .where("disputeId", "==", disputeId);
       historyDeleted += await deleteAllDocsInQuery(historyQuery);
     }
@@ -281,7 +281,7 @@ export async function deleteDisputeData(
 
     // 3. Delete dispute history
     const historyQuery = db
-      .collection("disputeHistory")
+      .collection("disputes_history")
       .where("disputeId", "==", disputeId);
     result.deletedItems.disputeHistory = await deleteAllDocsInQuery(historyQuery);
 
