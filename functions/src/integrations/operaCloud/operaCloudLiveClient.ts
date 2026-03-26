@@ -7,7 +7,7 @@
  */
 
 import type {PMSLiveClient} from "../../services/pms/types";
-import type {PMSReservation, PMSFolio, PMSActivityLog} from "../../types/pmsData";
+import type {PMSReservation, PMSFolio} from "../../types/pmsData";
 import {OperaCloudClient} from "./operaClient";
 import {fetchReservationEvidence, fetchFolioEvidence} from "./operaEvidence";
 import type {OperaCloudConfig} from "./types";
@@ -24,8 +24,14 @@ export class OperaCloudLiveClient implements PMSLiveClient {
 
   async testConnection(): Promise<{success: boolean; message: string}> {
     try {
-      // Try to authenticate — if this succeeds, the connection is working
-      await this.client.authenticate();
+      // Make a lightweight API call to verify the connection works.
+      // The OperaCloudClient authenticates implicitly on each request.
+      const hotelCode = this.config.hotelCodes?.[0];
+      if (!hotelCode) {
+        return {success: false, message: "No hotel codes configured"};
+      }
+      // A simple GET to the hotel endpoint verifies both auth and hotel access
+      await this.client.get(`/rsv/v1/hotels/${encodeURIComponent(hotelCode)}/reservations?limit=1`);
       return {
         success: true,
         message: `OPERA Cloud connection successful (${this.config.hotelCodes.length} hotel(s))`,
