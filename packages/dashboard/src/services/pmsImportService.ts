@@ -52,14 +52,10 @@ export async function uploadCSVForImport(
   try {
     const idToken = await currentUser.getIdToken();
 
-    // Read file as base64
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = btoa(
-      new Uint8Array(arrayBuffer).reduce(
-        (data, byte) => data + String.fromCharCode(byte),
-        ""
-      )
-    );
+    // Read file as text — the backend supports csvText directly.
+    // Using file.text() preserves UTF-8 multi-byte sequences (accented
+    // guest names, etc.) which the previous btoa(Uint8Array) approach corrupted.
+    const text = await file.text();
 
     const response = await fetch(`${FUNCTIONS_BASE_URL}/processCSVImport`, {
       method: "POST",
@@ -69,7 +65,7 @@ export async function uploadCSVForImport(
       },
       body: JSON.stringify({
         organizationId,
-        csvData: base64,
+        csvText: text,
         fileName: file.name,
         uploadedBy: currentUser.uid,
       }),
