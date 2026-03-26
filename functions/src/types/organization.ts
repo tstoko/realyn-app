@@ -3,7 +3,20 @@ import { OperaCloudConfig } from "../integrations/operaCloud/types";
 
 export type PSPType = "stripe" | "adyen";
 
-export interface StripeIntegration {
+/**
+ * Base interface for all PSP integrations.
+ * Every PSP-specific integration type extends this with its own fields.
+ */
+export interface PSPIntegrationBase {
+  /** Connection status */
+  status: "connected" | "not_connected" | "error";
+  /** When the integration was first connected */
+  connectedAt?: Date;
+  /** When the integration was last tested via "Test Connection" */
+  lastTestedAt?: Date;
+}
+
+export interface StripeIntegration extends PSPIntegrationBase {
   secretKey?: string; // Encrypted - Restricted API key from Stripe (for manual setup)
   accessToken?: string; // Encrypted - OAuth access token from Stripe Connect
   webhookSecret: string; // Encrypted - Webhook signing secret
@@ -13,14 +26,13 @@ export interface StripeIntegration {
   status: "connected" | "not_connected";
 }
 
-export interface AdyenIntegration {
+export interface AdyenIntegration extends PSPIntegrationBase {
   apiKey?: string; // Encrypted - API key for Adyen API calls
   merchantAccounts?: string[]; // Array of merchant accounts - used to identify organization (optional for backward compatibility)
   merchantAccount?: string; // Legacy - kept for backward compatibility during migration
   webhookUsername?: string; // Encrypted - Webhook authentication username
   webhookPassword?: string; // Encrypted - Webhook HMAC password
   liveEndpointPrefix?: string;
-  status: "connected" | "not_connected";
 }
 
 export interface PSPIntegrations {

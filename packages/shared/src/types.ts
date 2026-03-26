@@ -314,24 +314,32 @@ export interface PSPIntegration {
   status: 'connected' | 'not_connected' | 'error';
 }
 
-export interface StripeIntegrationConfig {
+/**
+ * Base interface for all PSP integration configs.
+ * Each provider extends this with provider-specific fields.
+ */
+export interface PSPIntegrationBase {
+  status?: 'connected' | 'not_connected' | 'error';
+  connectedAt?: Date;
+  lastTestedAt?: Date;
+}
+
+export interface StripeIntegrationConfig extends PSPIntegrationBase {
   secretKey?: string;
   accessToken?: string;
   webhookSecret?: string;
   merchantAccountId?: string;
   stripeUserId?: string;
   webhookEndpointId?: string;
-  status?: 'connected' | 'not_connected' | 'error';
 }
 
-export interface AdyenIntegrationConfig {
+export interface AdyenIntegrationConfig extends PSPIntegrationBase {
   apiKey?: string;
   merchantAccounts?: string[];
   merchantAccount?: string;
   webhookUsername?: string;
   webhookPassword?: string;
   liveEndpointPrefix?: string;
-  status?: 'connected' | 'not_connected' | 'error';
 }
 
 export interface PSPIntegrationsConfig {
