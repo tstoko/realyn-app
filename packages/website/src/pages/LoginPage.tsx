@@ -23,52 +23,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
   
 
-  const textInputStyle = "appearance-none block w-full px-4 py-2.5 border border-slate-700 rounded-lg shadow-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-600 focus:border-cyan-500 sm:text-sm bg-slate-800 transition-all duration-200";
+  const textInputStyle = "appearance-none block w-full px-4 py-2.5 border border-white/10 rounded-none placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 sm:text-sm bg-black transition-all duration-200";
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      {/* Animated Background Orbs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          className="absolute top-20 left-[10%] w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl"
-          animate={{ 
-            scale: [1, 1.2, 1],
-            x: [0, 50, 0],
-            y: [0, 30, 0]
-          }}
-          transition={{ 
-            duration: 8,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-        />
-        <motion.div
-          className="absolute bottom-40 right-[15%] w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"
-          animate={{ 
-            scale: [1, 1.1, 1],
-            x: [0, -30, 0],
-            y: [0, -20, 0]
-          }}
-          transition={{ 
-            duration: 10,
-            repeat: Infinity,
-            ease: "easeInOut"
-          }}
-        />
-        <motion.div
-          className="absolute top-1/2 left-1/2 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl"
-          animate={{ 
-            scale: [1, 1.3, 1],
-            rotate: [0, 180, 360]
-          }}
-          transition={{ 
-            duration: 15,
-            repeat: Infinity,
-            ease: "linear"
-          }}
-        />
-      </div>
-
+    <div className="min-h-screen bg-black flex flex-col justify-center items-center p-4 relative overflow-hidden">
       <motion.div 
         className="max-w-md w-full relative z-10"
         initial={{ opacity: 0, y: 20 }}
@@ -89,7 +47,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <Logo className="h-20 w-auto mx-auto" />
             </motion.div>
             <motion.h2 
-              className="mt-6 text-3xl font-bold text-slate-50 font-heading tracking-tight"
+              className="mt-6 text-3xl font-bold text-slate-50 font-display tracking-tight"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.4 }}
@@ -107,15 +65,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         </motion.div>
         
         <motion.div 
-          className="bg-slate-900/80 backdrop-blur-xl p-8 rounded-xl shadow-2xl border border-slate-800/50 relative overflow-hidden"
+          className="bg-black p-8 rounded-none border border-white/10"
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: 0.3 }}
         >
-          {/* Subtle shimmer effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/5 to-transparent -translate-x-full animate-shimmer pointer-events-none" />
-          
-          <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -179,18 +134,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <motion.button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-lg text-sm font-medium text-white bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                whileHover={{ scale: loading ? 1 : 1.02 }}
-                whileTap={{ scale: loading ? 1 : 0.98 }}
+                className="w-full flex justify-center items-center py-4 px-6 rounded-none font-mono text-xs uppercase tracking-[0.2em] text-black bg-white hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-black"
               >
-                <span className="relative z-10 flex items-center gap-2">
-                  {loading ? <Spinner /> : 'Log in'}
-                </span>
-                <motion.div
-                  className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-cyan-300 opacity-0"
-                  whileHover={{ opacity: 1 }}
-                  transition={{ duration: 0.3 }}
-                />
+                {loading ? <Spinner /> : 'Log in'}
               </motion.button>
             </motion.div>
           </form>

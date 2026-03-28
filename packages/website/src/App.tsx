@@ -12,7 +12,7 @@ const CookiePolicy = lazy(() => import('./pages/legal/CookiePolicy').then(m => (
 const AcceptableUsePolicy = lazy(() => import('./pages/legal/AcceptableUsePolicy').then(m => ({ default: m.AcceptableUsePolicy })));
 const SubProcessors = lazy(() => import('./pages/legal/SubProcessors').then(m => ({ default: m.SubProcessors })));
 
-const DASHBOARD_URL = import.meta.env.VITE_DASHBOARD_URL || 'https://app.realyn.com';
+const DASHBOARD_URL = import.meta.env.VITE_DASHBOARD_URL || 'https://dashboard.realyn.app';
 
 const PageSpinner = () => (
   <div className="min-h-screen bg-slate-950 flex items-center justify-center">

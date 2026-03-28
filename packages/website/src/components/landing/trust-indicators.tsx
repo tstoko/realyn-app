@@ -1,9 +1,45 @@
+import React from "react"
 import { motion } from "framer-motion"
-import { Eye, ListChecks, Settings2, RefreshCw, FileSearch, Plus } from "lucide-react"
-import { SiStripe, SiAdyen, SiBraintree, SiSquare, SiPaypal, SiShopify, SiSalesforce, SiOracle } from "react-icons/si"
+import { Eye, ListChecks, Settings2, RefreshCw, FileSearch } from "lucide-react"
+import {
+  SiStripe,
+  SiAdyen,
+  SiBraintree,
+  SiSquare,
+  SiPaypal,
+  SiShopify,
+  SiSalesforce,
+  SiVisa,
+  SiMastercard,
+  SiAmericanexpress,
+  SiElavon,
+  SiKlarna,
+  SiVenmo,
+  SiRevolut,
+  SiWise,
+  SiCashapp,
+  SiAfterpay,
+  SiWoocommerce,
+  SiBigcommerce,
+  SiXero,
+  SiZendesk,
+  SiHubspot,
+} from "react-icons/si"
 import { WorldpayIcon, CheckoutDotComIcon, MewsIcon, CloudbedsIcon } from "@realyn/shared"
+import { EditorialSectionHeader } from "./EditorialSectionHeader"
+
+const OracleIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
+    <path d="M7.95 4.5C3.58 4.5 0 8.03 0 12.33S3.58 20.18 7.95 20.18h8.1C20.42 20.18 24 16.63 24 12.33S20.42 4.5 16.05 4.5zm8.03 12.9H7.98c-2.8 0-5.07-2.23-5.07-4.98s2.27-5 5.07-5h8c2.8 0 5.07 2.24 5.07 5s-2.27 4.98-5.07 4.98z"/>
+  </svg>
+)
 
 const integrations: { name: string; icon: any; wide?: boolean }[] = [
+  // Card networks
+  { name: "Visa", icon: SiVisa },
+  { name: "Mastercard", icon: SiMastercard },
+  { name: "American Express", icon: SiAmericanexpress },
+  // PSPs
   { name: "Stripe", icon: SiStripe },
   { name: "Adyen", icon: SiAdyen },
   { name: "Braintree", icon: SiBraintree },
@@ -11,15 +47,30 @@ const integrations: { name: string; icon: any; wide?: boolean }[] = [
   { name: "Worldpay", icon: WorldpayIcon, wide: true },
   { name: "Checkout.com", icon: CheckoutDotComIcon },
   { name: "PayPal", icon: SiPaypal },
+  { name: "Elavon", icon: SiElavon },
+  { name: "Klarna", icon: SiKlarna },
+  { name: "Venmo", icon: SiVenmo },
+  { name: "Revolut", icon: SiRevolut },
+  { name: "Wise", icon: SiWise },
+  { name: "Cash App", icon: SiCashapp },
+  { name: "Afterpay", icon: SiAfterpay },
+  // E-commerce
   { name: "Shopify", icon: SiShopify },
+  { name: "WooCommerce", icon: SiWoocommerce },
+  { name: "BigCommerce", icon: SiBigcommerce },
+  // Platforms
   { name: "Salesforce", icon: SiSalesforce },
-  { name: "Oracle", icon: SiOracle },
+  { name: "HubSpot", icon: SiHubspot },
+  { name: "Zendesk", icon: SiZendesk },
+  // PMS
+  { name: "Oracle", icon: OracleIcon },
   { name: "Mews", icon: MewsIcon, wide: true },
   { name: "Cloudbeds", icon: CloudbedsIcon },
+  // Accounting
+  { name: "Xero", icon: SiXero },
 ]
 
 export function TrustIndicators() {
-
   const operationalTrust = [
     { icon: Eye, label: "GDPR Ready", description: "Data processing compliant with EU privacy regulations" },
     { icon: ListChecks, label: "Auditability", description: "Immutable action log for every dispute decision" },
@@ -29,75 +80,54 @@ export function TrustIndicators() {
   ]
 
   return (
-    <section id="trust" className="relative py-16 overflow-hidden border-t border-white/5 data-grid">
+    <section id="trust" className="relative py-16 overflow-hidden border-t border-white/10">
       <div className="container mx-auto px-4 sm:px-6">
         {/* Integration belt */}
         <div className="mb-12 md:mb-20">
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            className="text-center text-sm font-mono text-slate-500 uppercase tracking-[0.2em] mb-10"
-          >
-            Integrates with your stack
-          </motion.p>
-          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-8 md:gap-x-14">
-            {integrations.map((item, index) => {
-              const Icon = item.icon
-              return (
-                <motion.div
-                  key={item.name}
-                  initial={{ opacity: 0 }}
-                  whileInView={{ opacity: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: index * 0.04 }}
-                  className="flex flex-col items-center gap-2.5 group cursor-default"
-                >
-                  <Icon className={`${item.wide ? "h-5 w-auto max-w-[5rem]" : "h-7 w-7"} text-slate-600 group-hover:text-white transition-colors duration-300`} />
-                  <span className="text-[10px] font-mono text-slate-600 group-hover:text-slate-400 tracking-wider uppercase transition-colors duration-300">
-                    {item.name}
-                  </span>
-                </motion.div>
-              )
-            })}
+          <EditorialSectionHeader
+            number="05"
+            label="INTEGRATIONS"
+            title="Integrates with your stack"
+            subtitle="Don't see your stack? We integrate with any PSP, PMS, or platform you need."
+          />
+          <div className="relative flex overflow-hidden w-full [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] py-4">
             <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: integrations.length * 0.04 }}
-              className="flex flex-col items-center gap-2.5 group cursor-default"
+              className="flex flex-none"
+              animate={{ x: "-50%" }}
+              transition={{
+                repeat: Infinity,
+                ease: "linear",
+                duration: 30, // Adjust this to make it spin faster/slower
+              }}
             >
-              <div className="h-7 w-7 rounded-full border border-dashed border-slate-600 group-hover:border-white flex items-center justify-center transition-colors duration-300">
-                <Plus className="h-4 w-4 text-slate-600 group-hover:text-white transition-colors duration-300" />
-              </div>
-              <span className="text-[10px] font-mono text-slate-600 group-hover:text-slate-400 tracking-wider uppercase transition-colors duration-300">
-                & More
-              </span>
+              {[...Array(2)].map((_, setIndex) => (
+                <div key={setIndex} className="flex flex-none gap-x-10 md:gap-x-14 items-center px-5 md:px-7">
+                  {integrations.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <div
+                        key={item.name}
+                        className="flex flex-col items-center gap-2.5 group cursor-default min-w-max"
+                      >
+                        <Icon className={`${item.wide ? "h-5 w-auto max-w-[5rem]" : "h-7 w-7"} text-slate-600 group-hover:text-white transition-colors duration-300`} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
             </motion.div>
           </div>
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.5 }}
-            className="text-center text-xs text-slate-500 mt-6"
-          >
-            Don&apos;t see your stack? We integrate with any PSP, PMS, or platform you need.
-          </motion.p>
         </div>
 
-        <div className="max-w-6xl mx-auto">
-          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-8 md:mb-12">
-            <h3 className="text-3xl md:text-4xl font-bold mb-4 font-display">
-              Security, governance, and <span className="text-gradient">auditability</span>
-            </h3>
-            <p className="text-slate-400 text-lg max-w-xl mx-auto">
-              Enterprise compliance plus operational integrity for revenue-critical workflows.
-            </p>
-          </motion.div>
+        <div className="max-w-6xl mx-auto border-t border-white/10 pt-12">
+          <EditorialSectionHeader
+            number="06"
+            label="SECURITY & GOVERNANCE"
+            title="Security, governance, and auditability"
+            subtitle="Enterprise compliance plus operational integrity for revenue-critical workflows."
+          />
 
-          {/* Trust grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="border border-white/10 divide-y divide-white/10">
             {operationalTrust.map((item, i) => {
               const Icon = item.icon
               return (
@@ -107,9 +137,9 @@ export function TrustIndicators() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: i * 0.08 }}
-                  className={`flex items-start gap-4 p-5 rounded-xl border border-white/8 bg-white/[0.02] transition-all hover:bg-white/[0.04]${i === 0 ? " md:col-span-2 border-l-2 border-l-cyan-500/40" : ""}`}
+                  className={`flex items-start gap-4 p-5 rounded-none bg-white/[0.02] transition-all hover:bg-white/[0.04] ${i === 0 ? "border-l-2 border-l-cyan-500" : ""}`}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 rounded-none border border-white/10 flex items-center justify-center flex-shrink-0">
                     <Icon className="w-5 h-5 text-slate-300" />
                   </div>
                   <div>

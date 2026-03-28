@@ -10,10 +10,9 @@ module.exports = {
     extend: {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
-        heading: ['Nunito', 'sans-serif'],
-        hero: ['Inter', 'sans-serif'],
-        display: ['Syne', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+        heading: ['Inter', 'sans-serif'],
+        display: ['"Instrument Serif"', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",

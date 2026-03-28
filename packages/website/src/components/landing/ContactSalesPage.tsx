@@ -1,7 +1,6 @@
 import React, { useState } from "react"
 import { Button, Input, Label, Textarea, Logo, submitContactSalesForm } from "@realyn/shared"
 import { ArrowLeftIcon } from "@radix-ui/react-icons"
-import { AnimatedGrid } from "./animated-grid"
 
 interface ContactSalesPageProps {
   onBack: () => void
@@ -29,16 +28,43 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle")
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  const requiredFields = ["firstName", "lastName", "email", "phone", "company", "jobTitle"] as const
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: "" }))
+    }
+  }
+
+  const validate = (): boolean => {
+    const errors: Record<string, string> = {}
+    for (const field of requiredFields) {
+      if (!formData[field]?.trim()) {
+        const labels: Record<string, string> = {
+          firstName: "First Name",
+          lastName: "Last Name",
+          email: "Email",
+          phone: "Phone Number",
+          company: "Company/Organization Name",
+          jobTitle: "Job Title",
+        }
+        errors[field] = `${labels[field]} is required`
+      }
+    }
+    setFieldErrors(errors)
+    return Object.keys(errors).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validate()) return
     setIsSubmitting(true)
     setSubmitStatus("idle")
+    setFieldErrors({})
 
     try {
       await submitContactSalesForm({
@@ -92,11 +118,9 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 overflow-x-hidden">
-      <AnimatedGrid />
-      
+    <div className="min-h-screen bg-black text-slate-50 overflow-x-hidden">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/60">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-black/95 border-b border-white/10">
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Logo className="h-20 w-auto" />
@@ -105,7 +129,7 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
             onClick={onBack}
             variant="ghost"
             size="sm"
-            className="text-slate-400 hover:text-slate-50"
+            className="rounded-none font-mono text-xs uppercase tracking-widest text-slate-400 hover:text-white border border-white/20 hover:border-white/40 px-5 py-3 transition-colors"
           >
             <ArrowLeftIcon className="mr-2 w-4 h-4" />
             Back
@@ -115,17 +139,18 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
 
       {/* Main Content */}
       <div className="relative pt-32 pb-20">
-        <div className="container mx-auto px-6 max-w-4xl">
+        <div className="container mx-auto px-6 max-w-6xl">
           <div className="text-center mb-12">
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4">
               Contact Sales
             </h1>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-xl text-slate-400 max-w-2xl mx-auto">
               Let's discuss how Realyn can help protect your revenue from chargebacks. Fill out the form below and our team will get back to you shortly.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-8 bg-slate-900/50 backdrop-blur-sm rounded-2xl p-5 sm:p-8 md:p-12 border border-white/5">
+          <form onSubmit={handleSubmit} className="space-y-8 bg-black rounded-none p-5 sm:p-8 md:p-12 border border-white/10">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
             {/* Personal Information */}
             <div className="space-y-6">
               <h2 className="text-xl font-semibold text-slate-50 border-b border-white/10 pb-2">
@@ -144,9 +169,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.firstName}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.firstName ? "border-red-500/50" : ""}`}
                     placeholder="John"
                   />
+                  {fieldErrors.firstName && (
+                    <p className="text-sm text-red-400">{fieldErrors.firstName}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -160,9 +188,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.lastName}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.lastName ? "border-red-500/50" : ""}`}
                     placeholder="Doe"
                   />
+                  {fieldErrors.lastName && (
+                    <p className="text-sm text-red-400">{fieldErrors.lastName}</p>
+                  )}
                 </div>
               </div>
 
@@ -178,9 +209,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.email}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.email ? "border-red-500/50" : ""}`}
                     placeholder="john@company.com"
                   />
+                  {fieldErrors.email && (
+                    <p className="text-sm text-red-400">{fieldErrors.email}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -194,9 +228,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.phone}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.phone ? "border-red-500/50" : ""}`}
                     placeholder="+1 (555) 123-4567"
                   />
+                  {fieldErrors.phone && (
+                    <p className="text-sm text-red-400">{fieldErrors.phone}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -219,9 +256,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.company}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.company ? "border-red-500/50" : ""}`}
                     placeholder="Acme Inc."
                   />
+                  {fieldErrors.company && (
+                    <p className="text-sm text-red-400">{fieldErrors.company}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -235,9 +275,12 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                     required
                     value={formData.jobTitle}
                     onChange={handleChange}
-                    className="bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400"
+                    className={`bg-slate-800 border-slate-700 text-slate-50 focus:border-cyan-400 focus:ring-cyan-400 ${fieldErrors.jobTitle ? "border-red-500/50" : ""}`}
                     placeholder="Head of Finance"
                   />
+                  {fieldErrors.jobTitle && (
+                    <p className="text-sm text-red-400">{fieldErrors.jobTitle}</p>
+                  )}
                 </div>
               </div>
 
@@ -427,17 +470,18 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                 />
               </div>
             </div>
+            </div>
 
             {/* Submit Button */}
             <div className="pt-4">
               {submitStatus === "success" && (
-                <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg text-green-400">
+                <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-none text-green-400">
                   Thank you! We've received your request and will contact you shortly.
                 </div>
               )}
               
               {submitStatus === "error" && (
-                <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400">
+                <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-none text-red-400">
                   There was an error submitting your request. Please try again.
                 </div>
               )}
@@ -447,7 +491,7 @@ export const ContactSalesPage: React.FC<ContactSalesPageProps> = ({ onBack }) =>
                   type="submit"
                   size="lg"
                   disabled={isSubmitting}
-                  className="w-full h-14 text-lg bg-cyan-400 text-slate-950 hover:bg-cyan-300 rounded-full font-semibold transition-colors disabled:opacity-50"
+                  className="w-full rounded-none font-mono text-xs uppercase tracking-[0.2em] py-4 bg-white text-black hover:bg-cyan-400 transition-colors disabled:opacity-50"
                 >
                   {isSubmitting ? "Submitting..." : "Submit Request"}
                 </Button>

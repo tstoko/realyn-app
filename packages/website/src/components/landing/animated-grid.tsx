@@ -22,6 +22,8 @@ export function AnimatedGrid() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
     let width = window.innerWidth
     let height = window.innerHeight
     const gridSize = 48
@@ -35,6 +37,42 @@ export function AnimatedGrid() {
 
     resize()
     window.addEventListener('resize', resize)
+
+    const drawStaticGrid = () => {
+      ctx.clearRect(0, 0, width, height)
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.35)'
+      ctx.lineWidth = 1
+      for (let x = 0; x <= width; x += gridSize) {
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, height)
+        ctx.stroke()
+      }
+      for (let y = 0; y <= height; y += gridSize) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(width, y)
+        ctx.stroke()
+      }
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.5)'
+      for (let x = 0; x <= width; x += gridSize) {
+        for (let y = 0; y <= height; y += gridSize) {
+          ctx.beginPath()
+          ctx.arc(x, y, 1, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+    }
+
+    if (prefersReducedMotion) {
+      drawStaticGrid()
+      const handleResize = () => {
+        resize()
+        drawStaticGrid()
+      }
+      window.addEventListener('resize', handleResize)
+      return () => window.removeEventListener('resize', handleResize)
+    }
 
     const spawnPacket = () => {
       const axis = Math.random() > 0.5 ? 'x' as const : 'y' as const
@@ -144,9 +182,27 @@ export function AnimatedGrid() {
       animationFrameRef.current = requestAnimationFrame(animate)
     }
 
-    animationFrameRef.current = requestAnimationFrame(animate)
+    const runLoop = () => {
+      animationFrameRef.current = requestAnimationFrame(animate)
+    }
+
+    runLoop()
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current)
+          animationFrameRef.current = 0
+        }
+      } else {
+        runLoop()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('resize', resize)
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)

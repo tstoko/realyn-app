@@ -1,6 +1,7 @@
 import { useRef } from "react"
 import { motion, useScroll, useTransform } from "framer-motion"
 import { Shield, FileText, CheckCircle, Clock, TrendingUp, User } from "lucide-react"
+import { EditorialSectionHeader } from "./EditorialSectionHeader"
 
 interface Feature {
   id: string
@@ -38,150 +39,191 @@ function DashboardMockup({ progress }: { progress: number }) {
   const activeIndex = Math.min(Math.floor(progress * 3), 2)
 
   return (
-    <div className="relative w-full aspect-[4/3] glass-intense rounded-2xl overflow-hidden">
-      {/* Window chrome */}
-      <div className="absolute top-0 left-0 right-0 h-12 bg-slate-900/50 border-b border-white/5 flex items-center px-4 gap-2">
-        <div className="w-3 h-3 rounded-full bg-red-500/60" />
-        <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-        <div className="w-3 h-3 rounded-full bg-green-500/60" />
-        <span className="ml-4 text-xs text-slate-500 font-mono">realyn.app/dashboard</span>
-      </div>
-
-      <div className="pt-16 px-6 pb-6 h-full">
+    <div className="relative w-full aspect-[4/3] bg-slate-950 border border-white/10 rounded-none overflow-hidden">
+      {/* Subtle tech background */}
+      <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.15) 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+      
+      <div className="relative p-6 h-full flex flex-col">
+        {/* Header / Status Bar */}
+        <div className="flex justify-between items-center mb-6 pb-4 border-b border-white/10 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse" />
+            <span>System Active</span>
+          </div>
+          <span>realyn_ops_terminal_v1.2</span>
+        </div>
         {/* Stage 1: Dispute Intake */}
         {activeIndex === 0 && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex-1 grid grid-cols-[1fr_2fr] gap-6"
           >
-            <motion.div
-              animate={{ scale: [1, 1.01, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
-                    <Shield className="w-4 h-4 text-cyan-400" />
+            {/* Left: Live Feed */}
+            <div className="border-r border-white/10 pr-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-slate-950 to-transparent z-10" />
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-slate-950 to-transparent z-10" />
+              <motion.div 
+                animate={{ y: [0, -100] }}
+                transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                className="space-y-3 font-mono text-[8px] text-slate-600 opacity-50"
+              >
+                {[...Array(10)].map((_, i) => (
+                  <div key={i}>
+                    <div>{`[${new Date().toISOString().split('T')[1].slice(0, 8)}] RECV POST /webhook`}</div>
+                    <div>{`> evt_3L9x${Math.floor(Math.random()*10000)}... status: ignored`}</div>
                   </div>
-                  <div>
-                    <div className="text-sm font-medium text-white">New Dispute Detected</div>
-                    <div className="text-xs text-slate-400">$487.50 &middot; Transaction #TXN-78234</div>
-                  </div>
-                </div>
-                <span className="px-2 py-1 bg-cyan-500/20 text-cyan-400 text-xs rounded-full font-mono">Processing</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-slate-900/50 rounded-md p-2">
-                  <span className="text-slate-500 block">Reason Code</span>
-                  <span className="text-white font-mono">13.1 — Merchandise Not Received</span>
-                </div>
-                <div className="bg-slate-900/50 rounded-md p-2">
-                  <span className="text-slate-500 block">Match Confidence</span>
-                  <span className="text-emerald-400 font-semibold">High — 96%</span>
-                </div>
-              </div>
-            </motion.div>
-
-            <div className="flex items-center justify-between bg-white/5 rounded-lg p-3">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span className="text-xs text-slate-400">SLA Deadline</span>
-              </div>
-              <span className="text-xs font-mono text-amber-400">6d 14h remaining</span>
+                ))}
+              </motion.div>
             </div>
 
-            {[1, 2].map((i) => (
-              <div key={i} className="h-10 bg-white/[0.03] rounded-lg border border-white/5" />
-            ))}
+            {/* Right: Match Details */}
+            <div className="flex flex-col justify-center">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                className="border border-cyan-500/30 bg-cyan-500/[0.02] p-5 relative"
+              >
+                <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-cyan-400" />
+                <div className="absolute -top-px -right-px w-2 h-2 border-t border-r border-cyan-400" />
+                <div className="absolute -bottom-px -left-px w-2 h-2 border-b border-l border-cyan-400" />
+                <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-cyan-400" />
+                
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <Shield className="w-4 h-4" />
+                    <span className="font-mono text-[10px] uppercase tracking-widest animate-pulse">Target Locked</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-slate-500">Confidence: <span className="text-emerald-400">99.8%</span></span>
+                </div>
+
+                <div className="space-y-3 font-mono text-xs">
+                  <div>
+                    <div className="text-slate-500 text-[10px] uppercase mb-1">Dispute ID</div>
+                    <div className="text-white text-lg">dp_1MowQ...</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
+                    <div>
+                      <div className="text-slate-500 text-[10px] uppercase mb-1">Amount</div>
+                      <div className="text-cyan-400">$487.50</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-[10px] uppercase mb-1">Reason</div>
+                      <div className="text-white truncate">13.1 - Not Received</div>
+                    </div>
+                  </div>
+                  <div className="pt-3 border-t border-white/10 flex justify-between items-center">
+                    <span className="text-slate-500 text-[10px] uppercase">SLA Deadline</span>
+                    <span className="text-amber-400">6d 14h 22m</span>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
           </motion.div>
         )}
 
         {/* Stage 2: Evidence Assembly */}
         {activeIndex === 1 && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex-1 flex flex-col justify-center"
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-slate-400">Assembling Evidence</span>
-              <span className="text-xs font-mono text-purple-400">94% complete</span>
-            </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-4">
-              <motion.div
-                className="h-full bg-gradient-to-r from-purple-500 to-cyan-500 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: "94%" }}
-                transition={{ duration: 1.5 }}
-              />
+            <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-purple-400" />
+                <span className="font-mono text-[10px] uppercase tracking-widest text-white">Compiling Evidence</span>
+              </div>
+              <span className="font-mono text-[10px] text-purple-400">94% COMPLETE</span>
             </div>
 
-            {[
-              { name: "Transaction Record", size: "2.4 KB", status: "Collected" },
-              { name: "Customer Communication", size: "8.1 KB", status: "Collected" },
-              { name: "Service Agreement", size: "124 KB", status: "Collected" },
-              { name: "3DS Authentication", size: "1.2 KB", status: "Collected" },
-            ].map((item, i) => (
-              <motion.div
-                key={item.name}
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.15 }}
-                className="flex items-center gap-3 py-2 px-3 bg-white/[0.03] rounded-lg border border-white/5"
-              >
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { name: "Transaction Record", hash: "0x8f...3a2", status: "VERIFIED", color: "text-emerald-400" },
+                { name: "Customer Comms", hash: "0x2b...9c1", status: "VERIFIED", color: "text-emerald-400" },
+                { name: "Service Agreement", hash: "0x7d...4e5", status: "VERIFIED", color: "text-emerald-400" },
+                { name: "3DS Auth Data", hash: "pending...", status: "FETCHING", color: "text-amber-400" },
+              ].map((item, i) => (
                 <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: i * 0.15 + 0.1 }}
+                  key={item.name}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.15 }}
+                  className="p-3 border border-white/5 bg-white/[0.02] font-mono"
                 >
-                  <CheckCircle className="w-4 h-4 text-purple-400" />
+                  <div className="text-white text-xs mb-2 truncate">{item.name}</div>
+                  <div className="flex justify-between items-end">
+                    <div className="text-[8px] text-slate-500">
+                      <div>HASH</div>
+                      <div>{item.hash}</div>
+                    </div>
+                    <div className={`text-[8px] uppercase tracking-wider ${item.color}`}>
+                      {item.status}
+                    </div>
+                  </div>
                 </motion.div>
-                <span className="text-sm text-white flex-1">{item.name}</span>
-                <span className="text-xs text-slate-500 font-mono">{item.size}</span>
-                <span className="text-xs text-emerald-400">{item.status}</span>
-              </motion.div>
-            ))}
+              ))}
+            </div>
+            
+            {/* Technical progress bar */}
+            <div className="mt-6 space-y-1">
+              <div className="flex justify-between text-[8px] font-mono text-slate-500">
+                <span>[||||||||||||||||||||||||||||||||||||||||||||||  ]</span>
+                <span>4/5 NODES</span>
+              </div>
+            </div>
           </motion.div>
         )}
 
         {/* Stage 3: Review and Submit */}
         {activeIndex === 2 && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="h-full flex flex-col items-center justify-center text-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex-1 grid grid-cols-[3fr_2fr] gap-6"
           >
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-              className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4"
-            >
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
-            </motion.div>
-            <div className="text-lg font-semibold text-white mb-1">Response Submitted</div>
-            <div className="text-sm text-slate-400 mb-4">Dispute #78234 &middot; $487.50</div>
+            {/* Left: AI Draft */}
+            <div className="border-r border-white/10 pr-6 flex flex-col justify-center">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span className="font-mono text-[10px] uppercase tracking-widest text-white">Generated Response</span>
+              </div>
+              <div className="font-mono text-[10px] text-slate-400 leading-relaxed space-y-2 bg-white/[0.02] border border-white/5 p-4 relative">
+                <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-emerald-500/50 to-transparent" />
+                <p>{"{"}</p>
+                <p className="pl-4">"argument": "The customer claims the merchandise was not received. However, we have attached tracking information showing delivery to the billing address...",</p>
+                <p className="pl-4">"attachments": ["tracking_proof.pdf", "tos_agreed.pdf"]</p>
+                <p>{"}"}</p>
+              </div>
+            </div>
 
-            <div className="space-y-2 text-xs w-full max-w-xs">
-              <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg border border-white/5">
-                <span className="text-slate-500">Processor Receipt</span>
-                <span className="text-white font-mono">dp_3R4xK9...mNq</span>
-              </div>
-              <div className="flex items-center justify-between py-2 px-3 bg-white/[0.03] rounded-lg border border-white/5">
-                <div className="flex items-center gap-1.5">
-                  <User className="w-3 h-3 text-slate-500" />
-                  <span className="text-slate-500">Reviewed by</span>
+            {/* Right: Execution Metadata */}
+            <div className="flex flex-col justify-center font-mono text-[10px] space-y-6">
+              <div>
+                <div className="text-slate-500 uppercase mb-1">Execution Status</div>
+                <div className="text-emerald-400 flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                  SUBMITTED
                 </div>
-                <span className="text-white">Sarah M.</span>
               </div>
-              <div className="flex items-center justify-between py-2 px-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                <div className="flex items-center gap-1.5">
-                  <TrendingUp className="w-3 h-3 text-emerald-400" />
-                  <span className="text-emerald-400">Win probability</span>
+              
+              <div>
+                <div className="text-slate-500 uppercase mb-1">Processor Receipt</div>
+                <div className="text-white truncate">dp_3R4xK9...mNq</div>
+              </div>
+
+              <div>
+                <div className="text-slate-500 uppercase mb-1">Win Probability</div>
+                <div className="text-emerald-400 text-2xl font-display">94.2%</div>
+              </div>
+
+              <div className="pt-4 border-t border-white/10">
+                <div className="text-slate-500 uppercase mb-1">Authorized By</div>
+                <div className="text-white flex items-center gap-2">
+                  <User className="w-3 h-3 text-slate-400" />
+                  Sarah M. (Auto-Rule #4)
                 </div>
-                <span className="text-emerald-400 font-semibold">94%</span>
               </div>
             </div>
           </motion.div>
@@ -202,29 +244,20 @@ export function StickyFeatureSection() {
     <section ref={containerRef} className="relative">
       <div className="flex items-center py-16 lg:py-24">
         <div className="container mx-auto px-4 sm:px-6">
+          <EditorialSectionHeader
+            number="03"
+            label="WORKFLOW"
+            title="The dispute workflow"
+            subtitle="Three seamless stages to protect your revenue"
+          />
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             {/* Left: Dashboard mockup (desktop only) */}
             <div className="relative order-2 lg:order-1 hidden lg:block">
               <DashboardMockup progress={scrollYProgress.get()} />
-              <div className="absolute -inset-10 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-emerald-500/10 rounded-3xl blur-3xl -z-10 opacity-40" />
             </div>
 
             {/* Right: Feature steps */}
             <div className="order-1 lg:order-2 space-y-8">
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.6 }}
-              >
-                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 font-display">
-                  The dispute workflow
-                </h2>
-                <p className="text-slate-400 text-base sm:text-lg">
-                  Three seamless stages to protect your revenue
-                </p>
-              </motion.div>
-
               <div className="space-y-4 sm:space-y-6">
                 {features.map((feature, index) => {
                   const Icon = feature.icon
@@ -243,10 +276,10 @@ export function StickyFeatureSection() {
                       whileInView={{ opacity: 1, x: 0 }}
                       viewport={{ once: true }}
                       transition={{ duration: 0.5, delay: index * 0.1 }}
-                      className={`p-4 sm:p-6 rounded-xl border ${bgColor} ${borderColor} transition-all duration-300`}
+                      className={`p-4 sm:p-6 rounded-none border ${bgColor} ${borderColor} transition-all duration-300`}
                     >
                       <div className="flex items-start gap-3 sm:gap-4">
-                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${bgColor} flex items-center justify-center flex-shrink-0`}>
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-none border ${borderColor} flex items-center justify-center flex-shrink-0`}>
                           <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${textColor}`} />
                         </div>
                         <div>

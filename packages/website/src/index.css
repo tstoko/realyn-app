@@ -2,11 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="button"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #020617, 0 0 0 4px #22d3ee;
+  }
+}
+
+:root,
+.dark {
+  --background: 222 47% 4%;
+  --foreground: 210 40% 98%;
+  --border: 215 20% 20%;
+  --input: 215 20% 20%;
+  --ring: 187 85% 43%;
+  --primary: 187 85% 43%;
+  --primary-foreground: 222 47% 4%;
+  --secondary: 215 25% 15%;
+  --secondary-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --muted: 215 25% 15%;
+  --muted-foreground: 215 20% 55%;
+  --accent: 187 85% 43%;
+  --accent-foreground: 222 47% 4%;
+  --popover: 222 47% 6%;
+  --popover-foreground: 210 40% 98%;
+  --card: 222 47% 6%;
+  --card-foreground: 210 40% 98%;
+  --radius: 0.5rem;
+}
+
+@layer components {
+  .text-gradient {
+    @apply text-cyan-400;
+  }
+
+  .link-underline {
+    @apply border-b border-transparent hover:border-white transition-colors;
+  }
+
+  .glass-intense {
+    @apply bg-white/5 border border-white/10;
+  }
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
