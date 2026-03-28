@@ -117,9 +117,9 @@ export const NoPropertiesEmptyState: React.FC<{ onAddProperty?: () => void }> = 
         />
       </svg>
     }
-    title="No Properties Yet"
-    description="Get started by adding your first hotel property. Connect your payment provider to start managing disputes automatically."
-    action={onAddProperty ? { label: 'Add Property', onClick: onAddProperty } : undefined}
+    title="No Accounts Yet"
+    description="Get started by adding your first account. Connect your payment provider to start managing disputes automatically."
+    action={onAddProperty ? { label: 'Add Account', onClick: onAddProperty } : undefined}
   />
 );
 

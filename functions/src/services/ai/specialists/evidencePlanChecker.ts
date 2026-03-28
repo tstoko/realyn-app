@@ -17,6 +17,7 @@ import {
   AttemptContext,
 } from "../../../types/aiDispute";
 import { callLLM } from "../llmService";
+import { buildDisputeContextBlock } from "../promptHelpers";
 
 // ============================================================
 // Constants
@@ -28,7 +29,7 @@ const PASSING_SCORE_THRESHOLD = 70;
 // System Prompt
 // ============================================================
 
-const QUALITY_CHECKER_SYSTEM_PROMPT = `You are a quality assurance specialist for hotel chargeback evidence plans.
+const QUALITY_CHECKER_SYSTEM_PROMPT_HOTEL = `You are a quality assurance specialist for hotel chargeback evidence plans.
 
 ## YOUR ROLE
 
@@ -76,7 +77,57 @@ Is the most important evidence marked as highest priority?
 Are we asking for evidence the hotel can actually provide?
 - Don't ask for CCTV footage if hotels rarely have 30+ day retention
 - Don't ask for phone call recordings without knowing if they record calls
-- Be reasonable about what documentation hotels typically have
+- Be reasonable about what documentation hotels typically have`;
+
+const QUALITY_CHECKER_SYSTEM_PROMPT_TICKETING = `You are a quality assurance specialist for ticketing/events merchant chargeback evidence plans.
+
+## YOUR ROLE
+
+You validate evidence plans BEFORE the merchant starts gathering evidence, to ensure they're collecting the RIGHT evidence.
+
+You are NOT creating the plan. You are VALIDATING it. Be thorough but practical.
+
+## CRITICAL CHECKS
+
+### 1. Claim Coverage Check
+The customer made a specific claim. Does the evidence plan request evidence that DIRECTLY DISPROVES that claim?
+
+Examples:
+- Customer claims "I never received the tickets" → Plan MUST include ticket delivery proof (email logs, download records, venue scan data)
+- Customer claims "I was charged after cancelling" → Plan MUST include refund/exchange policy AND order timeline
+- Customer claims "Unauthorized transaction" → Plan MUST include authorization records, 3D Secure data
+
+If the plan doesn't request evidence that directly addresses the claim, this is a CRITICAL issue.
+
+### 2. Missing Critical Evidence
+For each dispute type, certain evidence is essential:
+
+FRAUD DISPUTES must have:
+- Authorization/3D Secure records
+- AVS/CVV match results
+- Ticket delivery proof linking cardholder to the order
+
+CANCELLATION/REFUND DISPUTES must have:
+- Refund/exchange policy from checkout
+- Proof the buyer agreed to terms at purchase
+- Order timeline showing when cancellation was requested (if any)
+
+SERVICE DISPUTES must have:
+- Proof of ticket delivery or event access
+- Order confirmation with event/ticket details
+- Buyer communications
+
+### 3. Priority Check
+Is the most important evidence marked as highest priority?
+- Evidence that directly disproves the claim should be priority 1
+- Supporting evidence should be priority 2-3
+- Nice-to-have evidence should be priority 4-5
+
+### 4. Realistic Requirements
+Are we asking for evidence the merchant can actually provide?
+- Focus on digital records: order logs, email delivery receipts, platform exports
+- Don't ask for evidence the merchant's platform wouldn't typically retain
+- Be reasonable about what ticketing platforms typically track
 
 ## SCORING
 
@@ -119,9 +170,13 @@ export async function checkEvidencePlanQuality(
   try {
     const prompt = buildQualityCheckPrompt(plan, disputeCase, claimAnalysis, attemptContext);
 
+    const systemPrompt = disputeCase.merchantVertical === "ticketing"
+      ? QUALITY_CHECKER_SYSTEM_PROMPT_TICKETING
+      : QUALITY_CHECKER_SYSTEM_PROMPT_HOTEL;
+
     const result = await callLLM(prompt, EvidencePlanQualityCheckSchema, {
-      systemPrompt: QUALITY_CHECKER_SYSTEM_PROMPT,
-      temperature: 0.1, // Low temperature for consistent checking
+      systemPrompt,
+      temperature: 0.1,
       maxTokens: 3000,
     });
 
@@ -177,14 +232,7 @@ function buildQualityCheckPrompt(
     parts.push("---\n");
   }
 
-  // Dispute context
-  parts.push("## DISPUTE CONTEXT");
-  parts.push(`- **Amount**: ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}`);
-  parts.push(`- **Reason**: ${disputeCase.reason || "Not specified"}`);
-  if (disputeCase.customerExplanation) {
-    parts.push(`- **Customer Claim**: "${disputeCase.customerExplanation}"`);
-  }
-  parts.push("");
+  parts.push(buildDisputeContextBlock(disputeCase));
 
   // Claim analysis
   parts.push("## CLAIM ANALYSIS");
@@ -253,116 +301,218 @@ function runFallbackQualityCheck(
   const claimType = claimAnalysis.claimType;
   const requirementCategories = new Set(plan.requirements.map((r) => r.category));
   const requirementLabels = plan.requirements.map((r) => r.label.toLowerCase());
+  const isTicketing = disputeCase.merchantVertical === "ticketing";
 
-  // Check for critical missing evidence by claim type
-  if (claimType === "fraud") {
-    if (!requirementCategories.has("payment_data")) {
-      issues.push({
-        severity: "critical",
-        category: "missing_critical_evidence",
-        description: "Fraud dispute missing payment verification evidence (3D Secure, AVS/CVV)",
-        suggestedFix: "Add requirement for authorization/3D Secure records",
-      });
-      score -= 20;
+  if (isTicketing) {
+    // ---- Ticketing-specific fallback checks ----
+    if (claimType === "fraud") {
+      if (!requirementCategories.has("payment_data")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Fraud dispute missing payment verification evidence (3D Secure, AVS/CVV)",
+          suggestedFix: "Add requirement for authorization/3D Secure records",
+        });
+        score -= 20;
+      }
+      if (!requirementCategories.has("delivery") && !requirementLabels.some((l) => l.includes("delivery") || l.includes("order"))) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Fraud dispute should include ticket delivery proof linking cardholder to order",
+          suggestedFix: "Add requirement for ticket delivery proof or order confirmation",
+        });
+        score -= 10;
+      }
     }
-    if (!requirementLabels.some((l) => l.includes("registration") || l.includes("signature"))) {
-      issues.push({
-        severity: "major",
-        category: "missing_critical_evidence",
-        description: "Fraud dispute should include signed registration card",
-        suggestedFix: "Add requirement for signed registration card",
-      });
-      score -= 10;
-    }
-  }
 
-  if (claimType === "cancellation") {
-    if (!requirementCategories.has("policy")) {
-      issues.push({
-        severity: "critical",
-        category: "missing_critical_evidence",
-        description: "Cancellation dispute missing policy documentation",
-        suggestedFix: "Add requirement for cancellation policy",
-      });
-      score -= 20;
+    if (claimType === "cancellation") {
+      if (!requirementCategories.has("policy")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Cancellation dispute missing refund/exchange policy",
+          suggestedFix: "Add requirement for refund/exchange policy from checkout",
+        });
+        score -= 20;
+      }
+      if (!requirementLabels.some((l) => l.includes("confirmation") || l.includes("order"))) {
+        issues.push({
+          severity: "major",
+          category: "claim_not_addressed",
+          description: "Need proof that buyer agreed to terms at purchase",
+          suggestedFix: "Add requirement for order confirmation showing terms",
+        });
+        score -= 10;
+      }
     }
-    if (!requirementLabels.some((l) => l.includes("confirmation") || l.includes("disclosure"))) {
-      issues.push({
-        severity: "major",
-        category: "claim_not_addressed",
-        description: "Need proof that policy was disclosed to guest",
-        suggestedFix: "Add requirement for booking confirmation showing policy",
-      });
-      score -= 10;
-    }
-  }
 
-  if (claimType === "service") {
-    if (!requirementCategories.has("proof_of_stay")) {
-      issues.push({
-        severity: "critical",
-        category: "missing_critical_evidence",
-        description: "Service dispute missing proof of stay",
-        suggestedFix: "Add requirement for check-in/check-out records",
-      });
-      score -= 20;
+    if (claimType === "service") {
+      if (!requirementCategories.has("delivery")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Service dispute missing ticket delivery or access proof",
+          suggestedFix: "Add requirement for ticket delivery proof or redemption log",
+        });
+        score -= 20;
+      }
+      if (!requirementCategories.has("communications")) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Service dispute should include buyer communications",
+          suggestedFix: "Add requirement for buyer communications",
+        });
+        score -= 10;
+      }
     }
-    if (!requirementCategories.has("pms_data")) {
-      issues.push({
-        severity: "major",
-        category: "missing_critical_evidence",
-        description: "Service dispute should include folio/PMS records",
-        suggestedFix: "Add requirement for folio or PMS data",
-      });
-      score -= 10;
-    }
-  }
 
-  if (claimType === "authorization") {
-    if (!requirementCategories.has("payment_data")) {
-      issues.push({
-        severity: "critical",
-        category: "missing_critical_evidence",
-        description: "Authorization dispute missing payment/transaction records",
-        suggestedFix: "Add requirement for authorization records and payment data",
-      });
-      score -= 20;
+    if (claimType === "authorization") {
+      if (!requirementCategories.has("payment_data")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Authorization dispute missing payment/transaction records",
+          suggestedFix: "Add requirement for authorization records and payment data",
+        });
+        score -= 20;
+      }
     }
-    if (!requirementLabels.some((l) => l.includes("confirmation") || l.includes("agreement") || l.includes("signed"))) {
-      issues.push({
-        severity: "major",
-        category: "claim_not_addressed",
-        description: "Need proof guest agreed to the charge amount",
-        suggestedFix: "Add requirement for booking confirmation or signed agreement",
-      });
-      score -= 10;
-    }
-  }
 
-  if (claimType === "other") {
-    // For "other" disputes, require at minimum PMS data plus one supporting category
-    if (!requirementCategories.has("pms_data")) {
-      issues.push({
-        severity: "major",
-        category: "missing_critical_evidence",
-        description: "General dispute should include PMS records (folio/registration)",
-        suggestedFix: "Add requirement for folio or registration card",
-      });
-      score -= 10;
+    if (claimType === "other") {
+      if (!requirementCategories.has("delivery") && !requirementCategories.has("communications")) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "General dispute should include delivery proof or buyer communications",
+          suggestedFix: "Add requirement for order confirmation or buyer communications",
+        });
+        score -= 10;
+      }
+      const hasSupportingEvidence =
+        requirementCategories.has("policy") ||
+        requirementCategories.has("payment_data");
+      if (!hasSupportingEvidence) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Dispute needs at least one supporting evidence category beyond delivery",
+          suggestedFix: "Add requirement for refund policy or payment data",
+        });
+        score -= 10;
+      }
     }
-    const hasSupportingEvidence =
-      requirementCategories.has("policy") ||
-      requirementCategories.has("communications") ||
-      requirementCategories.has("proof_of_stay") ||
-      requirementCategories.has("payment_data");
-    if (!hasSupportingEvidence) {
-      issues.push({
-        severity: "major",
-        category: "missing_critical_evidence",
-        description: "Dispute needs at least one supporting evidence category beyond PMS data",
-        suggestedFix: "Add requirement for communications, policies, or proof of stay",
-      });
-      score -= 10;
+  } else {
+    // ---- Hotel-specific fallback checks ----
+    if (claimType === "fraud") {
+      if (!requirementCategories.has("payment_data")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Fraud dispute missing payment verification evidence (3D Secure, AVS/CVV)",
+          suggestedFix: "Add requirement for authorization/3D Secure records",
+        });
+        score -= 20;
+      }
+      if (!requirementLabels.some((l) => l.includes("registration") || l.includes("signature"))) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Fraud dispute should include signed registration card",
+          suggestedFix: "Add requirement for signed registration card",
+        });
+        score -= 10;
+      }
+    }
+
+    if (claimType === "cancellation") {
+      if (!requirementCategories.has("policy")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Cancellation dispute missing policy documentation",
+          suggestedFix: "Add requirement for cancellation policy",
+        });
+        score -= 20;
+      }
+      if (!requirementLabels.some((l) => l.includes("confirmation") || l.includes("disclosure"))) {
+        issues.push({
+          severity: "major",
+          category: "claim_not_addressed",
+          description: "Need proof that policy was disclosed to guest",
+          suggestedFix: "Add requirement for booking confirmation showing policy",
+        });
+        score -= 10;
+      }
+    }
+
+    if (claimType === "service") {
+      if (!requirementCategories.has("proof_of_stay")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Service dispute missing proof of stay",
+          suggestedFix: "Add requirement for check-in/check-out records",
+        });
+        score -= 20;
+      }
+      if (!requirementCategories.has("pms_data")) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Service dispute should include folio/PMS records",
+          suggestedFix: "Add requirement for folio or PMS data",
+        });
+        score -= 10;
+      }
+    }
+
+    if (claimType === "authorization") {
+      if (!requirementCategories.has("payment_data")) {
+        issues.push({
+          severity: "critical",
+          category: "missing_critical_evidence",
+          description: "Authorization dispute missing payment/transaction records",
+          suggestedFix: "Add requirement for authorization records and payment data",
+        });
+        score -= 20;
+      }
+      if (!requirementLabels.some((l) => l.includes("confirmation") || l.includes("agreement") || l.includes("signed"))) {
+        issues.push({
+          severity: "major",
+          category: "claim_not_addressed",
+          description: "Need proof guest agreed to the charge amount",
+          suggestedFix: "Add requirement for booking confirmation or signed agreement",
+        });
+        score -= 10;
+      }
+    }
+
+    if (claimType === "other") {
+      if (!requirementCategories.has("pms_data")) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "General dispute should include PMS records (folio/registration)",
+          suggestedFix: "Add requirement for folio or registration card",
+        });
+        score -= 10;
+      }
+      const hasSupportingEvidence =
+        requirementCategories.has("policy") ||
+        requirementCategories.has("communications") ||
+        requirementCategories.has("proof_of_stay") ||
+        requirementCategories.has("payment_data");
+      if (!hasSupportingEvidence) {
+        issues.push({
+          severity: "major",
+          category: "missing_critical_evidence",
+          description: "Dispute needs at least one supporting evidence category beyond PMS data",
+          suggestedFix: "Add requirement for communications, policies, or proof of stay",
+        });
+        score -= 10;
+      }
     }
   }
 

@@ -13,6 +13,7 @@ import {
   ClaimAnalysis,
 } from "../../../types/aiDispute";
 import { callLLM } from "../llmService";
+import { buildDisputeContextBlock } from "../promptHelpers";
 
 // ============================================================
 // Types for Organization Documents
@@ -142,14 +143,7 @@ function buildEvidenceAnalysisPrompt(
 
   parts.push("# EVIDENCE ANALYSIS REQUEST\n");
 
-  // Dispute context
-  parts.push("## DISPUTE CONTEXT");
-  parts.push(`- **Reason**: ${disputeCase.reason || "Not specified"}`);
-  parts.push(`- **Amount**: ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}`);
-  if (disputeCase.customerExplanation) {
-    parts.push(`- **Customer Claim**: "${disputeCase.customerExplanation}"`);
-  }
-  parts.push("");
+  parts.push(buildDisputeContextBlock(disputeCase));
 
   // Claim analysis context (from upstream Claim Analyst)
   if (claimAnalysis) {

@@ -1,18 +1,25 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { seedOrganizations } from "../scripts/seedOrganizations";
 import { Request, Response } from "express";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
-/**
- * HTTP endpoint to seed organizations
- * Call this once via: https://YOUR_REGION-YOUR_PROJECT.cloudfunctions.net/seedOrganizations
- * Or use Firebase CLI: firebase functions:call seedOrganizations
- */
 export const seedOrganizationsHandler = onRequest(
   {
     cors: true,
-    invoker: "public", // Temporarily allow public access for seeding
   },
   async (req: Request, res: Response) => {
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
     try {
       console.log("Starting organization seed via HTTP endpoint...");
       await seedOrganizations();

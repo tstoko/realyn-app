@@ -2,13 +2,8 @@ import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import { resetTestEnvironment } from "../scripts/resetTestEnvironment";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
-/**
- * HTTP endpoint to reset test environment
- * WARNING: This deletes all data except admin account!
- * Only use in test/development environments.
- * Requires admin authentication.
- */
 export const resetTestEnvironmentHandler = onRequest(
   {
     cors: true,
@@ -19,7 +14,11 @@ export const resetTestEnvironmentHandler = onRequest(
       return;
     }
 
-    // Verify admin authentication - this is a destructive operation
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
     const authResult = await verifyAdmin(req);
     if (!authResult.success) {
       sendAuthError(res, authResult);

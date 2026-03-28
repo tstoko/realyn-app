@@ -6,8 +6,8 @@
  * behind the common PMS live client interface.
  */
 
-import type {PMSLiveClient} from "../../services/pms/types";
-import type {PMSReservation, PMSFolio} from "../../types/pmsData";
+import type {PMSLiveClient} from "../../types";
+import type {PMSReservation, PMSFolio} from "../../../../types/pmsData";
 import {OperaCloudClient} from "./operaClient";
 import {fetchReservationEvidence, fetchFolioEvidence} from "./operaEvidence";
 import type {OperaCloudConfig} from "./types";

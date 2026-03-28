@@ -1,6 +1,7 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
 
 const db = admin.firestore();
 
@@ -32,6 +33,7 @@ function buildOrganization() {
   return {
     name: ORG_NAME,
     location: "London, United Kingdom",
+    industry: "Hospitality",
     isDemo: true,
     teams: [
       { name: "Finance", email: "finance@kensingtongrand.co.uk" },
@@ -445,6 +447,9 @@ function buildActivityLogs(checkIn: Date, checkOut: Date, room: string, status: 
 function makeEvidencePlan(d: DisputeSeed): any | null {
   if (d.lifecycleStatus === "new") return null;
 
+  const lookupLifecycle =
+    d.lifecycleStatus === "plan_ready" ? "evidence_in_progress" : d.lifecycleStatus;
+
   const plans: Record<string, any> = {
     credit_not_processed_evidence_in_progress: {
       disputeCategory: "Cancellation / Refund Dispute",
@@ -526,7 +531,7 @@ function makeEvidencePlan(d: DisputeSeed): any | null {
     },
   };
 
-  const key = `${d.reason}_${d.lifecycleStatus}`;
+  const key = `${d.reason}_${lookupLifecycle}`;
 
   if (plans[key]) return plans[key];
 
@@ -581,6 +586,8 @@ function makeEvidenceItems(d: DisputeSeed, plan: any): any[] | null {
     let status = "pending";
     if (["won", "lost", "submitted", "draft_ready"].includes(d.lifecycleStatus)) {
       status = "uploaded";
+    } else if (d.lifecycleStatus === "plan_ready") {
+      status = "pending";
     } else if (d.lifecycleStatus === "evidence_in_progress") {
       status = idx < 2 ? "uploaded" : "pending";
     }
@@ -818,6 +825,12 @@ export const seedPitchDemo = onRequest(
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
       return;
     }
 

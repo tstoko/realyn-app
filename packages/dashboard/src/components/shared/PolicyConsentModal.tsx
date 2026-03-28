@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
-import { db, CURRENT_POLICY_VERSION } from '@realyn/shared';
+import { auth, CURRENT_POLICY_VERSION } from '@realyn/shared';
+import { FUNCTIONS_BASE_URL } from '../../config/environment';
 
 interface PolicyConsentModalProps {
   userId: string;
@@ -15,14 +15,26 @@ export const PolicyConsentModal: React.FC<PolicyConsentModalProps> = ({ userId, 
     setSaving(true);
     setError(null);
     try {
-      const userRef = doc(db, 'users', userId);
-      await setDoc(userRef, {
-        tosAcceptedAt: Timestamp.now(),
-        tosVersion: CURRENT_POLICY_VERSION,
-        privacyAcceptedAt: Timestamp.now(),
-        privacyVersion: CURRENT_POLICY_VERSION,
-      }, { merge: true });
-      // Only mark as accepted if the write succeeded
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error('Not authenticated');
+      const idToken = await currentUser.getIdToken();
+
+      const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          action: 'acceptPolicyConsent',
+          tosVersion: CURRENT_POLICY_VERSION,
+          privacyVersion: CURRENT_POLICY_VERSION,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save consent');
+
       onAccept();
     } catch (err) {
       console.error('Failed to save policy consent:', err);

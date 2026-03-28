@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { OperaCloudConfig } from "../integrations/operaCloud/types";
+import { OperaCloudConfig } from "../services/pms/providers/operaCloud/types";
 
 export type PSPType = "stripe" | "adyen";
 

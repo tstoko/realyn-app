@@ -7,6 +7,9 @@ import * as admin from "firebase-admin";
 import axios from "axios";
 const pdfParse = require("pdf-parse");
 
+import type { PMSMatchResult } from "./pms/pmsLookupService";
+import { EvidenceRequirement, EvidenceItem, EvidencePlan } from "../types/aiDispute";
+
 export interface EvidenceFile {
   id: string;
   fileName: string;
@@ -93,7 +96,7 @@ export async function registerEvidenceFile(params: {
 }
 
 /**
- * Vision-compatible file for GPT-5.2-Pro analysis
+ * Vision-compatible file for Claude vision analysis
  */
 export interface VisionEvidenceFile {
   url: string;
@@ -118,13 +121,13 @@ export interface PDFEvidenceFile {
 // Enriched Evidence Types (for comprehensive AI context)
 // =============================================================================
 
-import { EvidenceRequirement, EvidenceItem, EvidencePlan } from "../types/aiDispute";
-
 /**
- * Stripe evidence field names
- * These are the actual fields Stripe accepts in dispute evidence submission
+ * PSP-agnostic evidence slot names.
+ * These represent meaningful evidence categories used across all PSP adapters.
+ * The values align with Stripe's field names for backward compatibility,
+ * but PSP-specific translation happens in the submission layer.
  */
-export type StripeEvidenceField = 
+export type EvidenceSlot = 
   | 'cancellation_policy'
   | 'cancellation_policy_disclosure'
   | 'refund_policy'
@@ -137,10 +140,13 @@ export type StripeEvidenceField =
   | 'uncategorized_file'
   | 'uncategorized_text';
 
+/** @deprecated Use EvidenceSlot instead */
+export type StripeEvidenceField = EvidenceSlot;
+
 /**
- * Maps evidence categories to their primary Stripe evidence field
+ * Maps evidence categories to their primary evidence slot
  */
-export const CATEGORY_TO_STRIPE_FIELD: Record<string, StripeEvidenceField> = {
+export const CATEGORY_TO_EVIDENCE_SLOT: Record<string, EvidenceSlot> = {
   policy: 'cancellation_policy',
   pms_data: 'service_documentation',
   proof_of_stay: 'service_documentation',
@@ -149,17 +155,19 @@ export const CATEGORY_TO_STRIPE_FIELD: Record<string, StripeEvidenceField> = {
   incident_reports: 'uncategorized_file',
   delivery: 'shipping_documentation',
   other: 'uncategorized_file',
-  // Also map the shorter category names used in EvidenceFile
   pms: 'service_documentation',
   proofOfStay: 'service_documentation',
   comms: 'customer_communication',
   incidentReports: 'uncategorized_file',
 };
 
+/** @deprecated Use CATEGORY_TO_EVIDENCE_SLOT instead */
+export const CATEGORY_TO_STRIPE_FIELD = CATEGORY_TO_EVIDENCE_SLOT;
+
 /**
- * Human-readable descriptions of Stripe evidence fields
+ * Human-readable descriptions for each evidence slot
  */
-export const STRIPE_FIELD_DESCRIPTIONS: Record<StripeEvidenceField, string> = {
+export const EVIDENCE_SLOT_DESCRIPTIONS: Record<EvidenceSlot, string> = {
   cancellation_policy: "Your cancellation policy as shown to the customer",
   cancellation_policy_disclosure: "Proof the customer was shown the cancellation policy",
   refund_policy: "Your refund policy as shown to the customer",
@@ -172,6 +180,9 @@ export const STRIPE_FIELD_DESCRIPTIONS: Record<StripeEvidenceField, string> = {
   uncategorized_file: "Additional supporting documentation",
   uncategorized_text: "Additional text explanation",
 };
+
+/** @deprecated Use EVIDENCE_SLOT_DESCRIPTIONS instead */
+export const STRIPE_FIELD_DESCRIPTIONS = EVIDENCE_SLOT_DESCRIPTIONS;
 
 /**
  * Enriched evidence combining requirement, status, file, and extracted content
@@ -191,11 +202,19 @@ export interface EnrichedEvidence {
   pdfText?: string;
   pdfPageCount?: number;
   
+  // Pre-formatted text from structured PMS data (bypasses PDF round-trip)
+  structuredPmsText?: string;
+  
   // Image URL for vision analysis (if applicable)
   imageUrl?: string;
   
-  // Which Stripe evidence field this maps to
-  stripeField: StripeEvidenceField;
+  // PSP-agnostic evidence slot this maps to
+  evidenceSlot: EvidenceSlot;
+  evidenceSlotDescription: string;
+  
+  /** @deprecated Use evidenceSlot */
+  stripeField: EvidenceSlot;
+  /** @deprecated Use evidenceSlotDescription */
   stripeFieldDescription: string;
   
   // Priority label for display
@@ -203,8 +222,8 @@ export interface EnrichedEvidence {
 }
 
 /**
- * Supported file types for GPT-5.2 vision analysis
- * Note: OpenAI vision API only supports image formats, not PDFs
+ * Supported file types for Claude vision analysis.
+ * Vision only supports image formats, not PDFs directly.
  */
 const VISION_SUPPORTED_TYPES = [
   'image/jpeg',
@@ -227,8 +246,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 /**
- * Get evidence files formatted for GPT-5.2-Pro vision analysis
- * Filters to supported file types and returns URLs with context
+ * Get evidence files formatted for Claude vision analysis.
+ * Filters to supported file types and returns URLs with context.
  */
 export async function getEvidenceFilesForVision(
   disputeId: string
@@ -263,7 +282,7 @@ export async function getEvidenceFilesForVision(
     });
   }
 
-  // Limit to prevent token overflow (GPT-5.2 can handle many, but be reasonable)
+  // Limit to prevent token overflow (Claude can handle many, but be reasonable)
   const MAX_VISION_FILES = 10;
   if (visionFiles.length > MAX_VISION_FILES) {
     console.warn(`[Vision] Too many evidence files (${visionFiles.length}), limiting to ${MAX_VISION_FILES}`);
@@ -385,6 +404,135 @@ function getPriorityLabel(priority: number): string {
   return "LOW";
 }
 
+// =============================================================================
+// PMS Structured Text Formatters (bypass PDF round-trip)
+// =============================================================================
+
+/**
+ * Format PMS match data as text for a specific evidence requirement.
+ * Returns the same information the PDF would contain, without the
+ * generate → upload → download → parse cycle.
+ */
+export function formatPmsDataAsText(
+  pmsMatch: PMSMatchResult,
+  requirement: EvidenceRequirement
+): string | null {
+  const tag = requirement.tag || "";
+  const labelLower = requirement.label.toLowerCase();
+
+  const isFolio = tag === "folio" || tag === "reservation_folio" ||
+    labelLower.includes("folio") || labelLower.includes("invoice");
+
+  if (isFolio && pmsMatch.folio) {
+    return formatFolioText(pmsMatch);
+  }
+
+  if (tag === "checkin_checkout_records" || labelLower.includes("check-in") ||
+      labelLower.includes("check-out") || labelLower.includes("reservation")) {
+    return formatReservationText(pmsMatch);
+  }
+
+  if (tag === "keycard_logs" || tag === "guest_activity_log" ||
+      labelLower.includes("activity") || labelLower.includes("keycard") || labelLower.includes("key card")) {
+    return formatActivityLogText(pmsMatch);
+  }
+
+  if (tag === "authorization_records" || labelLower.includes("authorization") || labelLower.includes("payment")) {
+    return formatPaymentRecordsText(pmsMatch);
+  }
+
+  if (pmsMatch.reservation) {
+    return formatReservationText(pmsMatch);
+  }
+
+  return null;
+}
+
+function formatFolioText(match: PMSMatchResult): string {
+  const folio = match.folio!;
+  const lines: string[] = [];
+  lines.push(`RESERVATION FOLIO — Confirmation: ${folio.confirmationNumber}`);
+  lines.push(`Guest: ${match.reservation.guestName}`);
+  lines.push(`Check-in: ${match.reservation.checkIn}  |  Check-out: ${match.reservation.checkOut}`);
+  if (match.reservation.roomNumber) lines.push(`Room: ${match.reservation.roomNumber}`);
+  if (match.reservation.roomType) lines.push(`Room Type: ${match.reservation.roomType}`);
+  lines.push("");
+  lines.push("LINE ITEMS:");
+  for (const line of folio.lines) {
+    const sign = line.amount < 0 ? "-" : " ";
+    lines.push(`  ${line.date}  ${sign}${folio.currency} ${(Math.abs(line.amount) / 100).toFixed(2)}  ${line.description} (${line.category})`);
+  }
+  lines.push("");
+  lines.push(`Total Charges: ${folio.currency} ${(folio.totalCharges / 100).toFixed(2)}`);
+  lines.push(`Total Payments: ${folio.currency} ${(folio.totalPayments / 100).toFixed(2)}`);
+  lines.push(`Balance: ${folio.currency} ${(folio.balance / 100).toFixed(2)}`);
+  lines.push("");
+  lines.push(`Source: ${match.source} (confidence: ${match.confidence}%)`);
+  return lines.join("\n");
+}
+
+function formatReservationText(match: PMSMatchResult): string {
+  const r = match.reservation;
+  const lines: string[] = [];
+  lines.push(`RESERVATION RECORD — Confirmation: ${r.confirmationNumber}`);
+  lines.push(`Guest: ${r.guestName}`);
+  if (r.guestEmail) lines.push(`Email: ${r.guestEmail}`);
+  lines.push(`Check-in: ${r.checkIn}  |  Check-out: ${r.checkOut}`);
+  if (r.roomNumber) lines.push(`Room: ${r.roomNumber}`);
+  if (r.roomType) lines.push(`Room Type: ${r.roomType}`);
+  if (r.ratePlan) lines.push(`Rate Plan: ${r.ratePlan}`);
+  lines.push(`Total: ${r.currency} ${(r.totalAmount / 100).toFixed(2)}`);
+  lines.push(`Status: ${r.status}`);
+  if (r.bookingSource) lines.push(`Booking Source: ${r.bookingSource}`);
+  if (r.paymentMethodLast4) lines.push(`Card Last 4: ${r.paymentMethodLast4}`);
+  lines.push("");
+  lines.push(`Source: ${match.source} (confidence: ${match.confidence}%)`);
+  return lines.join("\n");
+}
+
+function formatActivityLogText(match: PMSMatchResult): string {
+  const lines: string[] = [];
+  lines.push(`ACTIVITY LOG — Confirmation: ${match.confirmationNumber}`);
+  lines.push(`Guest: ${match.reservation.guestName}`);
+  lines.push("");
+  if (match.activityLogs.length === 0) {
+    lines.push("No activity logs available.");
+  } else {
+    for (const log of match.activityLogs) {
+      const detail = log.details ? ` — ${log.details}` : "";
+      const by = log.performedBy ? ` [${log.performedBy}]` : "";
+      lines.push(`  ${log.timestamp}  ${log.action}${detail}${by}`);
+    }
+  }
+  lines.push("");
+  lines.push(`Source: ${match.source} (confidence: ${match.confidence}%)`);
+  return lines.join("\n");
+}
+
+function formatPaymentRecordsText(match: PMSMatchResult): string {
+  const lines: string[] = [];
+  lines.push(`PAYMENT RECORDS — Confirmation: ${match.confirmationNumber}`);
+  lines.push(`Guest: ${match.reservation.guestName}`);
+  lines.push("");
+  if (match.folio) {
+    const paymentLines = match.folio.lines.filter(l => l.category === "payment");
+    if (paymentLines.length === 0) {
+      lines.push("No payment line items on folio.");
+    } else {
+      for (const line of paymentLines) {
+        const sign = line.amount < 0 ? "-" : " ";
+        lines.push(`  ${line.date}  ${sign}${match.folio.currency} ${(Math.abs(line.amount) / 100).toFixed(2)}  ${line.description}`);
+        if (line.reference) lines.push(`    Ref: ${line.reference}`);
+      }
+    }
+  } else {
+    lines.push("No folio data available for payment records.");
+  }
+  lines.push("");
+  lines.push(`Source: ${match.source} (confidence: ${match.confidence}%)`);
+  return lines.join("\n");
+}
+
 /**
  * Get enriched evidence combining requirements, items, files, and extracted content
  * This provides comprehensive context to the AI for generating top-notch arguments
@@ -397,13 +545,17 @@ function getPriorityLabel(priority: number): string {
 export async function getEnrichedEvidence(
   disputeId: string,
   evidencePlan: EvidencePlan,
-  evidenceItems: EvidenceItem[]
+  evidenceItems: EvidenceItem[],
+  options?: {
+    preloadedFiles?: EvidenceFile[];
+    pmsMatch?: PMSMatchResult;
+  }
 ): Promise<EnrichedEvidence[]> {
   console.log(`[EnrichedEvidence] Building enriched evidence for dispute ${disputeId}`);
   
-  // Fetch all evidence files for this dispute
-  const evidenceFiles = await getEvidenceFiles(disputeId);
-  console.log(`[EnrichedEvidence] Found ${evidenceFiles.length} evidence files`);
+  // Use pre-loaded files if provided, otherwise fetch from Firestore
+  const evidenceFiles = options?.preloadedFiles || await getEvidenceFiles(disputeId);
+  console.log(`[EnrichedEvidence] Found ${evidenceFiles.length} evidence files${options?.preloadedFiles ? " (pre-loaded)" : ""}`);
   
   const enrichedList: EnrichedEvidence[] = [];
   
@@ -417,16 +569,18 @@ export async function getEnrichedEvidence(
       continue;
     }
     
-    // Determine Stripe field mapping
-    const stripeField = CATEGORY_TO_STRIPE_FIELD[requirement.category] || 'uncategorized_file';
-    const stripeFieldDescription = STRIPE_FIELD_DESCRIPTIONS[stripeField];
+    // Determine evidence slot mapping
+    const evidenceSlot = CATEGORY_TO_EVIDENCE_SLOT[requirement.category] || 'uncategorized_file';
+    const evidenceSlotDescription = EVIDENCE_SLOT_DESCRIPTIONS[evidenceSlot];
     
     // Build base enriched evidence
     const enriched: EnrichedEvidence = {
       requirement,
       item,
-      stripeField,
-      stripeFieldDescription,
+      evidenceSlot,
+      evidenceSlotDescription,
+      stripeField: evidenceSlot,
+      stripeFieldDescription: evidenceSlotDescription,
       priorityLabel: getPriorityLabel(requirement.priority),
     };
     
@@ -437,17 +591,31 @@ export async function getEnrichedEvidence(
       if (file) {
         enriched.file = file;
         
-        // Check if it's a PDF and extract text
-        const isPDF = file.fileType.toLowerCase() === 'application/pdf' ||
-                      file.fileType.toLowerCase().includes('pdf') ||
-                      file.fileName.toLowerCase().endsWith('.pdf');
+        const isPmsAutoCollected = file.uploadedBy === 'system:pms_auto_collect';
         
-        if (isPDF) {
-          console.log(`[EnrichedEvidence] Extracting PDF text for ${file.fileName}`);
-          const pdfResult = await getPDFTextContent(file.downloadURL);
-          if (pdfResult) {
-            enriched.pdfText = pdfResult.text;
-            enriched.pdfPageCount = pdfResult.pageCount;
+        // For PMS auto-collected files, use structured text directly
+        // instead of downloading the generated PDF and re-parsing it.
+        if (isPmsAutoCollected && options?.pmsMatch) {
+          const structuredText = formatPmsDataAsText(options.pmsMatch, requirement);
+          if (structuredText) {
+            enriched.structuredPmsText = structuredText;
+            console.log(`[EnrichedEvidence] Using structured PMS text for ${file.fileName} (skipped PDF download)`);
+          }
+        }
+        
+        // Fall back to PDF extraction if no structured text is available
+        if (!enriched.structuredPmsText) {
+          const isPDF = file.fileType.toLowerCase() === 'application/pdf' ||
+                        file.fileType.toLowerCase().includes('pdf') ||
+                        file.fileName.toLowerCase().endsWith('.pdf');
+          
+          if (isPDF) {
+            console.log(`[EnrichedEvidence] Extracting PDF text for ${file.fileName}`);
+            const pdfResult = await getPDFTextContent(file.downloadURL);
+            if (pdfResult) {
+              enriched.pdfText = pdfResult.text;
+              enriched.pdfPageCount = pdfResult.pageCount;
+            }
           }
         }
         
@@ -483,8 +651,9 @@ export async function getEnrichedEvidence(
   // Log summary
   const uploaded = enrichedList.filter(e => e.item.status === 'uploaded').length;
   const withPDF = enrichedList.filter(e => e.pdfText).length;
+  const withPmsText = enrichedList.filter(e => e.structuredPmsText).length;
   const withImage = enrichedList.filter(e => e.imageUrl).length;
-  console.log(`[EnrichedEvidence] Summary: ${uploaded} uploaded, ${withPDF} with PDF text, ${withImage} with images`);
+  console.log(`[EnrichedEvidence] Summary: ${uploaded} uploaded, ${withPDF} with PDF text, ${withPmsText} with PMS text, ${withImage} with images`);
   
   return enrichedList;
 }

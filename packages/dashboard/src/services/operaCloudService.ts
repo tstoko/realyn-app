@@ -1,5 +1,4 @@
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { db, auth } from '@realyn/shared';
+import { auth } from '@realyn/shared';
 import { FUNCTIONS_BASE_URL } from '../config/environment';
 import type { OperaCloudIntegration } from '@realyn/shared';
 
@@ -95,16 +94,23 @@ export async function testOperaCloudConnection(
 }
 
 /**
- * Persist OPERA Cloud configuration to the organization document.
- * Sensitive fields (oauthClientSecret, appKey, integrationPassword) are
- * stripped — they only transit through the test-connection Cloud Function
- * which encrypts them server-side.
+ * Persist OPERA Cloud configuration via Cloud Function.
+ * Secrets are sent in plaintext over HTTPS; the backend encrypts them
+ * server-side before writing to Firestore.
  */
 export async function saveOperaCloudConfig(
   orgId: string,
-  config: OperaCloudIntegration
+  config: OperaCloudIntegration & {
+    oauthClientSecret?: string;
+    appKey?: string;
+    integrationPassword?: string;
+  }
 ): Promise<void> {
-  const safeConfig: OperaCloudIntegration = {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not authenticated');
+  const idToken = await currentUser.getIdToken();
+
+  const payload: Record<string, any> = {
     gatewayUrl: config.gatewayUrl,
     authMode: config.authMode,
     oauthClientId: config.oauthClientId,
@@ -115,9 +121,23 @@ export async function saveOperaCloudConfig(
     lastTestedAt: config.lastTestedAt,
   };
 
-  const orgRef = doc(db, 'organizations', orgId);
-  await updateDoc(orgRef, {
-    operaCloudIntegration: safeConfig,
-    updatedAt: Timestamp.now(),
+  if (config.oauthClientSecret) payload.oauthClientSecret = config.oauthClientSecret;
+  if (config.appKey) payload.appKey = config.appKey;
+  if (config.integrationPassword) payload.integrationPassword = config.integrationPassword;
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/organizationWriteHandler`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      action: 'saveOperaCloudConfig',
+      organizationId: orgId,
+      config: payload,
+    }),
   });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }

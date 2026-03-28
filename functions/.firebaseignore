@@ -1,0 +1,9 @@
+node_modules/.cache
+src
+*.ts
+!lib/**/*.js
+tsconfig.json
+.eslintrc.js
+jest.config.*
+**/*.test.*
+**/*.spec.*

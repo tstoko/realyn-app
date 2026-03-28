@@ -1,6 +1,8 @@
-import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, auth } from './firebase';
 import type { UserPreferences } from '../types';
+
+const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
 
 /**
  * Default user preferences
@@ -56,42 +58,25 @@ export async function getUserPreferences(userId: string): Promise<UserPreference
 }
 
 /**
- * Update user preferences in Firestore
- * Merges with existing preferences (doesn't overwrite entire object)
+ * Update user preferences via Cloud Function
  */
 export async function updateUserPreferences(
   userId: string,
   preferences: Partial<UserPreferences>
 ): Promise<void> {
-  const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  
-  if (!userDoc.exists()) {
-    throw new Error('User not found');
-  }
-  
-  const currentData = userDoc.data();
-  const currentPreferences = currentData.preferences || {};
-  
-  // Deep merge preferences
-  const updatedPreferences: UserPreferences = {
-    ...DEFAULT_PREFERENCES,
-    ...currentPreferences,
-    ...preferences,
-    notifications: {
-      ...DEFAULT_PREFERENCES.notifications,
-      ...(currentPreferences.notifications || {}),
-      ...(preferences.notifications || {}),
-    },
-  };
-  
-  await setDoc(
-    userRef,
-    {
-      preferences: updatedPreferences,
-      updatedAt: Timestamp.now(),
-    },
-    { merge: true }
-  );
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not authenticated');
+  const idToken = await currentUser.getIdToken();
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+    body: JSON.stringify({
+      action: 'updateUserPreferences',
+      preferences,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }
 

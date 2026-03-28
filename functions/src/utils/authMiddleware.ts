@@ -6,7 +6,8 @@
  */
 
 import * as admin from "firebase-admin";
-import { Request } from "express";
+import { Request, Response } from "express";
+import { shouldEnableTestHandlers } from "../config/environment";
 
 // =============================================================================
 // Types
@@ -201,6 +202,29 @@ export async function verifyUserInOrganization(
     role: userData.role as "admin" | "user",
     organizationId: userData.organizationId,
   };
+}
+
+/**
+ * Gate for test/seed endpoints: disabled in production, requires admin in dev/emulator.
+ * Returns AuthResult when allowed, or null if the request was already rejected.
+ */
+export async function requireTestHandlerAdmin(
+  req: Request,
+  res: Response
+): Promise<AuthResult | null> {
+  if (!shouldEnableTestHandlers()) {
+    res.status(403).json({
+      success: false,
+      error: "Test handlers are disabled in production",
+    });
+    return null;
+  }
+  const authResult = await verifyAdmin(req);
+  if (!authResult.success) {
+    sendAuthError(res, authResult);
+    return null;
+  }
+  return authResult;
 }
 
 // =============================================================================

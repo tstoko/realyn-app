@@ -2,7 +2,7 @@
  * Integration test for the AI evidence planning pipeline.
  *
  * Exercises the full `triggerEvidencePlanning` flow (Steps 0-7) with
- * mocked dependencies so no real OpenAI or Firestore calls are made.
+ * mocked dependencies so no real Anthropic or Firestore calls are made.
  *
  * What is verified:
  * - The orchestrator calls each specialist in order

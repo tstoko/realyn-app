@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "realyn-app"
+    "default": "realyn-app",
+    "staging": "realyn-app-staging"
   },
   "targets": {
     "realyn-app": {

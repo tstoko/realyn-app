@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Dispute, User, Hotel } from '@realyn/shared';
 import { EvidenceDashboard } from './EvidenceDashboard';
 import { DisputeDetailModal } from '../disputes/DisputeDetailModal';
+import { isDisputeEvidenceReadOnly } from '../disputes/disputeEvidenceReadOnly';
 
 interface AIActionsProps {
     disputes: Dispute[];
@@ -80,9 +81,13 @@ export const AIActions: React.FC<AIActionsProps> = ({ disputes, updateDispute, u
                             </button>
                             <button
                                 onClick={() => setModalDispute(dispute)}
-                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-cyan-600 hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-600"
+                                className={`inline-flex items-center px-3 py-1.5 border text-xs font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-600 ${
+                                  isDisputeEvidenceReadOnly(dispute)
+                                    ? 'border-slate-600 text-slate-200 bg-slate-800 hover:bg-slate-700'
+                                    : 'border-transparent text-white bg-cyan-600 hover:bg-cyan-700'
+                                }`}
                             >
-                                {getActionText(dispute)}
+                                {isDisputeEvidenceReadOnly(dispute) ? 'View case' : getActionText(dispute)}
                             </button>
                        </div>
                    </div>
@@ -98,7 +103,16 @@ export const AIActions: React.FC<AIActionsProps> = ({ disputes, updateDispute, u
                </div>
            ))}
         </div>
-        {modalDispute && <EvidenceDashboard dispute={modalDispute} onClose={() => setModalDispute(null)} updateDispute={updateDispute} hotel={hotel} user={user} />}
+        {modalDispute && (
+          <EvidenceDashboard
+            dispute={modalDispute}
+            onClose={() => setModalDispute(null)}
+            updateDispute={updateDispute}
+            hotel={hotel}
+            user={user}
+            readOnly={isDisputeEvidenceReadOnly(modalDispute)}
+          />
+        )}
         {detailDispute && <DisputeDetailModal dispute={detailDispute} onClose={() => setDetailDispute(null)} updateDispute={updateDispute} user={user} hotel={hotel} />}
         </>
     );

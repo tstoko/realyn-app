@@ -16,26 +16,27 @@ import {
 } from "../../../types/aiDispute";
 import { DisputeCodeInfo } from "../../../config/disputeCodeMapping";
 import { callLLM, LLMCallOptions } from "../llmService";
+import { buildDisputeContextBlock } from "../promptHelpers";
 
 // ============================================================
 // System Prompt
 // ============================================================
 
-const STRATEGY_ADVISOR_SYSTEM_PROMPT = `You are a senior hotel dispute strategist. You receive detailed reports from three specialist analysts and synthesize them into a clear dispute strategy.
+const STRATEGY_ADVISOR_SYSTEM_PROMPT = `You are a senior dispute strategist. You receive detailed reports from three specialist analysts and synthesize them into a clear dispute strategy.
 
 ## YOUR ROLE
 
 You review:
 1. **Claim Analysis** – What the customer is arguing, weak points, required disproofs
-2. **Evidence Analysis** – What documents the hotel already has, gaps in coverage
+2. **Evidence Analysis** – What documents the merchant already has, gaps in coverage
 3. **Relevance Scores** – Which evidence types are most impactful for this dispute
 4. **Dispute Code Info** (when available) – Network rules and standard requirements
 
 Your job is to produce a strategic recommendation:
-- Should the hotel **fight** or **accept** this dispute?
+- Should the merchant **fight** or **accept** this dispute?
 - What is the **primary defense** line?
 - What are the **defense points** and which evidence supports each?
-- What are the **known weaknesses** in the hotel's position?
+- What are the **known weaknesses** in the merchant's position?
 - What evidence should be **prioritized** (what must be gathered vs what's already available)?
 
 ## STRATEGY GUIDELINES
@@ -51,8 +52,8 @@ Your job is to produce a strategic recommendation:
 - Be concrete: "Signed registration card proves guest checked in" not "We have records"
 
 ### Known Weaknesses
-- Be honest about gaps in the hotel's position
-- Identify arguments the hotel cannot fully counter
+- Be honest about gaps in the merchant's position
+- Identify arguments the merchant cannot fully counter
 - This helps the planner avoid over-promising
 
 ### Evidence Priority
@@ -78,7 +79,8 @@ export async function synthesizeStrategy(
   existingEvidence: ExistingEvidenceAnalysis | null,
   relevanceScores: EvidenceRelevanceScores | null,
   codeInfo: DisputeCodeInfo | null,
-  options?: Partial<LLMCallOptions>
+  options?: Partial<LLMCallOptions>,
+  pmsMatch?: import("../../../services/pms/pmsLookupService").PMSMatchResult
 ): Promise<DisputeStrategy | null> {
   try {
     const prompt = buildStrategyPrompt(
@@ -86,7 +88,8 @@ export async function synthesizeStrategy(
       claimAnalysis,
       existingEvidence,
       relevanceScores,
-      codeInfo
+      codeInfo,
+      pmsMatch
     );
 
     const result = await callLLM(prompt, DisputeStrategySchema, {
@@ -123,24 +126,17 @@ function buildStrategyPrompt(
   claimAnalysis: ClaimAnalysis,
   existingEvidence: ExistingEvidenceAnalysis | null,
   relevanceScores: EvidenceRelevanceScores | null,
-  codeInfo: DisputeCodeInfo | null
+  codeInfo: DisputeCodeInfo | null,
+  pmsMatch?: import("../../../services/pms/pmsLookupService").PMSMatchResult
 ): string {
   const parts: string[] = [];
 
   parts.push("# DISPUTE STRATEGY SYNTHESIS REQUEST\n");
 
-  // Dispute overview
-  parts.push("## DISPUTE OVERVIEW");
-  parts.push(`- **Amount**: ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}`);
-  parts.push(`- **Reason**: ${disputeCase.reason || "Not specified"}`);
-  parts.push(`- **PSP**: ${disputeCase.pspProvider}`);
-  if (disputeCase.customerExplanation) {
-    parts.push(`- **Customer Claim**: "${disputeCase.customerExplanation}"`);
-  }
-  if (disputeCase.respondByDate) {
-    parts.push(`- **Response Deadline**: ${disputeCase.respondByDate}`);
-  }
-  parts.push("");
+  parts.push(buildDisputeContextBlock(disputeCase, {
+    includePsp: true,
+    includeDates: true,
+  }));
 
   // Code info
   if (codeInfo) {
@@ -151,7 +147,7 @@ function buildStrategyPrompt(
       parts.push(`- **Subcategory**: ${codeInfo.subcategory}`);
     }
     parts.push(`- **Description**: ${codeInfo.description}`);
-    parts.push(`- **Hotel Relevance**: ${codeInfo.hotelRelevance}`);
+    parts.push(`- **Relevance**: ${codeInfo.hotelRelevance}`);
     parts.push(`- **Default Recommendation**: ${codeInfo.defaultRecommendation}`);
     parts.push(`- **Required Evidence**: ${codeInfo.requiredEvidence.join(", ")}`);
     parts.push("");
@@ -254,6 +250,22 @@ function buildStrategyPrompt(
     }
   }
 
+  // PMS match data (available evidence from property management system)
+  if (pmsMatch) {
+    parts.push("## PMS DATA MATCHED");
+    parts.push(`A reservation match was found (confidence: ${pmsMatch.confidence}%, source: ${pmsMatch.source}).`);
+    parts.push(`- Reservation: ${pmsMatch.reservation.guestName}, ${pmsMatch.confirmationNumber}`);
+    parts.push(`- Dates: ${pmsMatch.reservation.checkIn} to ${pmsMatch.reservation.checkOut}, Status: ${pmsMatch.reservation.status}`);
+    if (pmsMatch.folio) {
+      parts.push(`- Folio: ${pmsMatch.folio.lines.length} line items, total charges ${pmsMatch.folio.currency} ${(pmsMatch.folio.totalCharges / 100).toFixed(2)}`);
+    }
+    if (pmsMatch.activityLogs.length > 0) {
+      parts.push(`- Activity logs: ${pmsMatch.activityLogs.length} entries`);
+    }
+    parts.push("This structured PMS data will be auto-collected as evidence. Factor its availability into your confidence assessment.");
+    parts.push("");
+  }
+
   // Task
   parts.push("## YOUR TASK");
   parts.push("Synthesize the above analyst reports into a clear dispute strategy.");
@@ -298,9 +310,9 @@ export function generateFallbackStrategy(
   const defenseByType: Record<string, string> = {
     fraud: "Guest identity was verified at check-in and the transaction was properly authorized",
     cancellation: "The cancellation policy was clearly disclosed and the guest failed to cancel within the allowed window",
-    service: "The hotel provided the agreed services and the guest completed their stay",
+    service: "The merchant provided the agreed services and the customer completed their engagement",
     authorization: "The transaction was properly authorized with the correct amount agreed upon by the guest",
-    other: "Documentation shows the hotel fulfilled its obligations per the booking terms",
+    other: "Documentation shows the merchant fulfilled its obligations per the booking/order terms",
   };
 
   // Build defense points from claim analysis

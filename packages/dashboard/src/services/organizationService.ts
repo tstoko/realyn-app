@@ -1,6 +1,38 @@
-import { collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@realyn/shared';
+import { collection, getDocs, doc, getDoc, Timestamp } from 'firebase/firestore';
+import { db, auth } from '@realyn/shared';
 import type { Organization, PSPIntegrationsConfig } from '@realyn/shared';
+import { FUNCTIONS_BASE_URL } from '../config/environment';
+
+function toDate(value: unknown): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date) return value;
+  if (value instanceof Timestamp) return value.toDate();
+  if (typeof (value as any).toDate === 'function') return (value as any).toDate();
+  if (typeof value === 'string') return new Date(value);
+  if (typeof value === 'object' && ('seconds' in (value as any))) {
+    return new Date((value as any).seconds * 1000);
+  }
+  return undefined;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('User not authenticated');
+  const idToken = await currentUser.getIdToken();
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+}
+
+async function callOrgWriteHandler(body: Record<string, any>): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/organizationWriteHandler`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
+  return data;
+}
 
 /**
  * Get all organizations from Firestore
@@ -13,6 +45,7 @@ export async function getAllOrganizations(): Promise<Organization[]> {
       id: doc.id,
       name: data.name || 'Unnamed Organization',
       location: data.location || '',
+      industry: data.industry || undefined,
       pspIntegrations: data.pspIntegrations || {},
       pmsIntegrations: data.pmsIntegrations || {},
       automationSettings: data.automationSettings || {
@@ -26,11 +59,11 @@ export async function getAllOrganizations(): Promise<Organization[]> {
       pmsIntegration: data.pmsIntegration || undefined,
       operaCloudIntegration: data.operaCloudIntegration ? {
         ...data.operaCloudIntegration,
-        lastTestedAt: data.operaCloudIntegration.lastTestedAt?.toDate?.() || undefined,
+        lastTestedAt: toDate(data.operaCloudIntegration.lastTestedAt),
       } : undefined,
       isDemo: data.isDemo || false,
-      createdAt: data.createdAt?.toDate() || new Date(),
-      updatedAt: data.updatedAt?.toDate() || new Date(),
+      createdAt: toDate(data.createdAt) || new Date(),
+      updatedAt: toDate(data.updatedAt) || new Date(),
     } as Organization;
   });
 }
@@ -51,6 +84,7 @@ export async function getOrganization(organizationId: string): Promise<Organizat
     id: docSnap.id,
     name: data.name || 'Unnamed Organization',
     location: data.location || '',
+    industry: data.industry || undefined,
     pspIntegrations: data.pspIntegrations || {},
     pmsIntegrations: data.pmsIntegrations || {},
     automationSettings: data.automationSettings || {
@@ -64,70 +98,77 @@ export async function getOrganization(organizationId: string): Promise<Organizat
     pmsIntegration: data.pmsIntegration || undefined,
     operaCloudIntegration: data.operaCloudIntegration ? {
       ...data.operaCloudIntegration,
-      lastTestedAt: data.operaCloudIntegration.lastTestedAt?.toDate?.() || undefined,
+      lastTestedAt: toDate(data.operaCloudIntegration.lastTestedAt),
     } : undefined,
-    createdAt: data.createdAt?.toDate() || new Date(),
-    updatedAt: data.updatedAt?.toDate() || new Date(),
+    createdAt: toDate(data.createdAt) || new Date(),
+    updatedAt: toDate(data.updatedAt) || new Date(),
   } as Organization;
 }
 
 /**
- * Create or update organization
+ * Create or update organization via Cloud Function
  */
 export async function saveOrganization(organization: Organization): Promise<void> {
-  const orgRef = doc(db, 'organizations', organization.id);
-  const now = Timestamp.now();
-  
   const orgData: Record<string, unknown> = {
+    id: organization.id,
     name: organization.name,
     location: organization.location,
+    industry: organization.industry || '',
     pspIntegrations: organization.pspIntegrations,
     pmsIntegrations: organization.pmsIntegrations,
     automationSettings: organization.automationSettings,
     teams: organization.teams,
     documents: organization.documents,
     users: organization.users,
-    createdAt: organization.createdAt ? Timestamp.fromDate(organization.createdAt) : now,
-    updatedAt: now,
+    createdAt: organization.createdAt ? organization.createdAt.toISOString() : new Date().toISOString(),
   };
   if (organization.pmsIntegration) orgData.pmsIntegration = organization.pmsIntegration;
   if (organization.operaCloudIntegration) orgData.operaCloudIntegration = organization.operaCloudIntegration;
 
-  await setDoc(orgRef, orgData, { merge: true });
+  await callOrgWriteHandler({
+    action: 'saveOrganization',
+    organization: orgData,
+  });
 }
 
 /**
- * Delete organization
+ * Delete organization via existing Cloud Function
  */
 export async function deleteOrganization(organizationId: string): Promise<void> {
-  const orgRef = doc(db, 'organizations', organizationId);
-  await deleteDoc(orgRef);
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/deleteOrganization`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ organizationId }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }
 
 /**
- * Update organization documents (policies)
+ * Update organization documents (policies) via Cloud Function
  */
 export async function updateOrganizationDocuments(
   organizationId: string,
   documents: Organization['documents']
 ): Promise<void> {
-  const orgRef = doc(db, 'organizations', organizationId);
-  await updateDoc(orgRef, {
+  await callOrgWriteHandler({
+    action: 'updateOrganizationDocuments',
+    organizationId,
     documents,
-    updatedAt: Timestamp.now(),
   });
 }
 
 /**
- * Update organization PSP integrations
+ * Update organization PSP integrations via Cloud Function
  */
 export async function updateOrganizationIntegrations(
   organizationId: string,
   pspIntegrations: PSPIntegrationsConfig
 ): Promise<void> {
-  const orgRef = doc(db, 'organizations', organizationId);
-  await updateDoc(orgRef, {
+  await callOrgWriteHandler({
+    action: 'updateOrganizationIntegrations',
+    organizationId,
     pspIntegrations,
-    updatedAt: Timestamp.now(),
   });
 }

@@ -1,31 +1,19 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
 
-/**
- * TEST-ONLY admin endpoint to update dispute fields in Firestore (bypasses rules).
- *
- * Usage: POST /adminUpdateDispute
- * Body: {
- *   disputeId: string,
- *   updates: {
- *     reason?: string,
- *     customerExplanation?: string,
- *     amount?: number,
- *     currency?: string,
- *     pspLast4Digits?: string,
- *     pspTransactionDate?: string // ISO date
- *   },
- *   auditNote?: string
- * }
- *
- * WARNING: Protect/remove in production.
- */
 export const adminUpdateDispute = onRequest(
   { cors: true },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
       return;
     }
 

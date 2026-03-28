@@ -93,20 +93,27 @@ function isUrgentDeadline(respondByDate: string | undefined): boolean {
   }
 }
 
+export interface PlanningOptions {
+  /** When true, re-run all specialist LLM calls even if cached results exist. */
+  forceRefresh?: boolean;
+}
+
 /**
  * Trigger evidence planning for a dispute
  * This is the main entry point for the evidence planning workflow.
  */
 export async function triggerEvidencePlanning(
   disputeId: string,
-  organizationId: string
+  organizationId: string,
+  options?: PlanningOptions
 ): Promise<PlanningResult> {
   const db = admin.firestore();
   const startTime = Date.now();
   let warningMsg: string | undefined;
+  const forceRefresh = options?.forceRefresh ?? false;
 
   try {
-    console.log(`[EvidencePlanning] Starting for dispute ${disputeId}`);
+    console.log(`[EvidencePlanning] Starting for dispute ${disputeId}${forceRefresh ? " (force refresh)" : ""}`);
 
     // ============================================================
     // STEP 0: Build case + resolve code info + sanitize PII
@@ -135,14 +142,34 @@ export async function triggerEvidencePlanning(
       console.log(`[EvidencePlanning] Folio available${folioUrl ? `: ${folioUrl}` : ""}`);
     }
 
+    // Extract PMS match from the builder (attached as non-schema property)
+    const pmsMatch = (disputeCase as any).pmsMatch || undefined;
+    if (pmsMatch) {
+      console.log(`[EvidencePlanning] PMS match available: ${pmsMatch.confirmationNumber} (${pmsMatch.source}, ${pmsMatch.confidence}%)`);
+    }
+
+    // Load cached specialist outputs from the dispute document (if any)
+    const cachedDoc = await db.collection("disputes").doc(disputeId).get();
+    const cachedData = cachedDoc.data();
+    const cachedClaimAnalysis = cachedData?.cachedClaimAnalysis as ClaimAnalysis | undefined;
+    const cachedExistingEvidence = cachedData?.cachedExistingEvidence as ExistingEvidenceAnalysis | undefined;
+
     // ============================================================
     // STEP 1: Claim Analyst (guaranteed result via fallback)
     // ============================================================
-    console.log(`[EvidencePlanning] Step 1: Claim Analyst`);
-    let claimAnalysis: ClaimAnalysis | null = await analyzeClaim(sanitizedCase);
-    if (!claimAnalysis) {
-      console.log(`[EvidencePlanning] Claim Analyst LLM failed, using fallback`);
-      claimAnalysis = generateFallbackClaimAnalysis(disputeCase);
+    let claimAnalysis: ClaimAnalysis;
+    if (cachedClaimAnalysis && !forceRefresh) {
+      console.log(`[EvidencePlanning] Step 1: Using cached Claim Analysis (type=${cachedClaimAnalysis.claimType})`);
+      claimAnalysis = cachedClaimAnalysis;
+    } else {
+      console.log(`[EvidencePlanning] Step 1: Claim Analyst${cachedClaimAnalysis ? " (force refresh)" : ""}`);
+      const result = await analyzeClaim(sanitizedCase);
+      if (!result) {
+        console.log(`[EvidencePlanning] Claim Analyst LLM failed, using fallback`);
+        claimAnalysis = generateFallbackClaimAnalysis(disputeCase);
+      } else {
+        claimAnalysis = result;
+      }
     }
     console.log(
       `[EvidencePlanning] Claim Analysis: type=${claimAnalysis.claimType}, ` +
@@ -152,12 +179,18 @@ export async function triggerEvidencePlanning(
     // ============================================================
     // STEP 2: Evidence Analyzer (informed by claim)
     // ============================================================
-    console.log(`[EvidencePlanning] Step 2: Evidence Analyzer (with claim context)`);
-    const existingEvidence: ExistingEvidenceAnalysis | null = await analyzeExistingEvidence(
-      organizationId,
-      sanitizedCase,
-      claimAnalysis
-    );
+    let existingEvidence: ExistingEvidenceAnalysis | null;
+    if (cachedExistingEvidence && !forceRefresh) {
+      console.log(`[EvidencePlanning] Step 2: Using cached Evidence Analysis`);
+      existingEvidence = cachedExistingEvidence;
+    } else {
+      console.log(`[EvidencePlanning] Step 2: Evidence Analyzer (with claim context)${cachedExistingEvidence ? " (force refresh)" : ""}`);
+      existingEvidence = await analyzeExistingEvidence(
+        organizationId,
+        sanitizedCase,
+        claimAnalysis
+      );
+    }
     if (existingEvidence) {
       console.log(
         `[EvidencePlanning] Existing Evidence: ${existingEvidence.availableDocuments.length} docs, ` +
@@ -193,7 +226,8 @@ export async function triggerEvidencePlanning(
         existingEvidence,
         relevanceScores,
         codeInfo,
-        { retries: 1 }
+        { retries: 1 },
+        pmsMatch
       );
     } else {
       const reason = urgent ? "urgent deadline" : "time budget";
@@ -241,6 +275,8 @@ export async function triggerEvidencePlanning(
         revisionFeedback: attempt > 0 ? revisionFeedback : undefined,
         hasFolio,
         respondByDate: disputeCase.respondByDate,
+        pmsMatch,
+        merchantVertical: disputeCase.merchantVertical,
       };
 
       // Generate the plan (planner receives sanitizedCase)
@@ -348,6 +384,9 @@ export async function triggerEvidencePlanning(
         evidencePlanVersions: updatedVersions,
         lifecycleStatus: "evidence_in_progress",
         internalStatus: "awaiting_docs",
+        // Cache specialist outputs so regeneration can skip Steps 1-2
+        cachedClaimAnalysis: claimAnalysis,
+        cachedExistingEvidence: existingEvidence || null,
         updatedAt: FieldValue.serverTimestamp(),
       });
 
@@ -394,10 +433,11 @@ export async function triggerEvidencePlanning(
  */
 export async function regenerateEvidencePlan(
   disputeId: string,
-  organizationId: string
+  organizationId: string,
+  options?: PlanningOptions
 ): Promise<PlanningResult> {
   console.log(`Regenerating evidence plan for dispute ${disputeId}`);
-  return triggerEvidencePlanning(disputeId, organizationId);
+  return triggerEvidencePlanning(disputeId, organizationId, options);
 }
 
 /**

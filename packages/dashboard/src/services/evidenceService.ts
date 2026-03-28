@@ -4,9 +4,29 @@
  */
 
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { collection, doc, setDoc, getDoc, getDocs, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
-import { storage, db } from '@realyn/shared';
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { storage, db, auth } from '@realyn/shared';
 import type { EvidenceItem, EvidencePlan, EvidenceCategory } from '@realyn/shared';
+import { FUNCTIONS_BASE_URL } from '../config/environment';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('User not authenticated');
+  const idToken = await currentUser.getIdToken();
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+}
+
+async function callEvidenceFunction(body: Record<string, any>): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/evidenceWriteHandler`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
+  return data;
+}
 
 export interface EvidenceFile {
   id: string;
@@ -104,17 +124,15 @@ export async function uploadEvidenceFile(
     requirementId,
   };
 
-  // Store metadata in Firestore
-  const evidenceRef = doc(db, 'disputes', disputeId, 'evidence', evidenceFile.id);
-  await setDoc(evidenceRef, {
-    ...evidenceFile,
-    uploadedAt: new Date(evidenceFile.uploadedAt),
-  });
-
-  // Also add to dispute's evidence array for quick access
-  const disputeRef = doc(db, 'disputes', disputeId);
-  await updateDoc(disputeRef, {
-    evidenceFiles: arrayUnion(evidenceFile.id),
+  // Register metadata via Cloud Function
+  await callEvidenceFunction({
+    action: 'registerEvidenceFile',
+    disputeId,
+    organizationId,
+    evidenceFile: {
+      ...evidenceFile,
+      uploadedAt: evidenceFile.uploadedAt.toISOString(),
+    },
   });
 
   return evidenceFile;
@@ -193,20 +211,19 @@ export async function getEvidenceFiles(disputeId: string): Promise<EvidenceFile[
  */
 export async function deleteEvidenceFile(
   disputeId: string,
-  evidenceFile: EvidenceFile
+  evidenceFile: EvidenceFile,
+  organizationId: string
 ): Promise<void> {
   // Delete from Storage
   const storageRef = ref(storage, evidenceFile.storagePath);
   await deleteObject(storageRef);
 
-  // Delete metadata from Firestore
-  const evidenceRef = doc(db, 'disputes', disputeId, 'evidence', evidenceFile.id);
-  await deleteDoc(evidenceRef);
-
-  // Remove from dispute's evidence array
-  const disputeRef = doc(db, 'disputes', disputeId);
-  await updateDoc(disputeRef, {
-    evidenceFiles: arrayRemove(evidenceFile.id),
+  // Remove metadata via Cloud Function
+  await callEvidenceFunction({
+    action: 'removeEvidenceFile',
+    disputeId,
+    organizationId,
+    evidenceFileId: evidenceFile.id,
   });
 }
 
@@ -280,94 +297,26 @@ export async function uploadEvidenceFileWithTracking(
 }
 
 /**
- * Update evidence item to mark it as uploaded with file reference
+ * Update evidence item to mark it as uploaded with file reference via Cloud Function
  */
 export async function updateEvidenceItemWithFile(
   disputeId: string,
   requirementId: string,
   fileId: string,
   fileName: string,
-  uploadedBy?: string
+  uploadedBy?: string,
+  organizationId?: string
 ): Promise<boolean> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    const disputeSnap = await getDoc(disputeRef);
-    
-    if (!disputeSnap.exists()) {
-      console.error('Dispute not found');
-      return false;
-    }
-    
-    const data = disputeSnap.data();
-    const evidenceItems: EvidenceItem[] = data.evidenceItems || [];
-    const plan: EvidencePlan | undefined = data.evidencePlan;
-    
-    // Update the evidence item
-    const updatedItems = evidenceItems.map(item => {
-      if (item.requirementId === requirementId) {
-        return {
-          ...item,
-          status: 'uploaded' as const,
-          fileId,
-          fileName,
-          uploadedAt: new Date().toISOString(),
-          uploadedBy,
-        };
-      }
-      return item;
+    await callEvidenceFunction({
+      action: 'updateEvidenceItemWithFile',
+      disputeId,
+      organizationId: organizationId || '',
+      requirementId,
+      fileId,
+      fileName,
+      uploadedBy,
     });
-    
-    // Check if all required items are complete
-    let lifecycleStatus = data.lifecycleStatus;
-    let internalStatus = data.internalStatus;
-    const previousLifecycleStatus = data.lifecycleStatus;
-    
-    if (plan) {
-      const requiredIds = plan.requirements
-        .filter(r => r.required)
-        .map(r => r.id);
-      
-      const allRequiredComplete = requiredIds.every(id => {
-        const item = updatedItems.find(i => i.requirementId === id);
-        return item && (item.status === 'uploaded' || item.status === 'not_applicable');
-      });
-      
-      if (allRequiredComplete) {
-        lifecycleStatus = 'draft_ready';
-        internalStatus = 'ready_to_submit';
-      } else if (updatedItems.some(i => i.status === 'uploaded')) {
-        lifecycleStatus = 'evidence_in_progress';
-        internalStatus = 'awaiting_docs';
-      }
-    }
-    
-    // Prepare audit trail entry if status changed
-    const auditTrailUpdates: any = {};
-    if (lifecycleStatus !== previousLifecycleStatus) {
-      const auditEntry = {
-        timestamp: new Date(),
-        title: lifecycleStatus === 'draft_ready' 
-          ? 'All Evidence Collected'
-          : 'Evidence Collection Started',
-        description: lifecycleStatus === 'draft_ready'
-          ? 'All required evidence items have been uploaded. Ready to generate draft response.'
-          : `Evidence collection in progress. ${updatedItems.filter(i => i.status === 'uploaded').length} item(s) uploaded.`,
-        status: lifecycleStatus === 'draft_ready' ? 'success' : 'in_progress' as const,
-      };
-      // Get current audit trail and add new entry
-      const currentAuditTrail = data.auditTrail || [];
-      auditTrailUpdates.auditTrail = [...currentAuditTrail, auditEntry];
-    }
-    
-    // Update Firestore
-    await updateDoc(disputeRef, {
-      evidenceItems: updatedItems,
-      lifecycleStatus,
-      internalStatus,
-      updatedAt: new Date(),
-      ...auditTrailUpdates,
-    });
-    
     return true;
   } catch (error) {
     console.error('Error updating evidence item with file:', error);

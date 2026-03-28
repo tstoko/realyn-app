@@ -2,13 +2,8 @@ import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import * as admin from "firebase-admin";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
-/**
- * HTTP endpoint to clear all disputes
- * WARNING: This deletes all disputes!
- * Only use in test/development environments.
- * Requires admin authentication.
- */
 export const clearDisputesHandler = onRequest(
   {
     cors: true,
@@ -19,7 +14,11 @@ export const clearDisputesHandler = onRequest(
       return;
     }
 
-    // Verify admin authentication - this is a destructive operation
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
     const authResult = await verifyAdmin(req);
     if (!authResult.success) {
       sendAuthError(res, authResult);

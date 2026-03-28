@@ -8,12 +8,13 @@
 
 import { DisputeCase, ClaimAnalysis, ClaimAnalysisSchema } from "../../../types/aiDispute";
 import { callLLM } from "../llmService";
+import { buildDisputeContextBlock } from "../promptHelpers";
 
 // ============================================================
 // System Prompt
 // ============================================================
 
-const CLAIM_ANALYST_SYSTEM_PROMPT = `You are an expert hotel dispute claim analyst. Your job is to deeply understand what the customer is claiming and identify how to defeat their argument.
+const CLAIM_ANALYST_SYSTEM_PROMPT = `You are an expert merchant dispute claim analyst. Your job is to deeply understand what the customer is claiming and identify how to defeat their argument.
 
 ## YOUR ROLE
 
@@ -102,72 +103,20 @@ function buildClaimAnalysisPrompt(disputeCase: DisputeCase): string {
 
   parts.push("# CLAIM ANALYSIS REQUEST\n");
 
-  // Dispute details
-  parts.push("## DISPUTE DETAILS");
-  parts.push(`- **Amount**: ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}`);
-  parts.push(`- **Reason Code**: ${disputeCase.reason || "Not specified"}`);
-  parts.push(`- **PSP**: ${disputeCase.pspProvider}`);
-  if (disputeCase.transactionDate) {
-    parts.push(`- **Transaction Date**: ${disputeCase.transactionDate}`);
-  }
-  if (disputeCase.respondByDate) {
-    parts.push(`- **Response Deadline**: ${disputeCase.respondByDate}`);
-  }
-  parts.push("");
+  parts.push(buildDisputeContextBlock(disputeCase, {
+    includePsp: true,
+    includeDates: true,
+    includeHotelProfile: true,
+    includeBooking: true,
+    includePayment: true,
+    paymentVerificationOnly: true,
+  }));
 
-  // Customer's claim - the most important part
-  parts.push("## CUSTOMER'S CLAIM");
-  if (disputeCase.customerExplanation) {
-    parts.push(`"${disputeCase.customerExplanation}"`);
-  } else {
+  // Customer's claim — expanded section (the most important part for this specialist)
+  if (!disputeCase.customerExplanation) {
+    parts.push("## CUSTOMER'S CLAIM");
     parts.push("*No explanation provided by customer*");
     parts.push(`The dispute reason code is: ${disputeCase.reason || "unknown"}`);
-  }
-  parts.push("");
-
-  // Hotel context (if available)
-  if (disputeCase.hotelProfile) {
-    parts.push("## HOTEL CONTEXT");
-    parts.push(`- **Hotel**: ${disputeCase.hotelProfile.name}`);
-    if (disputeCase.hotelProfile.location) {
-      parts.push(`- **Location**: ${disputeCase.hotelProfile.location}`);
-    }
-    parts.push("");
-  }
-
-  // Booking context (if available)
-  if (disputeCase.booking) {
-    parts.push("## BOOKING CONTEXT");
-    if (disputeCase.booking.guestName) {
-      parts.push(`- **Guest Name**: ${disputeCase.booking.guestName}`);
-    }
-    if (disputeCase.booking.checkIn) {
-      parts.push(`- **Check-in**: ${disputeCase.booking.checkIn}`);
-    }
-    if (disputeCase.booking.checkOut) {
-      parts.push(`- **Check-out**: ${disputeCase.booking.checkOut}`);
-    }
-    if (disputeCase.booking.roomNumber) {
-      parts.push(`- **Room**: ${disputeCase.booking.roomNumber}`);
-    }
-    if (disputeCase.booking.status) {
-      parts.push(`- **Booking Status**: ${disputeCase.booking.status}`);
-    }
-    parts.push("");
-  }
-
-  // Payment context (if available)
-  if (disputeCase.paymentData) {
-    parts.push("## PAYMENT CONTEXT");
-    if (disputeCase.paymentData.threeDSecure !== undefined) {
-      parts.push(`- **3D Secure**: ${disputeCase.paymentData.threeDSecure ? "Yes" : "No"}`);
-    }
-    if (disputeCase.paymentData.avsMatch !== undefined) {
-      parts.push(`- **AVS Match**: ${disputeCase.paymentData.avsMatch ? "Yes" : "No"}`);
-    }
-    if (disputeCase.paymentData.cvvMatch !== undefined) {
-      parts.push(`- **CVV Match**: ${disputeCase.paymentData.cvvMatch ? "Yes" : "No"}`);
-    }
     parts.push("");
   }
 

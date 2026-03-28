@@ -3,10 +3,13 @@ import type { User, UserPreferences } from '@realyn/shared';
 import { useToast, auth, updateUserProfile, getUserPreferences, updateUserPreferences, DEFAULT_PREFERENCES } from '@realyn/shared';
 import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { exportUserData, deleteUserAccount } from '../../services/dataRetentionService';
+import { performDemoReset } from '../../services/demoResetService';
 
 interface SettingsModalProps {
   user: User;
   onClose: () => void;
+  /** Current org (property) id — used to pick DICE vs pitch demo reset endpoint */
+  organizationId?: string | null;
 }
 
 type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'help' | 'admin';
@@ -74,9 +77,10 @@ const SelectField: React.FC<{
     </div>
 );
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose, organizationId }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
     const addToast = useToast();
+  const [resettingDemo, setResettingDemo] = useState(false);
   
   // Profile state
   const [name, setName] = useState(user.name);
@@ -198,9 +202,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose }) =
     }
   };
 
-  const handleResetData = () => {
-    if (window.confirm('Are you sure you want to reset all demo data? This action cannot be undone.')) {
-        addToast({ type: 'info', message: 'Demo data reset (mocked action).' });
+  const handleResetData = async () => {
+    if (!window.confirm('Reset demo data for this environment? This replaces seeded disputes (admin only).')) {
+      return;
+    }
+    setResettingDemo(true);
+    try {
+      const result = await performDemoReset(organizationId);
+      if (result.ok) {
+        addToast({ type: 'success', message: 'Demo data reset. Reloading…' });
+        window.location.reload();
+      } else {
+        addToast({ type: 'error', message: result.message || 'Reset failed' });
+      }
+    } catch (e: unknown) {
+      addToast({
+        type: 'error',
+        message: e instanceof Error ? e.message : 'Reset failed',
+      });
+    } finally {
+      setResettingDemo(false);
     }
   };
 
@@ -312,7 +333,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose }) =
                                 </div>
                                 {user.hotelName && (
                                     <div className="flex justify-between">
-                                        <span className="text-sm text-slate-400">Hotel</span>
+                                        <span className="text-sm text-slate-400">Account</span>
                                         <span className="text-sm font-medium text-slate-200">{user.hotelName}</span>
                                     </div>
                                 )}
@@ -550,12 +571,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose }) =
                     <h4 className="text-lg font-medium text-white font-heading mb-4">Demo Controls</h4>
                     <div className="space-y-4">
                       <button
-                        onClick={handleResetData}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        type="button"
+                        onClick={() => { void handleResetData(); }}
+                        disabled={resettingDemo}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Reset Demo Data
+                        {resettingDemo ? 'Resetting…' : 'Reset Demo Data'}
                       </button>
-                      <p className="text-xs text-slate-400">This will restore all hotels and disputes to their original state.</p>
+                      <p className="text-xs text-slate-400">
+                        Calls the same seed endpoint as the demo banner (DICE vs pitch) using your admin session. The page reloads when complete.
+                      </p>
                     </div>
                   </div>
                   <div>

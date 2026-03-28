@@ -7,6 +7,7 @@ import { generateEvidencePlan, updateEvidenceItemStatus, initializeEvidenceItems
 import { uploadEvidenceFileWithTracking, getEvidenceFiles, deleteEvidenceFile, type EvidenceFile } from '../../services/evidenceService';
 import ArgumentDraftModal from './ArgumentDraftModal';
 import { EvidencePlanSkeleton } from './EvidencePlanSkeleton';
+import { getCategoryInfo } from './evidenceCategoryInfo';
 
 // =============================================================================
 // Props and Types
@@ -18,51 +19,9 @@ interface EvidenceDashboardProps {
   updateDispute: (disputeId: string, updates: Partial<Dispute>) => void;
   hotel: Hotel;
   user?: User;
+  /** Submitted / closed disputes: no uploads or mutations */
+  readOnly?: boolean;
 }
-
-// Map of category to display info
-const CATEGORY_INFO: Record<EvidenceCategory, { label: string; icon: string; description: string }> = {
-  pms_data: { 
-    label: 'Property Management Data', 
-    icon: '🏨', 
-    description: 'Folios, registration cards, booking records from your PMS' 
-  },
-  policy: { 
-    label: 'Policies & Terms', 
-    icon: '📋', 
-    description: 'Cancellation, refund, and terms policies' 
-  },
-  proof_of_stay: { 
-    label: 'Proof of Stay', 
-    icon: '🔑', 
-    description: 'Check-in/out records, keycard logs, housekeeping records' 
-  },
-  communications: { 
-    label: 'Guest Communications', 
-    icon: '💬', 
-    description: 'Email, chat, phone logs, and confirmations' 
-  },
-  payment_data: { 
-    label: 'Payment Verification', 
-    icon: '💳', 
-    description: 'Authorization codes, AVS/CVV results, 3D Secure' 
-  },
-  incident_reports: { 
-    label: 'Incident Reports', 
-    icon: '⚠️', 
-    description: 'Damage reports, complaints, incident logs' 
-  },
-  delivery: { 
-    label: 'Delivery Proof', 
-    icon: '📦', 
-    description: 'Shipping and tracking information' 
-  },
-  other: { 
-    label: 'Other Evidence', 
-    icon: '📁', 
-    description: 'Any other relevant documentation' 
-  },
-};
 
 // All categories for manual mode
 const ALL_CATEGORIES: EvidenceCategory[] = [
@@ -74,13 +33,36 @@ const ALL_CATEGORIES: EvidenceCategory[] = [
 // Sub-Components
 // =============================================================================
 
-const WinnabilityBadge: React.FC<{ winnability: 'high' | 'medium' | 'low' }> = ({ winnability }) => {
-  return null;
+const WINNABILITY_STYLES: Record<'high' | 'medium' | 'low', string> = {
+  high: 'bg-emerald-900/35 text-emerald-300 border-emerald-700/40',
+  medium: 'bg-amber-900/35 text-amber-300 border-amber-700/40',
+  low: 'bg-rose-900/35 text-rose-300 border-rose-700/40',
 };
 
-const RecommendationBadge: React.FC<{ recommendation: 'fight' | 'accept' }> = ({ recommendation }) => {
-  return null;
-};
+function normalizeWinnability(raw: unknown): 'high' | 'medium' | 'low' {
+  if (raw === 'high' || raw === 'medium' || raw === 'low') return raw;
+  return 'medium';
+}
+
+const WinnabilityBadge: React.FC<{ winnability: 'high' | 'medium' | 'low' }> = ({ winnability }) => (
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${WINNABILITY_STYLES[winnability]}`}
+  >
+    Winnability: {winnability}
+  </span>
+);
+
+const RecommendationBadge: React.FC<{ recommendation: 'fight' | 'accept' }> = ({ recommendation }) => (
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${
+      recommendation === 'fight'
+        ? 'bg-cyan-900/35 text-cyan-300 border-cyan-700/40'
+        : 'bg-slate-700/50 text-slate-300 border-slate-600/50'
+    }`}
+  >
+    {recommendation === 'fight' ? 'Recommend: Contest' : 'Recommend: Accept'}
+  </span>
+);
 
 const RequirementStatusBadge: React.FC<{ status: EvidenceItem['status']; required: boolean }> = ({ status, required }) => {
   const styles = {
@@ -144,10 +126,19 @@ interface RequirementItemProps {
   onFilesChange: (files: File[]) => void;
   onStatusChange: (status: EvidenceItem['status']) => void;
   onFileDelete?: (file: EvidenceFile) => void;
+  readOnly?: boolean;
 }
 
 const RequirementItem: React.FC<RequirementItemProps> = ({
-  requirement, item, index, files, uploadedFiles = [], onFilesChange, onStatusChange, onFileDelete
+  requirement,
+  item,
+  index,
+  files,
+  uploadedFiles = [],
+  onFilesChange,
+  onStatusChange,
+  onFileDelete,
+  readOnly = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(item.status === 'pending' && requirement.required);
   
@@ -206,6 +197,22 @@ const RequirementItem: React.FC<RequirementItemProps> = ({
             </div>
           )}
           
+          {/* Record-linked filename (e.g. seeded demo) when nothing is in Storage yet */}
+          {item.status === 'uploaded' && item.fileName && uploadedFiles.length === 0 && (
+            <div className="mb-4">
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                Referenced file
+              </p>
+              <div className="flex items-center gap-2 p-2 bg-slate-800/80 rounded border border-slate-600 border-dashed">
+                <span className="text-green-400 flex-shrink-0">✓</span>
+                <span className="text-sm text-slate-300 truncate">{item.fileName}</span>
+                <span className="text-xs text-slate-500 flex-shrink-0">
+                  {readOnly ? 'On record' : 'On record (upload to replace)'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Display uploaded files */}
           {uploadedFiles.length > 0 && (
             <div className="mb-4">
@@ -231,7 +238,7 @@ const RequirementItem: React.FC<RequirementItemProps> = ({
                       >
                         View
                       </a>
-                      {onFileDelete && (
+                      {onFileDelete && !readOnly && (
                         <button
                           onClick={() => onFileDelete(file)}
                           className="text-xs text-red-400 hover:text-red-300 transition-colors"
@@ -247,32 +254,36 @@ const RequirementItem: React.FC<RequirementItemProps> = ({
             </div>
           )}
           
-          <Dropzone 
-            files={files}
-            onFilesChange={onFilesChange}
-            multiple={true}
-            label={`Upload ${requirement.label}`}
-          />
-          
+          {!readOnly && (
+            <Dropzone
+              files={files}
+              onFilesChange={onFilesChange}
+              multiple={true}
+              label={`Upload ${requirement.label}`}
+            />
+          )}
+
           {/* Quick actions */}
-          <div className="mt-3">
-            {item.status !== 'not_applicable' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onStatusChange('not_applicable'); }}
-                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-              >
-                Skip
-              </button>
-            )}
-            {item.status === 'not_applicable' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onStatusChange('pending'); }}
-                className="text-xs text-cyan-500 hover:text-cyan-400 transition-colors"
-              >
-                Reset Status
-              </button>
-            )}
-          </div>
+          {!readOnly && (
+            <div className="mt-3">
+              {item.status !== 'not_applicable' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onStatusChange('not_applicable'); }}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Skip
+                </button>
+              )}
+              {item.status === 'not_applicable' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onStatusChange('pending'); }}
+                  className="text-xs text-cyan-500 hover:text-cyan-400 transition-colors"
+                >
+                  Reset Status
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -292,12 +303,21 @@ interface CategorySectionProps {
   onToggle: () => void;
   hotel: Hotel;
   onFileDelete?: (file: EvidenceFile) => void;
+  readOnly?: boolean;
 }
 
 const CategorySection: React.FC<CategorySectionProps> = ({
-  category, files, uploadedFiles = [], onFilesChange, isOpen, onToggle, hotel, onFileDelete
+  category,
+  files,
+  uploadedFiles = [],
+  onFilesChange,
+  isOpen,
+  onToggle,
+  hotel,
+  onFileDelete,
+  readOnly = false,
 }) => {
-  const info = CATEGORY_INFO[category];
+  const info = getCategoryInfo(category, hotel.industry);
   const totalFiles = files.length + uploadedFiles.length;
   const hasFiles = totalFiles > 0;
   
@@ -332,10 +352,10 @@ const CategorySection: React.FC<CategorySectionProps> = ({
       
       {isOpen && (
         <div className="p-5 border-t border-slate-800 bg-slate-900/20">
-          {/* Show hotel policy documents for policy category */}
+          {/* Saved org policy documents (property / venue files) */}
           {category === 'policy' && hotel.documents.length > 0 && (
             <div className="mb-4">
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Property Policies</p>
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Policies</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                 {hotel.documents.map(doc => (
                   <div key={doc.id} className="p-3 bg-slate-800 rounded-lg border border-slate-700">
@@ -372,7 +392,7 @@ const CategorySection: React.FC<CategorySectionProps> = ({
                       >
                         View
                       </a>
-                      {onFileDelete && (
+                      {onFileDelete && !readOnly && (
                         <button
                           onClick={() => onFileDelete(file)}
                           className="text-xs text-red-400 hover:text-red-300 transition-colors"
@@ -388,12 +408,14 @@ const CategorySection: React.FC<CategorySectionProps> = ({
             </div>
           )}
           
-          <Dropzone 
-            files={files}
-            onFilesChange={onFilesChange}
-            multiple={true}
-            label={`Upload ${info.label}`}
-          />
+          {!readOnly && (
+            <Dropzone
+              files={files}
+              onFilesChange={onFilesChange}
+              multiple={true}
+              label={`Upload ${info.label}`}
+            />
+          )}
         </div>
       )}
     </div>
@@ -409,8 +431,18 @@ interface AIPlanSidebarProps {
   evidenceItems: EvidenceItem[];
 }
 
+function formatPlanSubtypeLabel(subtype: string): string {
+  const t = subtype.trim();
+  if (!t) return t;
+  if (!t.includes('_') && !t.includes('-')) return t;
+  return t
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const AIPlanSidebar: React.FC<AIPlanSidebarProps> = ({ plan, evidenceItems }) => {
-  const requiredReqs = plan.requirements.filter(r => r.required);
+  const requirements = plan.requirements ?? [];
+  const requiredReqs = requirements.filter(r => r.required);
   const completedRequired = evidenceItems.filter(
     item => requiredReqs.some(r => r.id === item.requirementId) && 
             (item.status === 'uploaded' || item.status === 'not_applicable')
@@ -419,6 +451,9 @@ const AIPlanSidebar: React.FC<AIPlanSidebarProps> = ({ plan, evidenceItems }) =>
   const totalCompleted = evidenceItems.filter(
     item => item.status === 'uploaded' || item.status === 'not_applicable'
   ).length;
+
+  const winnability = normalizeWinnability(plan.winnability);
+  const recommendation = plan.recommendation === 'accept' ? 'accept' : 'fight';
   
   return (
     <div className="p-6 space-y-6">
@@ -427,15 +462,22 @@ const AIPlanSidebar: React.FC<AIPlanSidebarProps> = ({ plan, evidenceItems }) =>
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Dispute Type</h3>
         <p className="text-sm text-slate-200">{plan.disputeCategory}</p>
         {plan.disputeSubtype && (
-          <p className="text-xs text-slate-500">{plan.disputeSubtype}</p>
+          <p className="text-xs text-slate-500">{formatPlanSubtypeLabel(plan.disputeSubtype)}</p>
         )}
+        <div className="flex flex-wrap gap-2 mt-3">
+          <WinnabilityBadge winnability={winnability} />
+          <RecommendationBadge recommendation={recommendation} />
+        </div>
+        {plan.winnabilityReason ? (
+          <p className="text-xs text-slate-500 mt-2 leading-relaxed">{plan.winnabilityReason}</p>
+        ) : null}
       </div>
       
       {/* Progress */}
       <div>
         <ProgressBar 
           completed={totalCompleted}
-          total={plan.requirements.length}
+          total={requirements.length}
           requiredCompleted={completedRequired}
           requiredTotal={requiredReqs.length}
         />
@@ -455,7 +497,12 @@ const AIPlanSidebar: React.FC<AIPlanSidebarProps> = ({ plan, evidenceItems }) =>
 // =============================================================================
 
 export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
-  dispute, onClose, updateDispute, hotel, user
+  dispute,
+  onClose,
+  updateDispute,
+  hotel,
+  user,
+  readOnly = false,
 }) => {
   const { user: authUser } = useAuth();
   const currentUser = user || authUser;
@@ -488,7 +535,8 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   const evidenceItems = localEvidenceItems.length > 0 ? localEvidenceItems : (dispute.evidenceItems || []);
   
   const plan = localPlan || dispute.evidencePlan;
-  
+  const displayAIMode = readOnly ? !!plan : useAIMode;
+
   // Sync localPlan with dispute.evidencePlan when dispute changes or on initial load
   useEffect(() => {
     if (dispute.evidencePlan) {
@@ -606,7 +654,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   const handleFileDelete = useCallback(async (file: EvidenceFile) => {
     try {
       // Delete from Storage and Firestore
-      await deleteEvidenceFile(dispute.id, file);
+      await deleteEvidenceFile(dispute.id, file, dispute.organizationId!);
       
       // Update local state - remove from uploadedFilesByKey
       setUploadedFilesByKey(prev => {
@@ -646,11 +694,12 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   // Calculate progress
   const calculateProgress = useCallback(() => {
     const items = localEvidenceItems.length > 0 ? localEvidenceItems : (dispute.evidenceItems || []);
-    if (!plan || items.length === 0) {
+    const requirements = plan?.requirements ?? [];
+    if (!plan || requirements.length === 0 || items.length === 0) {
       return { completed: 0, total: 0, requiredCompleted: 0, requiredTotal: 0, isComplete: false };
     }
     
-    const requiredReqs = plan.requirements.filter(r => r.required);
+    const requiredReqs = requirements.filter(r => r.required);
     const requiredIds = requiredReqs.map(r => r.id);
     
     const completed = items.filter(
@@ -664,7 +713,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
     
     return {
       completed,
-      total: plan.requirements.length,
+      total: requirements.length,
       requiredCompleted,
       requiredTotal: requiredReqs.length,
       isComplete: requiredCompleted >= requiredReqs.length,
@@ -845,7 +894,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
           
           if (plan && useAIMode) {
             // In AI mode, key is requirement ID
-            const req = plan.requirements.find(r => r.id === key);
+            const req = (plan.requirements ?? []).find(r => r.id === key);
             if (req) {
               category = req.category;
               requirementId = req.id;
@@ -1008,6 +1057,10 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
     localEvidenceItems.some(item => item.status === 'uploaded') ||
     localEvidenceItems.some(item => item.status !== 'pending')
   );
+
+  const canShowArgumentButton = readOnly
+    ? !!dispute.argumentDraft
+    : canGenerateArgument;
   
   // Determine PSP display name
   const pspDisplayName = dispute.pspProvider === 'adyen' ? 'Adyen' : 'Stripe';
@@ -1064,42 +1117,52 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
             <div className="flex-shrink-0 px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-800 bg-slate-900">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-50">Gather Evidence</h2>
+                  <h2 className="text-lg font-bold text-slate-50">
+                    {readOnly ? 'View case' : 'Gather Evidence'}
+                  </h2>
                   <p className="text-sm text-slate-400 mt-1">
                     <span className="font-mono">{dispute.pspDisputeId}</span>
                     <span className="mx-2 text-slate-600">•</span>
                     <span className="text-cyan-400 capitalize">{dispute.reason?.replace(/_/g, ' ')}</span>
                   </p>
+                  {readOnly && (
+                    <p className="text-xs text-amber-400/90 mt-2">
+                      This dispute was submitted or closed — evidence is view-only.
+                    </p>
+                  )}
                 </div>
                 
                 <div className="flex items-center space-x-4">
-                  {/* Mode Toggle */}
-                  <div className="flex items-center space-x-2 bg-slate-800 rounded-lg p-1">
-                    <button
-                      onClick={() => setUseAIMode(true)}
-                      disabled={isGeneratingPlan}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        useAIMode 
-                          ? 'bg-cyan-600 text-white' 
-                          : 'text-slate-400 hover:text-slate-200'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      AI Guided
-                    </button>
-                    <button
-                      onClick={() => setUseAIMode(false)}
-                      disabled={isGeneratingPlan}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        !useAIMode 
-                          ? 'bg-cyan-600 text-white' 
-                          : 'text-slate-400 hover:text-slate-200'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      Manual
-                    </button>
-                  </div>
+                  {!readOnly && (
+                    <div className="flex items-center space-x-2 bg-slate-800 rounded-lg p-1">
+                      <button
+                        type="button"
+                        onClick={() => setUseAIMode(true)}
+                        disabled={isGeneratingPlan}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          useAIMode 
+                            ? 'bg-cyan-600 text-white' 
+                            : 'text-slate-400 hover:text-slate-200'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        AI Guided
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUseAIMode(false)}
+                        disabled={isGeneratingPlan}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          !useAIMode 
+                            ? 'bg-cyan-600 text-white' 
+                            : 'text-slate-400 hover:text-slate-200'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        Manual
+                      </button>
+                    </div>
+                  )}
                   
-                  <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
+                  <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-200">
                     <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -1112,7 +1175,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
             <div className="flex-1 flex overflow-hidden">
               {/* Main Content Area */}
               <div className="flex-1 overflow-y-auto p-6">
-                {useAIMode && !plan && !isGeneratingPlan && (
+                {displayAIMode && !plan && !isGeneratingPlan && (
                   // No plan - show generate button
                   <div className="max-w-2xl mx-auto animate-fade-in">
                     <div className="p-8 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700 rounded-xl text-center relative overflow-hidden">
@@ -1173,17 +1236,25 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                   <EvidencePlanSkeleton />
                 )}
                 
-                {useAIMode && plan && !isGeneratingPlan && (
+                {displayAIMode && plan && !isGeneratingPlan && (
                   // AI-Guided Mode
                   <div className="max-w-3xl mx-auto space-y-4">
                     <div className="p-4 bg-cyan-900/10 border border-cyan-900/30 rounded-xl mb-6">
                       <p className="text-sm text-cyan-200">
-                        <strong>AI-Guided Mode:</strong> Complete the requirements below based on our analysis of this dispute type.
-                        Priority items are marked and ranked by importance. You can still submit even if some items are missing.
+                        {readOnly ? (
+                          <>
+                            <strong>Evidence plan:</strong> Requirements and files as recorded for this dispute (read-only).
+                          </>
+                        ) : (
+                          <>
+                            <strong>AI-Guided Mode:</strong> Complete the requirements below based on our analysis of this dispute type.
+                            Priority items are marked and ranked by importance. You can still submit even if some items are missing.
+                          </>
+                        )}
                       </p>
                     </div>
                     
-                    {plan.requirements.map((req, index) => {
+                    {(plan.requirements ?? []).map((req, index) => {
                       const item = evidenceItems.find(i => i.requirementId === req.id) || {
                         requirementId: req.id,
                         status: 'pending' as const,
@@ -1204,6 +1275,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                             onFilesChange={(files) => handleFilesChange(req.id, files)}
                             onStatusChange={(status) => handleStatusChange(req.id, status)}
                             onFileDelete={handleFileDelete}
+                            readOnly={readOnly}
                           />
                         </div>
                       );
@@ -1211,12 +1283,20 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                   </div>
                 )}
                 
-                {!useAIMode && (
+                {!displayAIMode && (
                   // Manual Mode
                   <div className="max-w-3xl mx-auto">
                     <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl mb-6">
                       <p className="text-sm text-slate-300">
-                        <strong>Manual Mode:</strong> Upload evidence to any category. All possible evidence types are shown.
+                        {readOnly ? (
+                          <>
+                            <strong>Manual evidence:</strong> Categories and uploads as recorded (read-only).
+                          </>
+                        ) : (
+                          <>
+                            <strong>Manual Mode:</strong> Upload evidence to any category. All possible evidence types are shown.
+                          </>
+                        )}
                       </p>
                     </div>
                     
@@ -1235,6 +1315,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                           onToggle={() => toggleSection(category)}
                           hotel={hotel}
                           onFileDelete={handleFileDelete}
+                          readOnly={readOnly}
                         />
                       </div>
                     ))}
@@ -1243,7 +1324,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
               </div>
               
               {/* Sidebar (AI mode only) */}
-              {useAIMode && plan && (
+              {displayAIMode && plan && (
                 <div className="w-80 border-l border-slate-800 overflow-y-auto hidden lg:block bg-slate-900/50">
                   <AIPlanSidebar plan={plan} evidenceItems={evidenceItems} />
                 </div>
@@ -1253,7 +1334,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
             {/* Footer */}
             <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-800 bg-slate-900 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="text-sm">
-                {useAIMode && plan ? (
+                {displayAIMode && plan ? (
                   progress.isComplete ? (
                     <span className="text-green-400 flex items-center">
                       <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -1282,13 +1363,15 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
               
               <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto justify-end">
                 <button
+                  type="button"
                   onClick={onClose}
                   className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors"
                 >
-                  Save & Close
+                  {readOnly ? 'Close' : 'Save & Close'}
                 </button>
-                {useAIMode && plan && (
+                {!readOnly && displayAIMode && plan && (
                   <button
+                    type="button"
                     onClick={handleRegeneratePlan}
                     disabled={isGeneratingPlan || !dispute.reason}
                     className="px-4 py-2 text-sm font-medium text-cyan-300 bg-cyan-900/20 border border-cyan-700/50 rounded-lg hover:bg-cyan-900/30 hover:border-cyan-600/70 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
@@ -1300,8 +1383,9 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                     <span>{isGeneratingPlan ? 'Regenerating...' : 'Regenerate Plan'}</span>
                   </button>
                 )}
-                {hasFiles && (
+                {!readOnly && hasFiles && (
                   <button
+                    type="button"
                     onClick={handleSubmit}
                     disabled={isUploading}
                     className="px-6 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-green-500 rounded-lg hover:from-emerald-500 hover:to-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-600/20 hover:shadow-emerald-500/30 flex items-center space-x-2"
@@ -1324,8 +1408,9 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                     )}
                   </button>
                 )}
-                {canGenerateArgument && (
+                {canShowArgumentButton && (
                   <button
+                    type="button"
                     onClick={() => setShowArgumentModal(true)}
                     className="px-6 py-2 text-sm font-semibold text-white bg-gradient-to-r from-violet-600 to-purple-500 rounded-lg hover:from-violet-500 hover:to-purple-400 transition-all shadow-lg shadow-violet-600/20 hover:shadow-violet-500/30 flex items-center space-x-2"
                   >
@@ -1335,7 +1420,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
-                        <span>View Draft</span>
+                        <span>{readOnly ? 'View argument' : 'View Draft'}</span>
                       </>
                     ) : (
                       <>
@@ -1360,6 +1445,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
         isOpen={showArgumentModal}
         onClose={() => setShowArgumentModal(false)}
         onSubmit={handleArgumentSubmit}
+        readOnly={readOnly}
       />
     </div>
   );

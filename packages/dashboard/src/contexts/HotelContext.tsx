@@ -38,7 +38,7 @@ export const HotelProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setNoOrganization(false);
         setHotel({
           id: user.organizationId,
-          name: user.hotelName || 'My Hotel',
+          name: user.hotelName || 'My Account',
           location: '',
           teams: [],
           documents: [],

@@ -1,19 +1,24 @@
-/**
- * Temporary handler to update webhook secret for testing
- * This should be removed after testing is complete
- */
-
 import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import { getOrganization, updateOrganization } from "../services/organizationService";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
 export const updateWebhookSecretHandler = onRequest(
   {
     cors: true,
-    invoker: "public",
   },
   async (req: Request, res: Response) => {
-    // Temporarily allow all requests for testing - REMOVE AFTER TESTING
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
 
     const { organizationId, webhookSecret, secretKey, status } = req.body;
 

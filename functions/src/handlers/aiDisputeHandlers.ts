@@ -10,9 +10,10 @@ import {
 } from "../services/ai/evidencePlanningService";
 import { buildDisputeCase } from "../services/ai/disputeCaseBuilder";
 import { generateDisputeArgument } from "../services/ai/argumentGenerator";
+import { getEvidenceFiles } from "../services/evidenceService";
 import { EvidencePlan, EvidenceItem, ArgumentVersion } from "../types/aiDispute";
-import { applyRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from "../utils/rateLimiter";
-import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
 
 // ============================================================
 // AI Dispute Handlers
@@ -49,19 +50,30 @@ export const planEvidence = functions.https.onRequest(
   {
     region: "us-central1",
     cors: true,
-    secrets: ["OPENAI_API_KEY"],
+    secrets: ["ANTHROPIC_API_KEY"],
     timeoutSeconds: 300, // 5 min – pipeline is sequential (6 LLM calls + revision loop)
     memory: "512MiB",
   },
   async (req, res) => {
-    // Only allow POST
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
       return;
     }
 
-    // Apply rate limiting (by IP for unauthenticated, or by org if provided)
-    const rateLimitKey = req.body?.organizationId || getClientIP(req);
+    const { organizationId, regenerate } = req.body || {};
+
+    if (!organizationId) {
+      res.status(400).json({ error: "Missing organizationId in request body" });
+      return;
+    }
+
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
+    const rateLimitKey = authResult.uid!;
     const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
     if (!allowed) return;
 
@@ -70,19 +82,12 @@ export const planEvidence = functions.https.onRequest(
 
     try {
       disputeId = req.query.disputeId as string;
-      const { organizationId, regenerate } = req.body;
 
       if (!disputeId) {
         res.status(400).json({ error: "Missing disputeId parameter" });
         return;
       }
 
-      if (!organizationId) {
-        res.status(400).json({ error: "Missing organizationId in request body" });
-        return;
-      }
-
-      // Verify the dispute exists and belongs to the organization
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
 
       if (!disputeDoc.exists) {
@@ -298,6 +303,19 @@ export const getProgress = functions.https.onRequest(
         return;
       }
 
+      // Verify the caller belongs to the dispute's organization
+      const db = admin.firestore();
+      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+      if (!disputeDoc.exists) {
+        res.status(404).json({ error: "Dispute not found" });
+        return;
+      }
+      const dispute = disputeDoc.data();
+      if (authResult.role !== "admin" && dispute?.organizationId !== authResult.organizationId) {
+        res.status(403).json({ error: "Dispute does not belong to your organization" });
+        return;
+      }
+
       const progress = await getEvidenceProgress(disputeId);
 
       if (!progress) {
@@ -332,9 +350,21 @@ export const toggleAIPlan = functions.https.onRequest(
       return;
     }
 
+    const { organizationId, useAIPlan } = req.body || {};
+
+    if (!organizationId) {
+      res.status(400).json({ error: "Missing organizationId in request body" });
+      return;
+    }
+
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
     try {
       const disputeId = req.query.disputeId as string;
-      const { organizationId, useAIPlan } = req.body;
 
       if (!disputeId || useAIPlan === undefined) {
         res.status(400).json({
@@ -343,7 +373,6 @@ export const toggleAIPlan = functions.https.onRequest(
         return;
       }
 
-      // Verify the dispute exists and belongs to the organization
       const db = admin.firestore();
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
 
@@ -353,7 +382,7 @@ export const toggleAIPlan = functions.https.onRequest(
       }
 
       const dispute = disputeDoc.data();
-      if (organizationId && dispute?.organizationId !== organizationId) {
+      if (dispute?.organizationId !== organizationId) {
         res.status(403).json({ error: "Dispute does not belong to organization" });
         return;
       }
@@ -385,7 +414,7 @@ export const draftArgument = functions.https.onRequest(
   {
     region: "us-central1",
     cors: true,
-    secrets: ["OPENAI_API_KEY"],
+    secrets: ["ANTHROPIC_API_KEY"],
     timeoutSeconds: 180,
     memory: "512MiB",
   },
@@ -395,26 +424,31 @@ export const draftArgument = functions.https.onRequest(
       return;
     }
 
-    // Apply rate limiting
-    const rateLimitKey = req.body?.organizationId || getClientIP(req);
+    const { organizationId, regenerate } = req.body || {};
+
+    if (!organizationId) {
+      res.status(400).json({ error: "Missing organizationId in request body" });
+      return;
+    }
+
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
+    const rateLimitKey = authResult.uid!;
     const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
     if (!allowed) return;
 
     try {
       const disputeId = req.query.disputeId as string;
-      const { organizationId, regenerate } = req.body;
 
       if (!disputeId) {
         res.status(400).json({ error: "Missing disputeId parameter" });
         return;
       }
 
-      if (!organizationId) {
-        res.status(400).json({ error: "Missing organizationId in request body" });
-        return;
-      }
-
-      // Fetch dispute data
       const db = admin.firestore();
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
 
@@ -459,14 +493,20 @@ export const draftArgument = functions.https.onRequest(
       // Get evidence items
       const evidenceItems = (dispute.evidenceItems || []) as EvidenceItem[];
 
-      // Generate the argument using GPT-5.2 vision
-      // Pass disputeId so the generator can fetch actual evidence files
-      console.log(`Generating argument for dispute ${disputeId} using GPT-5.2 vision`);
+      // Pre-load evidence files and PMS match to avoid redundant Firestore reads
+      // inside the argument generator pipeline.
+      const [preloadedFiles, pmsMatch] = await Promise.all([
+        getEvidenceFiles(disputeId),
+        Promise.resolve(dispute.pmsMatch || undefined),
+      ]);
+
+      console.log(`Generating argument for dispute ${disputeId} using Claude vision`);
       const argument = await generateDisputeArgument(
         disputeCase,
         evidencePlan,
         evidenceItems,
-        disputeId
+        disputeId,
+        { preloadedFiles, pmsMatch }
       );
 
       if (!argument) {

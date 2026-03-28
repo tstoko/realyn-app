@@ -8,6 +8,14 @@ import { findPMSMatchForDispute } from "../pms/pmsLookupService";
 // Assembles complete case data from Firestore collections
 // ============================================================
 
+function normalizeMerchantVertical(industry?: string): "hospitality" | "ticketing" | "general" {
+  if (!industry) return "general";
+  const lower = industry.toLowerCase().trim();
+  if (["ticketing", "tickets", "events", "live events"].includes(lower)) return "ticketing";
+  if (["hospitality", "hotel", "hotels", "lodging", "accommodation"].includes(lower)) return "hospitality";
+  return "general";
+}
+
 /**
  * Build a DisputeCase object from Firestore data
  * Joins data from disputes and organizations collections
@@ -133,6 +141,8 @@ export async function buildDisputeCase(
           || !!dispute.paymentMethodDetails?.threeDSecure
           || undefined,
       },
+
+      merchantVertical: normalizeMerchantVertical(organization?.industry),
     };
 
     // Track folio and PMS match metadata for downstream pipeline steps

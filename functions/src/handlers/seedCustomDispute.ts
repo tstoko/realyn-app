@@ -1,27 +1,25 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
-/**
- * HTTP endpoint to seed a custom dispute with provided data
- * 
- * Usage: POST /seedCustomDispute
- * Body: {
- *   organizationId: string (optional - will use first org if not provided)
- *   amount: number (in minor units, e.g. pence/cents)
- *   currency: string
- *   reason: string
- *   customerExplanation: string
- *   last4: string (optional)
- *   transactionDate: string (ISO date, optional)
- *   bookingRef: string (optional - for description)
- * }
- */
 export const seedCustomDispute = onRequest(
   { cors: true },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
       return;
     }
 

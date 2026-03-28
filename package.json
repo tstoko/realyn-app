@@ -10,7 +10,11 @@
     "build:website": "turbo build --filter=@realyn/website",
     "build:dashboard": "turbo build --filter=@realyn/dashboard",
     "dev:website": "turbo dev --filter=@realyn/website",
-    "dev:dashboard": "turbo dev --filter=@realyn/dashboard"
+    "dev:dashboard": "turbo dev --filter=@realyn/dashboard",
+    "dev:emulators": "JAVA_HOME=/opt/homebrew/opt/openjdk@17 firebase emulators:start --export-on-exit=./emulator-data --import=./emulator-data",
+    "dev:dashboard:emulators": "JAVA_HOME=/opt/homebrew/opt/openjdk@17 firebase emulators:start --export-on-exit=./emulator-data --import=./emulator-data & turbo dev --filter=@realyn/dashboard",
+    "deploy:functions": "cd functions && npm run deploy",
+    "seed:dice": "cd functions && npx tsx src/scripts/seedDiceDemo.ts"
   },
   "packageManager": "npm@11.6.2",
   "devDependencies": {

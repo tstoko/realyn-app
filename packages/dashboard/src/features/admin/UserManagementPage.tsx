@@ -144,7 +144,7 @@ export const UserManagementPage: React.FC = () => {
             User Management
           </h2>
           <p className="mt-2 text-lg text-slate-400">
-            Create and manage user accounts and link them to hotels.
+            Create and manage user accounts and link them to accounts.
           </p>
         </div>
         <div className="mt-6 flex md:mt-0 md:ml-4">
@@ -224,14 +224,14 @@ export const UserManagementPage: React.FC = () => {
               {createFormData.role === 'user' && (
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Hotel (Organization)
+                    Account
                   </label>
                   <select
                     value={createFormData.organizationId}
                     onChange={(e) => setCreateFormData({ ...createFormData, organizationId: e.target.value })}
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
-                    <option value="">Select a hotel...</option>
+                    <option value="">Select an account...</option>
                     {organizations.map((org) => (
                       <option key={org.id} value={org.id}>
                         {org.name}
@@ -303,14 +303,14 @@ export const UserManagementPage: React.FC = () => {
               {editFormData.role === 'user' && (
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Hotel (Organization)
+                    Account
                   </label>
                   <select
                     value={editFormData.organizationId}
                     onChange={(e) => setEditFormData({ ...editFormData, organizationId: e.target.value })}
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
-                    <option value="">Select a hotel...</option>
+                    <option value="">Select an account...</option>
                     {organizations.map((org) => (
                       <option key={org.id} value={org.id}>
                         {org.name}
@@ -355,7 +355,7 @@ export const UserManagementPage: React.FC = () => {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Hotel
+                  Account
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">
                   Actions

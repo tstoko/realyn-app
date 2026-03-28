@@ -5,9 +5,10 @@ import { InformationCircleIcon } from '@realyn/shared';
 import { StatusBadge } from './StatusBadge';
 import { EvidenceDashboard } from '../evidence/EvidenceDashboard';
 import { DisputeDetailModal } from './DisputeDetailModal';
-import { InternalStatusBadge } from './InternalStatusBadge';
+import { DisputeWorkflowBadge } from './DisputeWorkflowBadge';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { NoDisputesEmptyState } from '../../components/shared/EmptyState';
+import { isDisputeEvidenceReadOnly } from './disputeEvidenceReadOnly';
 
 const SortIcon: React.FC<{ direction?: 'asc' | 'desc' }> = ({ direction }) => {
   if (!direction) {
@@ -310,7 +311,7 @@ export const DisputeTable: React.FC<DisputeTableProps> = ({
     // Updated column widths and alignment
     const tableHeaders: { key: keyof Dispute | string, label: string, width: string, tooltip?: string, align?: 'left' | 'right' }[] = [
         { key: 'createdAt', label: 'Created', width: 'w-32' },
-        { key: 'internalStatus', label: 'Status', tooltip: 'Internal workflow status', width: 'w-36' },
+        { key: 'internalStatus', label: 'Status', tooltip: 'Evidence workflow when a plan or draft exists; otherwise internal status', width: 'w-40' },
         { key: 'respondBy', label: 'Timeline', tooltip: 'Time remaining', width: 'w-28' },
         { key: 'amount', label: 'Amount', width: 'w-32', align: 'right' }, // Right aligned for financial data
         { key: 'reason', label: 'Reason', width: 'w-48' }, // Widened for legibility
@@ -372,7 +373,7 @@ export const DisputeTable: React.FC<DisputeTableProps> = ({
                                     {visibleColumns.has('createdAt') && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm text-slate-300 cursor-pointer`} onClick={() => setDetailDispute(dispute)}>{formatDate(dispute.createdAt)}</td>}
                                     {(visibleColumns.has('internalStatus') || true) && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm cursor-pointer`} onClick={() => setDetailDispute(dispute)}>
                                         <div className="flex flex-col">
-                                            <InternalStatusBadge status={dispute.internalStatus!} />
+                                            <DisputeWorkflowBadge dispute={dispute} />
                                             <EvidenceProgress dispute={dispute} />
                                         </div>
                                     </td>}
@@ -406,11 +407,32 @@ export const DisputeTable: React.FC<DisputeTableProps> = ({
 
                                     <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm font-medium text-right`}>
                                         <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                            <button onClick={(e) => { e.stopPropagation(); setModalDispute(dispute); }} className="p-1.5 bg-cyan-600 hover:bg-cyan-500 rounded text-white shadow-sm transition-colors" title="Gather Evidence">
+                                            {isDisputeEvidenceReadOnly(dispute) ? (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); setModalDispute(dispute); }}
+                                                className="p-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded text-slate-200 shadow-sm transition-colors"
+                                                title="View case"
+                                                aria-label="View case"
+                                              >
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                                 </svg>
-                                            </button>
+                                              </button>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); setModalDispute(dispute); }}
+                                                className="p-1.5 bg-cyan-600 hover:bg-cyan-500 rounded text-white shadow-sm transition-colors"
+                                                title="Gather Evidence"
+                                                aria-label="Gather Evidence"
+                                              >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                              </button>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
@@ -458,7 +480,16 @@ export const DisputeTable: React.FC<DisputeTableProps> = ({
                     </div>
                 </div>
             </div>
-            {modalDispute && <EvidenceDashboard dispute={modalDispute} onClose={() => setModalDispute(null)} updateDispute={updateDispute} hotel={hotel} user={user} />}
+            {modalDispute && (
+              <EvidenceDashboard
+                dispute={modalDispute}
+                onClose={() => setModalDispute(null)}
+                updateDispute={updateDispute}
+                hotel={hotel}
+                user={user}
+                readOnly={isDisputeEvidenceReadOnly(modalDispute)}
+              />
+            )}
             {detailDispute && <DisputeDetailModal dispute={detailDispute} onClose={() => setDetailDispute(null)} updateDispute={updateDispute} user={user} hotel={hotel} />}
         </div>
     );

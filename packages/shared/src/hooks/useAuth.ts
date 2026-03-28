@@ -34,8 +34,9 @@ export const useAuth = () => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             setCurrentUser(firebaseUser);
             if (firebaseUser) {
-                // Fetch user data from Firestore
                 try {
+                    // Refresh token to pick up any custom claims changes
+                    await firebaseUser.getIdToken(true);
                     const user = await getUserData(firebaseUser.uid);
                     if (user) {
                         setUserData(user);
@@ -68,7 +69,8 @@ export const useAuth = () => {
 
         try {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            // Fetch user data directly after successful login
+            // Force token refresh so custom claims (orgId, role) are available
+            await userCredential.user.getIdToken(true);
             const user = await getUserData(userCredential.user.uid);
             if (user) {
                 setUserData(user);

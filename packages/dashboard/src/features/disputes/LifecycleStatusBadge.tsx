@@ -8,6 +8,7 @@ interface LifecycleStatusBadgeProps {
 export const LifecycleStatusBadge: React.FC<LifecycleStatusBadgeProps> = ({ status }) => {
   const statusStyles: Record<DisputeLifecycleStatus, string> = {
     new: 'bg-blue-900/50 text-blue-300',
+    plan_ready: 'bg-cyan-900/50 text-cyan-300',
     evidence_in_progress: 'bg-yellow-900/50 text-yellow-300',
     draft_ready: 'bg-indigo-900/50 text-indigo-300',
     submitted: 'bg-purple-900/50 text-purple-300',

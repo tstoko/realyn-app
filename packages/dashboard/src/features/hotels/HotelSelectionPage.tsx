@@ -32,8 +32,9 @@ export function organizationToHotel(org: Organization): Hotel {
   // Provide defaults for required fields
   const hotel: Hotel = {
     id: org.id || '',
-    name: org.name || 'Unnamed Hotel',
+    name: org.name || 'Unnamed Account',
     location: org.location || '',
+    industry: org.industry,
     teams: org.teams || [],
     documents: org.documents || [],
     integrations: {
@@ -181,6 +182,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
         id: hotelToSave.id,
         name: hotelToSave.name,
         location: hotelToSave.location,
+        industry: hotelToSave.industry,
         teams: hotelToSave.teams,
         documents: hotelToSave.documents,
         users: hotelToSave.users,
@@ -201,7 +203,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
       setEditingHotel(null);
     } catch (error) {
       console.error('Error saving hotel:', error);
-      alert(`Failed to save hotel: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Failed to save account: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -226,7 +228,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
       <>
         <div className="md:flex md:items-center md:justify-between mb-10">
           <div className="flex-1 min-w-0">
-            <h2 className="text-3xl font-bold leading-7 text-slate-50 sm:text-4xl sm:truncate font-heading tracking-tight">Properties</h2>
+            <h2 className="text-3xl font-bold leading-7 text-slate-50 sm:text-4xl sm:truncate font-heading tracking-tight">Accounts</h2>
             <p className="mt-2 text-lg text-slate-400">Manage disputes and automation settings across your portfolio.</p>
           </div>
         </div>
@@ -255,7 +257,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
     <>
         <div className="md:flex md:items-center md:justify-between mb-10">
             <div className="flex-1 min-w-0">
-                <h2 className="text-3xl font-bold leading-7 text-slate-50 sm:text-4xl sm:truncate font-heading tracking-tight">Properties</h2>
+                <h2 className="text-3xl font-bold leading-7 text-slate-50 sm:text-4xl sm:truncate font-heading tracking-tight">Accounts</h2>
                 <p className="mt-2 text-lg text-slate-400">Manage disputes and automation settings across your portfolio.</p>
             </div>
              <div className="mt-6 flex md:mt-0 md:ml-4">
@@ -266,7 +268,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
                     <svg xmlns="http://www.w3.org/2000/svg" className="-ml-1 mr-2 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                     </svg>
-                    Add New Hotel
+                    Add New Account
                 </button>
              </div>
         </div>
@@ -303,6 +305,10 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
                       </div>
 
                       <div className="mt-6 space-y-3">
+                          <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-500">Industry</span>
+                              <span className={hotel.industry ? 'text-slate-200' : 'text-slate-600 italic'}>{hotel.industry || 'Not set'}</span>
+                          </div>
                           <div className="flex items-center justify-between text-sm">
                               <span className="text-slate-500">Payment Provider</span>
                               <div className="flex gap-2">
@@ -348,7 +354,7 @@ export const HotelSelectionPage: React.FC<HotelSelectionPageProps> = ({ onSelect
           isOpen={!!hotelToRemove}
           onClose={() => setHotelToRemove(null)}
           onConfirm={handleRemoveHotel}
-          title="Remove Hotel"
+          title="Remove Account"
           message={`Are you sure you want to permanently remove "${hotelToRemove.name}"? This action cannot be undone.`}
           confirmButtonText="Remove"
           confirmButtonVariant="danger"

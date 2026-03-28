@@ -1,54 +1,41 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
 // ============================================================
-// LLM Service - Generic OpenAI Integration
+// LLM Service - Anthropic Claude Integration
 // ============================================================
 
-// Initialize OpenAI client
-// API key is loaded from environment variable OPENAI_API_KEY
-let openaiClient: OpenAI | null = null;
+let anthropicClient: Anthropic | null = null;
 let clientInitError: string | null = null;
 
-/**
- * Get or initialize the OpenAI client
- * Returns null if initialization fails (API key missing, etc.)
- */
-function getOpenAIClient(): OpenAI | null {
-  // If we already tried and failed, return null immediately
+function getAnthropicClient(): Anthropic | null {
   if (clientInitError) {
     return null;
   }
-  
-  if (!openaiClient) {
+
+  if (!anthropicClient) {
     try {
-      const apiKey = process.env.OPENAI_API_KEY;
+      const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) {
-        clientInitError = "OPENAI_API_KEY environment variable is not set";
-        console.warn(`OpenAI client initialization failed: ${clientInitError}`);
+        clientInitError = "ANTHROPIC_API_KEY environment variable is not set";
+        console.warn(`Anthropic client initialization failed: ${clientInitError}`);
         return null;
       }
-      openaiClient = new OpenAI({ apiKey });
+      anthropicClient = new Anthropic({ apiKey });
     } catch (error) {
       clientInitError = error instanceof Error ? error.message : String(error);
-      console.warn(`OpenAI client initialization failed: ${clientInitError}`);
+      console.warn(`Anthropic client initialization failed: ${clientInitError}`);
       return null;
     }
   }
-  return openaiClient;
+  return anthropicClient;
 }
 
-/**
- * Check if OpenAI client is available
- */
-export function isOpenAIAvailable(): boolean {
-  return getOpenAIClient() !== null;
+export function isLLMAvailable(): boolean {
+  return getAnthropicClient() !== null;
 }
 
-/**
- * Get the initialization error if any
- */
-export function getOpenAIInitError(): string | null {
+export function getLLMInitError(): string | null {
   return clientInitError;
 }
 
@@ -65,17 +52,11 @@ export interface LLMCallOptions {
   retryDelay?: number;
 }
 
-/**
- * Image input for vision-enabled LLM calls
- */
 export interface ImageInput {
   url: string;
   description?: string;
 }
 
-/**
- * Options for vision-enabled LLM calls
- */
 export interface LLMVisionCallOptions extends LLMCallOptions {
   images?: ImageInput[];
 }
@@ -92,9 +73,8 @@ export interface LLMCallResult<T> {
   };
 }
 
-// Default options - using GPT-5.2 for professional-grade output
 const DEFAULT_OPTIONS: Required<LLMCallOptions> = {
-  model: "gpt-5.2",
+  model: "claude-opus-4-6",
   temperature: 0.2,
   maxTokens: 8192,
   systemPrompt: "You are a helpful assistant that responds in JSON format.",
@@ -107,7 +87,7 @@ const DEFAULT_OPTIONS: Required<LLMCallOptions> = {
 // ============================================================
 
 /**
- * Call OpenAI API with structured JSON output and Zod validation
+ * Call Anthropic API with structured JSON output and Zod validation
  *
  * @param prompt - The user prompt to send to the LLM
  * @param schema - Zod schema to validate the response
@@ -120,11 +100,10 @@ export async function callLLM<T>(
   options?: LLMCallOptions
 ): Promise<LLMCallResult<T>> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  
-  // Check if client is available before attempting calls
-  const client = getOpenAIClient();
+
+  const client = getAnthropicClient();
   if (!client) {
-    const initError = getOpenAIInitError() || "OpenAI client not available";
+    const initError = getLLMInitError() || "Anthropic client not available";
     console.warn(`LLM call skipped: ${initError}. Fallback plan will be used.`);
     return {
       success: false,
@@ -137,16 +116,12 @@ export async function callLLM<T>(
 
   for (let attempt = 0; attempt <= opts.retries; attempt++) {
     try {
-      const response = await client.chat.completions.create({
+      const response = await client.messages.create({
         model: opts.model,
         temperature: opts.temperature,
-        max_completion_tokens: opts.maxTokens, // GPT-5.2 uses max_completion_tokens
-        response_format: { type: "json_object" },
+        max_tokens: opts.maxTokens,
+        system: opts.systemPrompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown fences, no explanation outside the JSON object.",
         messages: [
-          {
-            role: "system",
-            content: opts.systemPrompt,
-          },
           {
             role: "user",
             content: prompt,
@@ -154,14 +129,14 @@ export async function callLLM<T>(
         ],
       });
 
-      const content = response.choices[0]?.message?.content;
+      const textBlock = response.content.find((block) => block.type === "text");
+      const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
       rawResponse = content || undefined;
 
       if (!content) {
-        throw new Error("Empty response from OpenAI");
+        throw new Error("Empty response from Anthropic");
       }
 
-      // Parse JSON response
       let parsed: unknown;
       try {
         parsed = JSON.parse(content);
@@ -169,7 +144,6 @@ export async function callLLM<T>(
         throw new Error(`Failed to parse JSON response: ${content.substring(0, 200)}...`);
       }
 
-      // Validate with Zod schema
       const validated = schema.safeParse(parsed);
       if (!validated.success) {
         const errors = validated.error.errors
@@ -184,9 +158,9 @@ export async function callLLM<T>(
         rawResponse,
         usage: response.usage
           ? {
-              promptTokens: response.usage.prompt_tokens,
-              completionTokens: response.usage.completion_tokens,
-              totalTokens: response.usage.total_tokens,
+              promptTokens: response.usage.input_tokens,
+              completionTokens: response.usage.output_tokens,
+              totalTokens: response.usage.input_tokens + response.usage.output_tokens,
             }
           : undefined,
       };
@@ -195,7 +169,7 @@ export async function callLLM<T>(
       console.error(`LLM call attempt ${attempt + 1} failed:`, lastError.message);
 
       if (attempt < opts.retries) {
-        await sleep(opts.retryDelay * (attempt + 1)); // Exponential backoff
+        await sleep(opts.retryDelay * (attempt + 1));
       }
     }
   }
@@ -212,8 +186,8 @@ export async function callLLM<T>(
 // ============================================================
 
 /**
- * Call OpenAI API with vision capabilities - can process images
- * Uses GPT-5.2's native multimodal support for document analysis
+ * Call Anthropic API with vision capabilities - can process images.
+ * Uses Claude's native multimodal support for document analysis.
  *
  * @param prompt - The user prompt to send to the LLM
  * @param schema - Zod schema to validate the response
@@ -228,9 +202,9 @@ export async function callLLMWithVision<T>(
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const images = options?.images || [];
 
-  const client = getOpenAIClient();
+  const client = getAnthropicClient();
   if (!client) {
-    const initError = getOpenAIInitError() || "OpenAI client not available";
+    const initError = getLLMInitError() || "Anthropic client not available";
     console.warn(`LLM vision call skipped: ${initError}. Fallback will be used.`);
     return {
       success: false,
@@ -238,25 +212,21 @@ export async function callLLMWithVision<T>(
     };
   }
 
-  // Build content array with text and images
-  const userContent: Array<
-    | { type: "text"; text: string }
-    | { type: "image_url"; image_url: { url: string; detail: "high" | "low" | "auto" } }
-  > = [{ type: "text", text: prompt }];
+  const userContent: Anthropic.MessageCreateParams["messages"][0]["content"] = [
+    { type: "text", text: prompt },
+  ];
 
-  // Add images to the content
   for (const image of images) {
-    userContent.push({
-      type: "image_url",
-      image_url: {
+    (userContent as any[]).push({
+      type: "image",
+      source: {
+        type: "url",
         url: image.url,
-        detail: "high", // Use high detail for document analysis
       },
     });
 
-    // Add image description if provided
     if (image.description) {
-      userContent.push({
+      (userContent as any[]).push({
         type: "text",
         text: `[The above image is: ${image.description}]`,
       });
@@ -266,20 +236,16 @@ export async function callLLMWithVision<T>(
   let lastError: Error | null = null;
   let rawResponse: string | undefined;
 
-  console.log(`[Vision API] Calling OpenAI with model: ${opts.model}, ${images.length} images`);
+  console.log(`[Vision API] Calling Anthropic with model: ${opts.model}, ${images.length} images`);
 
   for (let attempt = 0; attempt <= opts.retries; attempt++) {
     try {
-      const response = await client.chat.completions.create({
+      const response = await client.messages.create({
         model: opts.model,
         temperature: opts.temperature,
-        max_completion_tokens: opts.maxTokens, // GPT-5.2 uses max_completion_tokens
-        response_format: { type: "json_object" },
+        max_tokens: opts.maxTokens,
+        system: opts.systemPrompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown fences, no explanation outside the JSON object.",
         messages: [
-          {
-            role: "system",
-            content: opts.systemPrompt,
-          },
           {
             role: "user",
             content: userContent,
@@ -287,16 +253,16 @@ export async function callLLMWithVision<T>(
         ],
       });
 
-      console.log(`[Vision API] Response received, model used: ${response.model || 'not specified'}`);
+      console.log(`[Vision API] Response received, model used: ${response.model || "not specified"}`);
 
-      const content = response.choices[0]?.message?.content;
+      const textBlock = response.content.find((block) => block.type === "text");
+      const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
       rawResponse = content || undefined;
 
       if (!content) {
-        throw new Error("Empty response from OpenAI");
+        throw new Error("Empty response from Anthropic");
       }
 
-      // Parse JSON response
       let parsed: unknown;
       try {
         parsed = JSON.parse(content);
@@ -304,7 +270,6 @@ export async function callLLMWithVision<T>(
         throw new Error(`Failed to parse JSON response: ${content.substring(0, 200)}...`);
       }
 
-      // Validate with Zod schema
       const validated = schema.safeParse(parsed);
       if (!validated.success) {
         const errors = validated.error.errors
@@ -313,7 +278,6 @@ export async function callLLMWithVision<T>(
         throw new Error(`Response validation failed: ${errors}`);
       }
 
-      // Log if parsed JSON includes a model field (vision function)
       if ((parsed as any)?.model) {
         console.log(`[Vision API] WARNING: Parsed JSON includes model field: ${(parsed as any).model}`);
       }
@@ -324,9 +288,9 @@ export async function callLLMWithVision<T>(
         rawResponse,
         usage: response.usage
           ? {
-              promptTokens: response.usage.prompt_tokens,
-              completionTokens: response.usage.completion_tokens,
-              totalTokens: response.usage.total_tokens,
+              promptTokens: response.usage.input_tokens,
+              completionTokens: response.usage.output_tokens,
+              totalTokens: response.usage.input_tokens + response.usage.output_tokens,
             }
           : undefined,
       };
@@ -360,7 +324,6 @@ export async function callLLMWithTemplate<T>(
   schema: z.ZodSchema<T>,
   options?: LLMCallOptions
 ): Promise<LLMCallResult<T>> {
-  // Replace template variables
   let prompt = template;
   for (const [key, value] of Object.entries(variables)) {
     const placeholder = `{{${key}}}`;
@@ -382,24 +345,20 @@ export async function getTextCompletion(
     ...options,
     systemPrompt: "You are a helpful assistant. Respond with plain text.",
   };
-  
-  // Check if client is available
-  const client = getOpenAIClient();
+
+  const client = getAnthropicClient();
   if (!client) {
-    const initError = getOpenAIInitError() || "OpenAI client not available";
+    const initError = getLLMInitError() || "Anthropic client not available";
     return { success: false, error: initError };
   }
 
   try {
-    const response = await client.chat.completions.create({
+    const response = await client.messages.create({
       model: opts.model,
       temperature: opts.temperature,
-      max_completion_tokens: opts.maxTokens, // GPT-5.2 uses max_completion_tokens
+      max_tokens: opts.maxTokens,
+      system: opts.systemPrompt,
       messages: [
-        {
-          role: "system",
-          content: opts.systemPrompt,
-        },
         {
           role: "user",
           content: prompt,
@@ -407,7 +366,8 @@ export async function getTextCompletion(
       ],
     });
 
-    const content = response.choices[0]?.message?.content;
+    const textBlock = response.content.find((block) => block.type === "text");
+    const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
     if (!content) {
       return { success: false, error: "Empty response" };
     }
@@ -445,4 +405,3 @@ export function truncateToTokenLimit(text: string, maxTokens: number): string {
   }
   return text.substring(0, estimatedChars) + "... [truncated]";
 }
-

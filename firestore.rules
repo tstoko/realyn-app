@@ -6,29 +6,39 @@ service cloud.firestore {
     // Helper Functions
     // =========================================================================
 
-    // Check if the user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Check if the user is reading their own document
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Uses custom claims set by the syncUserClaims Cloud Function.
+    // Admins can read any org; regular users can only read their own.
+    function userCanReadOrg(orgId) {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.orgId == orgId
+      );
     }
 
     // =========================================================================
     // Disputes Collection
     // =========================================================================
-    // Reads require authentication.
-    // Writes are handled exclusively by Cloud Functions using the admin SDK
-    // (which bypasses these rules). No client-side writes are permitted.
+    // Reads scoped by organization via custom claims.
+    // Writes handled exclusively by Cloud Functions (admin SDK).
     match /disputes/{disputeId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated()
+                  && resource.data.organizationId != null
+                  && userCanReadOrg(resource.data.organizationId);
       allow write: if false;
 
-      // Evidence subcollection
+      // Evidence subcollection — inherits parent dispute's org scope
       match /evidence/{evidenceId} {
-        allow read: if isAuthenticated();
+        allow read: if isAuthenticated()
+                    && get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId != null
+                    && userCanReadOrg(get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId);
         allow write: if false;
       }
     }
@@ -36,27 +46,24 @@ service cloud.firestore {
     // =========================================================================
     // Organizations Collection
     // =========================================================================
-    // Reads require authentication (dashboard needs to list/read orgs).
-    // Writes are handled by Cloud Functions with admin SDK.
+    // Reads scoped by org path parameter via custom claims.
+    // Writes handled by Cloud Functions with admin SDK.
     match /organizations/{orgId} {
-      allow read: if isAuthenticated();
+      allow read: if userCanReadOrg(orgId);
       allow write: if false;
 
-      // PMS imports subcollection
       match /pmsImports/{importId} {
-        allow read: if isAuthenticated();
+        allow read: if userCanReadOrg(orgId);
         allow write: if false;
       }
 
-      // PMS reservations subcollection
       match /pmsReservations/{resId} {
-        allow read: if isAuthenticated();
+        allow read: if userCanReadOrg(orgId);
         allow write: if false;
       }
 
-      // Audit log subcollection
       match /auditLog/{logId} {
-        allow read: if isAuthenticated();
+        allow read: if userCanReadOrg(orgId);
         allow write: if false;
       }
     }
@@ -64,8 +71,7 @@ service cloud.firestore {
     // =========================================================================
     // Users Collection
     // =========================================================================
-    // Users can read their own document. Admins may need broader read access
-    // but that's handled by Cloud Functions. Writes go through Cloud Functions.
+    // Users can read their own document only. Writes go through Cloud Functions.
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow write: if false;
@@ -75,7 +81,9 @@ service cloud.firestore {
     // Dispute History (Archive)
     // =========================================================================
     match /disputes_history/{disputeId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated()
+                  && resource.data.organizationId != null
+                  && userCanReadOrg(resource.data.organizationId);
       allow write: if false;
     }
 

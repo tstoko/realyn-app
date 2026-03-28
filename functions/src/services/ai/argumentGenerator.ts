@@ -9,9 +9,11 @@ import { callLLMWithVision, ImageInput } from "./llmService";
 import { 
   getEnrichedEvidence, 
   EnrichedEvidence,
-  StripeEvidenceField,
-  STRIPE_FIELD_DESCRIPTIONS,
+  EvidenceFile,
+  EvidenceSlot,
+  EVIDENCE_SLOT_DESCRIPTIONS,
 } from "../evidenceService";
+import type { PMSMatchResult } from "../pms/pmsLookupService";
 import { 
   sanitizeDisputeCaseWithLog, 
   sanitizePdfContent 
@@ -20,27 +22,37 @@ import {
 // ============================================================
 // Argument Generator
 // Generates AI-powered dispute arguments for submission
-// Uses GPT-5.2 vision to analyze actual evidence documents
+// Uses Claude vision to analyze actual evidence documents
 // ============================================================
+
+export interface ArgumentGeneratorContext {
+  preloadedFiles?: EvidenceFile[];
+  pmsMatch?: PMSMatchResult;
+}
 
 /**
  * Generate a dispute argument from case data and evidence
- * Now uses GPT-5.2 vision to read and analyze uploaded evidence files
+ * Uses Claude vision to read and analyze uploaded evidence files
  * 
  * @param disputeCase - The dispute case data
  * @param evidencePlan - The generated evidence plan
  * @param evidenceItems - Evidence item statuses
  * @param disputeId - The dispute ID (needed to fetch actual evidence files)
+ * @param context - Optional pre-loaded data to avoid redundant Firestore reads
  */
 export async function generateDisputeArgument(
   disputeCase: DisputeCase,
   evidencePlan: EvidencePlan,
   evidenceItems: EvidenceItem[],
-  disputeId: string
+  disputeId: string,
+  context?: ArgumentGeneratorContext
 ): Promise<DisputeArgument | null> {
   try {
-    // Fetch enriched evidence with full context
-    const enrichedEvidence = await getEnrichedEvidence(disputeId, evidencePlan, evidenceItems);
+    // Fetch enriched evidence with full context (uses pre-loaded data when available)
+    const enrichedEvidence = await getEnrichedEvidence(disputeId, evidencePlan, evidenceItems, {
+      preloadedFiles: context?.preloadedFiles,
+      pmsMatch: context?.pmsMatch,
+    });
     
     // Separate uploaded evidence with images for vision API
     const evidenceWithImages = enrichedEvidence.filter(e => e.imageUrl && e.item.status === 'uploaded');
@@ -48,19 +60,21 @@ export async function generateDisputeArgument(
     console.log(`[ArgumentGenerator] ${enrichedEvidence.length} total evidence items`);
     console.log(`[ArgumentGenerator] ${evidenceWithImages.length} with images for vision`);
     console.log(`[ArgumentGenerator] ${enrichedEvidence.filter(e => e.pdfText).length} with PDF text`);
+    console.log(`[ArgumentGenerator] ${enrichedEvidence.filter(e => e.structuredPmsText).length} with structured PMS text`);
 
-    // GDPR Compliance: Sanitize PII before sending to OpenAI
+    // GDPR Compliance: Sanitize PII before sending to LLM
     const sanitizedCase = sanitizeDisputeCaseWithLog(disputeCase);
     
-    // Sanitize PDF text content in enriched evidence
+    // Sanitize text content in enriched evidence (PDF and structured PMS)
     const sanitizedEvidence = enrichedEvidence.map(e => ({
       ...e,
       pdfText: e.pdfText ? sanitizePdfContent(e.pdfText) : undefined,
+      structuredPmsText: e.structuredPmsText ? sanitizePdfContent(e.structuredPmsText) : undefined,
     }));
     
-    console.log(`[ArgumentGenerator] PII sanitization applied to dispute case and PDF content`);
+    console.log(`[ArgumentGenerator] PII sanitization applied to dispute case and evidence content`);
 
-    // Build image inputs for GPT-5.2 vision
+    // Build image inputs for Claude vision
     const imageInputs: ImageInput[] = evidenceWithImages.map(e => ({
       url: e.imageUrl!,
       description: `${e.requirement.label}: ${e.file?.fileName || 'Document'}`,
@@ -96,10 +110,10 @@ export async function generateDisputeArgument(
     delete (argument as any).model;
     
     argument.generatedAt = new Date().toISOString();
-    argument.model = "gpt-5.2";
+    argument.model = "claude-opus-4-6";
 
     const uploadedCount = enrichedEvidence.filter(e => e.item.status === 'uploaded').length;
-    console.log(`Argument generated successfully using GPT-5.2 with ${uploadedCount} evidence files`);
+    console.log(`Argument generated successfully using Claude Opus 4.6 with ${uploadedCount} evidence files`);
     console.log(`Set argument.model to: ${argument.model}`);
     return argument;
   } catch (error) {
@@ -115,16 +129,16 @@ export async function generateDisputeArgument(
 const ARGUMENT_GENERATOR_SYSTEM_PROMPT = `You are an elite hotel dispute analyst who writes winning chargeback responses. Your arguments have a high success rate because you:
 
 1. QUOTE SPECIFIC EVIDENCE - Never speak generically. Always cite exact text, dates, amounts from documents.
-2. UNDERSTAND STRIPE'S REQUIREMENTS - You know which fields Stripe needs and fill them with compelling content.
+2. UNDERSTAND PSP SUBMISSION REQUIREMENTS - You know which evidence categories the payment processor needs and fill them with compelling content.
 3. ADDRESS CLAIMS DIRECTLY - You don't ignore the customer's claim; you systematically disprove it with evidence.
 
 ## YOUR ROLE
 
 You receive:
 - STRATEGIC ASSESSMENT: Winnability rating and recommended approach
-- DISPUTE DETAILS: Amount, reason code, customer claim
-- EVIDENCE ORGANIZED BY STRIPE FIELD: Each piece of evidence is labeled with its Stripe submission field
-- PDF TEXT CONTENT: Full text extracted from uploaded PDFs - QUOTE FROM THESE
+- DISPUTE DETAILS: Amount, reason code, customer claim, PSP provider
+- EVIDENCE ORGANIZED BY CATEGORY: Each piece of evidence is labeled with its submission category
+- TEXT CONTENT: Full text extracted from documents and PMS records - QUOTE FROM THESE
 - ATTACHED IMAGES: Actual document images to analyze visually
 
 ## WRITING VOICE AND PERSPECTIVE
@@ -136,17 +150,16 @@ You receive:
 - NEVER use phrases like "I analyzed", "I have determined", "As an AI", "The system", etc.
 - Write as if the hotel staff wrote this directly: "We provided", "Our records show", "We respectfully contest"
 - The argument should sound like it was written by hotel management, not by an external service
-- Example: "We respectfully contest this dispute. Our registration records show the guest checked in on March 15th..." NOT "I have analyzed the evidence and determined that..."
 
 ## CRITICAL INSTRUCTIONS
 
 ### Evidence Usage
-- PDF text is provided in full - EXTRACT AND QUOTE specific clauses, dates, signatures, amounts
+- Document text is provided in full - EXTRACT AND QUOTE specific clauses, dates, signatures, amounts
 - Images are attached - DESCRIBE what you see (signatures, dates, check-in times, room numbers)
 - Link evidence to claims - "The guest claims X, but the registration card shows Y..."
 - Prioritize CRITICAL/HIGH priority evidence in your argument
 
-### Stripe Field Strategy
+### Evidence Category Strategy
 - cancellation_policy: QUOTE the exact policy text from uploaded documents
 - cancellation_policy_disclosure: Explain how/when guest saw the policy
 - refund_policy: QUOTE exact refund terms
@@ -158,7 +171,7 @@ You receive:
 - Timeline: Use ACTUAL dates from documents, not generic placeholders
 - Paragraphs: Each section should QUOTE or reference specific evidence
 - Rebuttal: Directly counter the customer's claim with contradicting evidence
-- Stripe fields: Fill with ACTUAL content from documents, not placeholders
+- PSP fields: Fill with ACTUAL content from documents, not placeholders
 
 ### Response Format
 Respond ONLY with valid JSON. No markdown outside JSON. Include all required fields.
@@ -267,24 +280,23 @@ function buildArgumentPrompt(
   }
 
   // ==========================================================
-  // EVIDENCE ANALYSIS (Organized by Stripe Fields)
+  // EVIDENCE ANALYSIS (Organized by Category)
   // ==========================================================
   parts.push("## 📁 EVIDENCE FOR YOUR ARGUMENT");
   parts.push("");
-  parts.push("Below is ALL the evidence you have to work with. Each item is organized by its Stripe submission field.");
+  parts.push("Below is ALL the evidence you have to work with, organized by evidence category.");
   parts.push("**USE THIS EVIDENCE**: Quote specific text, cite specific details, reference exact documents.");
   parts.push("");
 
-  // Group evidence by Stripe field
-  const evidenceByStripeField = new Map<StripeEvidenceField, EnrichedEvidence[]>();
+  // Group evidence by evidence slot
+  const evidenceBySlot = new Map<EvidenceSlot, EnrichedEvidence[]>();
   for (const e of enrichedEvidence) {
-    const existing = evidenceByStripeField.get(e.stripeField) || [];
+    const existing = evidenceBySlot.get(e.evidenceSlot) || [];
     existing.push(e);
-    evidenceByStripeField.set(e.stripeField, existing);
+    evidenceBySlot.set(e.evidenceSlot, existing);
   }
 
-  // Output evidence grouped by Stripe field
-  const stripeFieldOrder: StripeEvidenceField[] = [
+  const slotOrder: EvidenceSlot[] = [
     'cancellation_policy',
     'refund_policy',
     'service_documentation',
@@ -294,16 +306,16 @@ function buildArgumentPrompt(
     'uncategorized_text',
   ];
 
-  for (const stripeField of stripeFieldOrder) {
-    const evidenceForField = evidenceByStripeField.get(stripeField);
-    if (!evidenceForField || evidenceForField.length === 0) continue;
+  for (const slot of slotOrder) {
+    const evidenceForSlot = evidenceBySlot.get(slot);
+    if (!evidenceForSlot || evidenceForSlot.length === 0) continue;
 
-    const fieldDesc = STRIPE_FIELD_DESCRIPTIONS[stripeField];
-    parts.push(`### 📄 ${stripeField.toUpperCase()}`);
-    parts.push(`*Stripe Field: ${stripeField} - ${fieldDesc}*`);
+    const slotDesc = EVIDENCE_SLOT_DESCRIPTIONS[slot];
+    parts.push(`### 📄 ${slot.toUpperCase()}`);
+    parts.push(`*Category: ${slot} — ${slotDesc}*`);
     parts.push("");
 
-    for (const e of evidenceForField) {
+    for (const e of evidenceForSlot) {
       const statusIcon = e.item.status === 'uploaded' ? '✅' : 
                         e.item.status === 'not_available' ? '❌' : 
                         e.item.status === 'not_applicable' ? '⚪' : '⏳';
@@ -328,12 +340,15 @@ function buildArgumentPrompt(
           parts.push(`- **📷 IMAGE ATTACHED**: Analyze this image carefully and extract specific details`);
         }
         
-        // If there's PDF text, include it
-        if (e.pdfText) {
-          parts.push(`- **📄 PDF CONTENT** (${e.pdfPageCount || 0} pages):`);
+        // Prefer structured PMS text over PDF-extracted text
+        const textContent = e.structuredPmsText || e.pdfText;
+        const textLabel = e.structuredPmsText ? "PMS DATA" : `PDF CONTENT (${e.pdfPageCount || 0} pages)`;
+        
+        if (textContent) {
+          parts.push(`- **📄 ${textLabel}**:`);
           parts.push("");
           parts.push("```");
-          parts.push(e.pdfText);
+          parts.push(textContent);
           parts.push("```");
           parts.push("");
           parts.push(`**↑ QUOTE FROM THIS**: Extract specific clauses, dates, amounts, or terms to cite in your argument.`);
@@ -350,7 +365,7 @@ function buildArgumentPrompt(
   // EVIDENCE SUMMARY
   // ==========================================================
   const uploadedEvidence = enrichedEvidence.filter(e => e.item.status === 'uploaded');
-  const evidenceWithPDF = enrichedEvidence.filter(e => e.pdfText);
+  const evidenceWithText = enrichedEvidence.filter(e => e.pdfText || e.structuredPmsText);
   const evidenceWithImages = enrichedEvidence.filter(e => e.imageUrl && e.item.status === 'uploaded');
   const missingEvidence = enrichedEvidence.filter(e => e.item.status === 'not_available');
   
@@ -358,7 +373,7 @@ function buildArgumentPrompt(
   parts.push("");
   parts.push(`- **Total Evidence Items**: ${enrichedEvidence.length}`);
   parts.push(`- **Uploaded**: ${uploadedEvidence.length}`);
-  parts.push(`- **With PDF Content**: ${evidenceWithPDF.length} (you can quote from these)`);
+  parts.push(`- **With Text Content**: ${evidenceWithText.length} (you can quote from these)`);
   parts.push(`- **With Images**: ${evidenceWithImages.length} (attached to this message)`);
   parts.push(`- **Not Available**: ${missingEvidence.length}`);
   parts.push("");

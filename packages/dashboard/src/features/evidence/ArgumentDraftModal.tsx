@@ -28,6 +28,7 @@ interface ArgumentDraftModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (argument: DisputeArgument, submissionResult?: SubmissionResult) => void;
+  readOnly?: boolean;
 }
 
 export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
@@ -35,6 +36,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  readOnly = false,
 }) => {
   const [argument, setArgument] = useState<DisputeArgument | null>(dispute.argumentDraft || null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -65,6 +67,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
   if (!isOpen) return null;
 
   const handleGenerate = async (regenerate: boolean = false) => {
+    if (readOnly) return;
     setIsGenerating(true);
     setError(null);
 
@@ -95,7 +98,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
     setError(null);
 
     try {
-      const result = await saveArgumentDraft(dispute.id, argument);
+      const result = await saveArgumentDraft(dispute.id, argument, dispute.organizationId!);
       if (result.success) {
         setHasUnsavedChanges(false);
       } else {
@@ -124,7 +127,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
     try {
       // First save the current argument to ensure latest changes are stored
       if (hasUnsavedChanges) {
-        const saveResult = await saveArgumentDraft(dispute.id, argument);
+        const saveResult = await saveArgumentDraft(dispute.id, argument, dispute.organizationId!);
         if (!saveResult.success) {
           throw new Error(saveResult.error || 'Failed to save argument before submission');
         }
@@ -161,7 +164,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
   };
 
   const updateField = <K extends keyof DisputeArgument>(field: K, value: DisputeArgument[K]) => {
-    if (!argument) return;
+    if (!argument || readOnly) return;
     setArgument({ ...argument, [field]: value });
     setHasUnsavedChanges(true);
   };
@@ -205,13 +208,16 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                 <FileText className="w-5 h-5 text-violet-400" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">Dispute Argument</h2>
+                <h2 className="text-xl font-semibold text-white">
+                  {readOnly ? 'Dispute argument (read-only)' : 'Dispute Argument'}
+                </h2>
                 <p className="text-sm text-slate-400">
                   {formatCurrency(dispute.amount, dispute.currency)} • {dispute.reason || 'No reason'}
                 </p>
               </div>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
             >
@@ -222,7 +228,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6">
             {/* Status Banner */}
-            {hasUnsavedChanges && (
+            {hasUnsavedChanges && !readOnly && (
               <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-400" />
                 <span className="text-sm text-amber-300">You have unsaved changes</span>
@@ -237,7 +243,13 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
             )}
 
             {/* No Argument Yet */}
-            {!argument && !isGenerating && (
+            {!argument && !isGenerating && readOnly && (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <p className="text-slate-400 max-w-md">No argument draft on file for this dispute.</p>
+              </div>
+            )}
+
+            {!argument && !isGenerating && !readOnly && (
               <div className="flex flex-col items-center justify-center py-16">
                 <div className="p-4 bg-violet-500/20 rounded-full mb-4">
                   <Sparkles className="w-8 h-8 text-violet-400" />
@@ -247,6 +259,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                   Our AI will analyze your evidence and create a compelling argument for this dispute.
                 </p>
                 <button
+                  type="button"
                   onClick={() => handleGenerate(false)}
                   className="px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors"
                 >
@@ -274,7 +287,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                   <textarea
                     value={argument.executiveSummary}
                     onChange={(e) => updateField('executiveSummary', e.target.value)}
-                    className="w-full h-32 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                    readOnly={readOnly}
+                    className="w-full h-32 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:bg-slate-800/80 read-only:cursor-default"
                     placeholder="Brief summary of why this dispute should be reversed..."
                   />
                 </Section>
@@ -293,13 +307,15 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                           type="date"
                           value={event.date}
                           onChange={(e) => updateTimelineEvent(index, { ...event, date: e.target.value })}
-                          className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          readOnly={readOnly}
+                          className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-violet-500 read-only:cursor-default"
                         />
                         <input
                           type="text"
                           value={event.description}
                           onChange={(e) => updateTimelineEvent(index, { ...event, description: e.target.value })}
-                          className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          readOnly={readOnly}
+                          className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 read-only:cursor-default"
                           placeholder="Event description..."
                         />
                       </div>
@@ -321,13 +337,15 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                           type="text"
                           value={para.heading}
                           onChange={(e) => updateParagraph(index, { ...para, heading: e.target.value })}
-                          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-medium placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                          readOnly={readOnly}
+                          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-medium placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 read-only:cursor-default"
                           placeholder="Section heading..."
                         />
                         <textarea
                           value={para.content}
                           onChange={(e) => updateParagraph(index, { ...para, content: e.target.value })}
-                          className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                          readOnly={readOnly}
+                          className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
                           placeholder="Section content..."
                         />
                       </div>
@@ -345,7 +363,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                   <textarea
                     value={argument.customerClaimRebuttal}
                     onChange={(e) => updateField('customerClaimRebuttal', e.target.value)}
-                    className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                    readOnly={readOnly}
+                    className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
                     placeholder="Direct response to the customer's stated claim..."
                   />
                 </Section>
@@ -360,7 +379,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                   <textarea
                     value={argument.conclusion}
                     onChange={(e) => updateField('conclusion', e.target.value)}
-                    className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                    readOnly={readOnly}
+                    className="w-full h-24 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
                     placeholder="Strong closing statement..."
                   />
                 </Section>
@@ -382,7 +402,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                         type="text"
                         value={argument.productDescription || ''}
                         onChange={(e) => updateField('productDescription', e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        readOnly={readOnly}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 read-only:cursor-default"
                         placeholder="Description of service provided..."
                       />
                     </div>
@@ -394,8 +415,9 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                         type="text"
                         value={argument.serviceDates || ''}
                         onChange={(e) => updateField('serviceDates', e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                        placeholder="Check-in to check-out dates..."
+                        readOnly={readOnly}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 read-only:cursor-default"
+                        placeholder="Service or event dates..."
                       />
                     </div>
                     <div className="md:col-span-2">
@@ -405,7 +427,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                       <textarea
                         value={argument.cancellationPolicy || ''}
                         onChange={(e) => updateField('cancellationPolicy', e.target.value)}
-                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                        readOnly={readOnly}
+                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
                         placeholder="Your cancellation policy..."
                       />
                     </div>
@@ -416,7 +439,8 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                       <textarea
                         value={argument.refundPolicy || ''}
                         onChange={(e) => updateField('refundPolicy', e.target.value)}
-                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                        readOnly={readOnly}
+                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
                         placeholder="Your refund policy..."
                       />
                     </div>
@@ -427,8 +451,9 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                       <textarea
                         value={argument.customerCommunication || ''}
                         onChange={(e) => updateField('customerCommunication', e.target.value)}
-                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
-                        placeholder="Summary of communications with guest..."
+                        readOnly={readOnly}
+                        className="w-full h-20 bg-slate-800 border border-slate-600 rounded-lg p-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none read-only:cursor-default"
+                        placeholder="Summary of communications with customer..."
                       />
                     </div>
                   </div>
@@ -438,7 +463,9 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                 {argument.generatedAt && (
                   <div className="text-xs text-slate-500 text-right">
                     Generated: {new Date(argument.generatedAt).toLocaleString()}
-                    {argument.model && ` • Model: ${argument.model}`}
+                    {argument.model &&
+                      !/^demo-/i.test(argument.model) &&
+                      ` • Model: ${argument.model}`}
                   </div>
                 )}
               </div>
@@ -448,8 +475,9 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
           {/* Footer */}
           <div className="flex items-center justify-between p-6 border-t border-slate-700 bg-slate-800/50">
             <div className="flex gap-2">
-              {argument && (
+              {argument && !readOnly && (
                 <button
+                  type="button"
                   onClick={() => handleGenerate(true)}
                   disabled={isGenerating}
                   className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
@@ -461,14 +489,16 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
             </div>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={onClose}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
               >
-                Cancel
+                {readOnly ? 'Close' : 'Cancel'}
               </button>
-              {argument && (
+              {argument && !readOnly && (
                 <>
                   <button
+                    type="button"
                     onClick={handleSave}
                     disabled={isSaving || !hasUnsavedChanges}
                     className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
@@ -477,6 +507,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                     Save Draft
                   </button>
                   <button
+                    type="button"
                     onClick={handleSubmitClick}
                     disabled={isSubmitting}
                     className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

@@ -1,5 +1,7 @@
-import { collection, addDoc, getDocs, query, orderBy, Timestamp, doc, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db, auth } from './firebase';
+
+const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
 
 export interface ContactSalesSubmission {
   id?: string;
@@ -24,16 +26,20 @@ export interface ContactSalesSubmission {
 }
 
 /**
- * Submit a contact sales form
+ * Submit a contact sales form via Cloud Function (no auth required)
  */
 export async function submitContactSalesForm(data: Omit<ContactSalesSubmission, 'id' | 'submittedAt' | 'status'>): Promise<string> {
-  const submissionsRef = collection(db, 'contactSalesSubmissions');
-  const docRef = await addDoc(submissionsRef, {
-    ...data,
-    submittedAt: Timestamp.now(),
-    status: 'new',
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'submitContactSalesForm',
+      formData: data,
+    }),
   });
-  return docRef.id;
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `HTTP error ${response.status}`);
+  return result.id;
 }
 
 /**
@@ -95,13 +101,25 @@ export async function getAllContactSalesSubmissions(): Promise<ContactSalesSubmi
 }
 
 /**
- * Delete a contact sales submission
+ * Delete a contact sales submission via Cloud Function
  */
 export async function deleteContactSalesSubmission(submissionId: string): Promise<void> {
   if (!submissionId) {
     throw new Error('Submission ID is required');
   }
-  const submissionRef = doc(db, 'contactSalesSubmissions', submissionId);
-  await deleteDoc(submissionRef);
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not authenticated');
+  const idToken = await currentUser.getIdToken();
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+    body: JSON.stringify({
+      action: 'deleteContactSalesSubmission',
+      submissionId,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }
 

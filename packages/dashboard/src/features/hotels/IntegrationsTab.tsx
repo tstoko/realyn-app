@@ -511,7 +511,7 @@ export const IntegrationsTab: React.FC<IntegrationsTabProps> = ({ formData, setF
                                 </div>
                             </div>
                             <p className="mt-1 text-xs text-slate-500">
-                                You can add multiple merchant accounts for this hotel. All accounts will be associated with this organization.
+                                You can add multiple merchant accounts for this account. All will be associated with this organization.
                             </p>
                         </div>
                         <div>
@@ -584,30 +584,20 @@ export const IntegrationsTab: React.FC<IntegrationsTabProps> = ({ formData, setF
                 )}
             </div>
 
-            <OperaCloudSection
+            <PMSIntegrationSection
                 formData={formData}
                 setFormData={setFormData}
                 onOperaCloudCredentialsChange={onOperaCloudCredentialsChange}
                 onGetOperaCloudCredentialsRef={onGetOperaCloudCredentialsRef}
                 isAdmin={isAdmin}
             />
-
-            <PMSIntegrationSection formData={formData} setFormData={setFormData} />
         </div>
     );
 };
 
 // =============================================================================
-// OPERA Cloud API (OHIP) Section
+// Opera Cloud API (OHIP) — rendered inline inside PMSIntegrationSection
 // =============================================================================
-
-interface OperaCloudSectionProps {
-  formData: Hotel;
-  setFormData: React.Dispatch<React.SetStateAction<Hotel>>;
-  onOperaCloudCredentialsChange?: (credentials: OperaCloudCredentials | null) => void;
-  onGetOperaCloudCredentialsRef?: (getter: () => OperaCloudCredentials | null) => void;
-  isAdmin?: boolean;
-}
 
 const DEFAULT_OPERA_CLOUD: OperaCloudIntegration = {
   gatewayUrl: '',
@@ -617,7 +607,24 @@ const DEFAULT_OPERA_CLOUD: OperaCloudIntegration = {
   status: 'not_connected',
 };
 
-const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
+const OperaCloudStatusPill: React.FC<{ status: 'connected' | 'not_connected' | 'error' }> = ({ status }) => {
+  const styles = {
+    connected: 'bg-green-900/50 text-green-300',
+    not_connected: 'bg-slate-700 text-slate-300',
+    error: 'bg-red-900/50 text-red-300',
+  };
+  return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${styles[status]}`}>{status.replace('_', ' ')}</span>;
+};
+
+interface OperaCloudFieldsProps {
+  formData: Hotel;
+  setFormData: React.Dispatch<React.SetStateAction<Hotel>>;
+  onOperaCloudCredentialsChange?: (credentials: OperaCloudCredentials | null) => void;
+  onGetOperaCloudCredentialsRef?: (getter: () => OperaCloudCredentials | null) => void;
+  isAdmin?: boolean;
+}
+
+const OperaCloudFields: React.FC<OperaCloudFieldsProps> = ({
   formData,
   setFormData,
   onOperaCloudCredentialsChange,
@@ -626,7 +633,6 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
 }) => {
   const opera = formData.operaCloudIntegration ?? DEFAULT_OPERA_CLOUD;
 
-  // Sensitive fields live in local state only (same pattern as PSP secrets)
   const [oauthClientSecret, setOauthClientSecret] = useState('');
   const [appKey, setAppKey] = useState('');
   const [integrationPassword, setIntegrationPassword] = useState('');
@@ -642,7 +648,6 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
     }));
   };
 
-  // Credential change callback (mirrors PSP pattern)
   useEffect(() => {
     if (oauthClientSecret || appKey || integrationPassword) {
       onOperaCloudCredentialsChange?.({
@@ -656,7 +661,6 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oauthClientSecret, appKey, integrationPassword]);
 
-  // Getter ref (mirrors PSP pattern)
   useEffect(() => {
     const getCredentials = (): OperaCloudCredentials | null => {
       if (oauthClientSecret || appKey) {
@@ -693,7 +697,7 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
       return;
     }
     if (opera.hotelCodes.length === 0) {
-      setConnectionTestMessage('At least one hotel/resort code is required.');
+      setConnectionTestMessage('At least one property code is required.');
       return;
     }
 
@@ -720,217 +724,193 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
     setIsTestingConnection(false);
   };
 
-  const StatusPill: React.FC<{ status: 'connected' | 'not_connected' | 'error' }> = ({ status }) => {
-    const styles = {
-      connected: 'bg-green-900/50 text-green-300',
-      not_connected: 'bg-slate-700 text-slate-300',
-      error: 'bg-red-900/50 text-red-300',
-    };
-    return <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${styles[status]}`}>{status.replace('_', ' ')}</span>;
-  };
-
   return (
-    <div className="p-4 border border-slate-800 rounded-lg">
-      <h4 className="font-semibold text-slate-50 font-heading">OPERA Cloud API (OHIP)</h4>
-
-      <div className="mt-4 space-y-4">
-        {/* Auth Mode */}
-        <div>
-          <label className="block text-sm font-medium text-slate-400 mb-2">Authentication Mode</label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input
-                type="radio"
-                name="opera-auth-mode"
-                value="ocim"
-                checked={opera.authMode === 'ocim'}
-                onChange={() => updateOpera({ authMode: 'ocim' })}
-                className="accent-cyan-500"
-              />
-              Client Credentials (OCIM)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input
-                type="radio"
-                name="opera-auth-mode"
-                value="ssd"
-                checked={opera.authMode === 'ssd'}
-                onChange={() => updateOpera({ authMode: 'ssd' })}
-                className="accent-cyan-500"
-              />
-              Integration User (SSD)
-            </label>
-          </div>
-        </div>
-
-        {/* Gateway URL */}
-        <div>
-          <label htmlFor="opera-gateway-url" className="block text-sm font-medium text-slate-400">Gateway URL</label>
-          <input
-            type="text"
-            id="opera-gateway-url"
-            value={opera.gatewayUrl}
-            onChange={(e) => updateOpera({ gatewayUrl: e.target.value })}
-            placeholder="https://your-gateway.oraclecloud.com"
-            className={`mt-1 ${darkTextInputStyle}`}
-          />
-        </div>
-
-        {/* Enterprise / Tenant ID */}
-        <div>
-          <label htmlFor="opera-enterprise-id" className="block text-sm font-medium text-slate-400">
-            Enterprise / Tenant ID
-            <span className="ml-2 text-xs font-normal text-slate-500">(Optional)</span>
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-slate-400 mb-2">Authentication Mode</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+            <input
+              type="radio"
+              name="opera-auth-mode"
+              value="ocim"
+              checked={opera.authMode === 'ocim'}
+              onChange={() => updateOpera({ authMode: 'ocim' })}
+              className="accent-cyan-500"
+            />
+            Client Credentials (OCIM)
           </label>
-          <input
-            type="text"
-            id="opera-enterprise-id"
-            value={opera.enterpriseId || ''}
-            onChange={(e) => updateOpera({ enterpriseId: e.target.value })}
-            placeholder="e.g. YOURTENANT"
-            className={`mt-1 ${darkTextInputStyle}`}
-          />
+          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+            <input
+              type="radio"
+              name="opera-auth-mode"
+              value="ssd"
+              checked={opera.authMode === 'ssd'}
+              onChange={() => updateOpera({ authMode: 'ssd' })}
+              className="accent-cyan-500"
+            />
+            Integration User (SSD)
+          </label>
         </div>
+      </div>
 
-        {/* Hotel / Resort Codes */}
-        <div>
-          <label className="block text-sm font-medium text-slate-400">Hotel / Resort Codes</label>
-          <div className="mt-1 space-y-2">
-            {opera.hotelCodes.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {opera.hotelCodes.map((code) => (
-                  <span key={code} className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-slate-700 text-slate-200">
-                    {code}
-                    <button
-                      type="button"
-                      onClick={() => removeHotelCode(code)}
-                      className="text-slate-400 hover:text-red-400"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newHotelCode}
-                onChange={(e) => setNewHotelCode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); addHotelCode(); }
-                }}
-                placeholder="Add resort code (e.g. HOTEL1)"
-                className={`flex-1 ${darkTextInputStyle}`}
-              />
-              <button
-                type="button"
-                onClick={addHotelCode}
-                className="px-3 py-1.5 text-sm text-cyan-400 hover:text-cyan-300 border border-cyan-800 rounded hover:bg-cyan-900/20"
-              >
-                Add
-              </button>
+      <div>
+        <label htmlFor="opera-gateway-url" className="block text-sm font-medium text-slate-400">Gateway URL</label>
+        <input
+          type="text"
+          id="opera-gateway-url"
+          value={opera.gatewayUrl}
+          onChange={(e) => updateOpera({ gatewayUrl: e.target.value })}
+          placeholder="https://your-gateway.oraclecloud.com"
+          className={`mt-1 ${darkTextInputStyle}`}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="opera-enterprise-id" className="block text-sm font-medium text-slate-400">
+          Enterprise / Tenant ID
+          <span className="ml-2 text-xs font-normal text-slate-500">(Optional)</span>
+        </label>
+        <input
+          type="text"
+          id="opera-enterprise-id"
+          value={opera.enterpriseId || ''}
+          onChange={(e) => updateOpera({ enterpriseId: e.target.value })}
+          placeholder="e.g. YOURTENANT"
+          className={`mt-1 ${darkTextInputStyle}`}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-400">Property Codes</label>
+        <div className="mt-1 space-y-2">
+          {opera.hotelCodes.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {opera.hotelCodes.map((code) => (
+                <span key={code} className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-slate-700 text-slate-200">
+                  {code}
+                  <button
+                    type="button"
+                    onClick={() => removeHotelCode(code)}
+                    className="text-slate-400 hover:text-red-400"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              ))}
             </div>
-          </div>
-        </div>
-
-        {/* OAuth Client ID */}
-        <div>
-          <label htmlFor="opera-client-id" className="block text-sm font-medium text-slate-400">OAuth Client ID</label>
-          <input
-            type="text"
-            id="opera-client-id"
-            value={opera.oauthClientId}
-            onChange={(e) => updateOpera({ oauthClientId: e.target.value })}
-            placeholder="Enter OAuth Client ID"
-            className={`mt-1 ${darkTextInputStyle}`}
-          />
-        </div>
-
-        {/* OAuth Client Secret */}
-        <div>
-          <label htmlFor="opera-client-secret" className="block text-sm font-medium text-slate-400">OAuth Client Secret</label>
-          <input
-            type="password"
-            id="opera-client-secret"
-            value={oauthClientSecret}
-            onChange={(e) => setOauthClientSecret(e.target.value)}
-            placeholder="Enter OAuth Client Secret"
-            className={`mt-1 ${darkTextInputStyle}`}
-          />
-          {opera.status === 'connected' && !oauthClientSecret && (
-            <p className="mt-1 text-xs text-slate-500">Existing secret is saved server-side. Enter a new value to update.</p>
           )}
-        </div>
-
-        {/* App Key */}
-        <div>
-          <label htmlFor="opera-app-key" className="block text-sm font-medium text-slate-400">App Key (x-app-key)</label>
-          <input
-            type="password"
-            id="opera-app-key"
-            value={appKey}
-            onChange={(e) => setAppKey(e.target.value)}
-            placeholder="Enter App Key"
-            className={`mt-1 ${darkTextInputStyle}`}
-          />
-          {opera.status === 'connected' && !appKey && (
-            <p className="mt-1 text-xs text-slate-500">Existing key is saved server-side. Enter a new value to update.</p>
-          )}
-        </div>
-
-        {/* SSD-only fields */}
-        {opera.authMode === 'ssd' && (
-          <>
-            <div>
-              <label htmlFor="opera-int-username" className="block text-sm font-medium text-slate-400">Integration Username</label>
-              <input
-                type="text"
-                id="opera-int-username"
-                value={opera.integrationUsername || ''}
-                onChange={(e) => updateOpera({ integrationUsername: e.target.value })}
-                placeholder="Enter Integration Username"
-                className={`mt-1 ${darkTextInputStyle}`}
-              />
-            </div>
-            <div>
-              <label htmlFor="opera-int-password" className="block text-sm font-medium text-slate-400">Integration Password</label>
-              <input
-                type="password"
-                id="opera-int-password"
-                value={integrationPassword}
-                onChange={(e) => setIntegrationPassword(e.target.value)}
-                placeholder="Enter Integration Password"
-                className={`mt-1 ${darkTextInputStyle}`}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Status + Test Connection */}
-        <div className="flex items-center space-x-4 pt-2">
-          <span className="text-sm font-medium text-slate-400">Status:</span>
-          <StatusPill status={opera.status} />
-          {isAdmin && (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newHotelCode}
+              onChange={(e) => setNewHotelCode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addHotelCode(); }
+              }}
+              placeholder="Add resort code (e.g. HOTEL1)"
+              className={`flex-1 ${darkTextInputStyle}`}
+            />
             <button
-              onClick={handleTestConnection}
-              disabled={isTestingConnection}
-              className="text-sm font-medium text-cyan-500 hover:underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              type="button"
+              onClick={addHotelCode}
+              className="px-3 py-1.5 text-sm text-cyan-400 hover:text-cyan-300 border border-cyan-800 rounded hover:bg-cyan-900/20"
             >
-              {isTestingConnection && <Spinner />}
-              Test Connection
+              Add
             </button>
-          )}
-        </div>
-
-        {connectionTestMessage && (
-          <div className={`text-sm ${opera.status === 'connected' ? 'text-green-400' : 'text-red-400'}`}>
-            {connectionTestMessage}
           </div>
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="opera-client-id" className="block text-sm font-medium text-slate-400">OAuth Client ID</label>
+        <input
+          type="text"
+          id="opera-client-id"
+          value={opera.oauthClientId}
+          onChange={(e) => updateOpera({ oauthClientId: e.target.value })}
+          placeholder="Enter OAuth Client ID"
+          className={`mt-1 ${darkTextInputStyle}`}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="opera-client-secret" className="block text-sm font-medium text-slate-400">OAuth Client Secret</label>
+        <input
+          type="password"
+          id="opera-client-secret"
+          value={oauthClientSecret}
+          onChange={(e) => setOauthClientSecret(e.target.value)}
+          placeholder="Enter OAuth Client Secret"
+          className={`mt-1 ${darkTextInputStyle}`}
+        />
+        {opera.status === 'connected' && !oauthClientSecret && (
+          <p className="mt-1 text-xs text-slate-500">Existing secret is saved server-side. Enter a new value to update.</p>
         )}
       </div>
+
+      <div>
+        <label htmlFor="opera-app-key" className="block text-sm font-medium text-slate-400">App Key (x-app-key)</label>
+        <input
+          type="password"
+          id="opera-app-key"
+          value={appKey}
+          onChange={(e) => setAppKey(e.target.value)}
+          placeholder="Enter App Key"
+          className={`mt-1 ${darkTextInputStyle}`}
+        />
+        {opera.status === 'connected' && !appKey && (
+          <p className="mt-1 text-xs text-slate-500">Existing key is saved server-side. Enter a new value to update.</p>
+        )}
+      </div>
+
+      {opera.authMode === 'ssd' && (
+        <>
+          <div>
+            <label htmlFor="opera-int-username" className="block text-sm font-medium text-slate-400">Integration Username</label>
+            <input
+              type="text"
+              id="opera-int-username"
+              value={opera.integrationUsername || ''}
+              onChange={(e) => updateOpera({ integrationUsername: e.target.value })}
+              placeholder="Enter Integration Username"
+              className={`mt-1 ${darkTextInputStyle}`}
+            />
+          </div>
+          <div>
+            <label htmlFor="opera-int-password" className="block text-sm font-medium text-slate-400">Integration Password</label>
+            <input
+              type="password"
+              id="opera-int-password"
+              value={integrationPassword}
+              onChange={(e) => setIntegrationPassword(e.target.value)}
+              placeholder="Enter Integration Password"
+              className={`mt-1 ${darkTextInputStyle}`}
+            />
+          </div>
+        </>
+      )}
+
+      {isAdmin && (
+        <div className="flex items-center space-x-4 pt-2">
+          <button
+            onClick={handleTestConnection}
+            disabled={isTestingConnection}
+            className="text-sm font-medium text-cyan-500 hover:underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isTestingConnection && <Spinner />}
+            Test Connection
+          </button>
+        </div>
+      )}
+
+      {connectionTestMessage && (
+        <div className={`text-sm ${opera.status === 'connected' ? 'text-green-400' : 'text-red-400'}`}>
+          {connectionTestMessage}
+        </div>
+      )}
     </div>
   );
 };
@@ -942,6 +922,7 @@ const OperaCloudSection: React.FC<OperaCloudSectionProps> = ({
 const pmsSelectStyle = `block w-full text-sm rounded-lg bg-slate-800 border-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-600 pl-3 pr-10 py-2`;
 
 const FORMAT_LABELS: Record<string, string> = {
+  opera_cloud_api: 'OHIP',
   opera_csv: 'CSV',
   opera_xml: 'XML',
   opera_delimited: 'Delimited',
@@ -960,9 +941,12 @@ const FormatBadge: React.FC<{ format: string }> = ({ format }) => {
 interface PMSSectionProps {
   formData: Hotel;
   setFormData: React.Dispatch<React.SetStateAction<Hotel>>;
+  onOperaCloudCredentialsChange?: (credentials: OperaCloudCredentials | null) => void;
+  onGetOperaCloudCredentialsRef?: (getter: () => OperaCloudCredentials | null) => void;
+  isAdmin?: boolean;
 }
 
-const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormData }) => {
+const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormData, onOperaCloudCredentialsChange, onGetOperaCloudCredentialsRef, isAdmin }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<ImportResult | null>(null);
   const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
@@ -1046,6 +1030,7 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
             className={`mt-1 ${pmsSelectStyle} capitalize`}
           >
             <option value="none">None</option>
+            <option value="opera_cloud_api">Oracle Opera Cloud (OHIP API)</option>
             <option value="opera_csv">Oracle Opera (CSV Export)</option>
             <option value="opera_xml">Oracle Opera (XML Export)</option>
             <option value="opera_delimited">Oracle Opera (Delimited Text)</option>
@@ -1056,6 +1041,8 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
           <span className="text-sm font-medium text-slate-400">Status:</span>
           {pmsType === 'none' ? (
             <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-700 text-slate-300">not connected</span>
+          ) : pmsType === 'opera_cloud_api' ? (
+            <OperaCloudStatusPill status={(formData.operaCloudIntegration ?? DEFAULT_OPERA_CLOUD).status} />
           ) : formData.pmsIntegration?.reservationCount ? (
             <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-900/50 text-green-300">
               {formData.pmsIntegration.reservationCount} reservations imported
@@ -1187,6 +1174,18 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {pmsType === 'opera_cloud_api' && (
+        <div className="mt-4 pt-4 border-t border-slate-800">
+          <OperaCloudFields
+            formData={formData}
+            setFormData={setFormData}
+            onOperaCloudCredentialsChange={onOperaCloudCredentialsChange}
+            onGetOperaCloudCredentialsRef={onGetOperaCloudCredentialsRef}
+            isAdmin={isAdmin}
+          />
         </div>
       )}
 

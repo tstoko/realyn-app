@@ -1,11 +1,13 @@
-import { doc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, auth } from './firebase';
 import type { User } from '../types';
 import { getUserPreferences, updateUserPreferences } from './userPreferencesService';
 import type { UserPreferences } from '../types';
 
+const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
+
 /**
- * Create or update a user document in Firestore
+ * Create or update a user document via Cloud Function
  */
 export async function createOrUpdateUser(userId: string, userData: {
   name: string;
@@ -15,11 +17,22 @@ export async function createOrUpdateUser(userId: string, userData: {
   hotelName?: string;
   phone?: string;
 }): Promise<void> {
-  const userRef = doc(db, 'users', userId);
-  await setDoc(userRef, {
-    ...userData,
-    updatedAt: Timestamp.now(),
-  }, { merge: true });
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not authenticated');
+  const idToken = await currentUser.getIdToken();
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+    body: JSON.stringify({
+      action: 'updateUserProfile',
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }
 
 /**
@@ -48,29 +61,26 @@ export async function getUserData(userId: string): Promise<User | null> {
 }
 
 /**
- * Update user profile (name, email, phone)
- * Note: Email updates may require re-authentication
+ * Update user profile (name, email, phone) via Cloud Function
  */
 export async function updateUserProfile(
   userId: string,
   updates: { name?: string; email?: string; phone?: string }
 ): Promise<void> {
-  const userRef = doc(db, 'users', userId);
-  const updateData: any = {
-    updatedAt: Timestamp.now(),
-  };
-  
-  if (updates.name !== undefined) {
-    updateData.name = updates.name;
-  }
-  if (updates.email !== undefined) {
-    updateData.email = updates.email;
-  }
-  if (updates.phone !== undefined) {
-    updateData.phone = updates.phone;
-  }
-  
-  await setDoc(userRef, updateData, { merge: true });
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not authenticated');
+  const idToken = await currentUser.getIdToken();
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+    body: JSON.stringify({
+      action: 'updateUserProfile',
+      ...updates,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 }
 
 /**

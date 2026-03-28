@@ -58,6 +58,7 @@ export type AutomationStatus =
 
 export type DisputeLifecycleStatus =
   | 'new'
+  | 'plan_ready'
   | 'evidence_in_progress'
   | 'draft_ready'
   | 'submitted'
@@ -70,7 +71,9 @@ export type InternalStatus =
   | 'needs_review'
   | 'awaiting_docs'
   | 'ready_to_submit'
-  | 'resolved';
+  | 'resolved'
+  | 'submitted'
+  | 'evidence_complete';
 
 export interface Note {
   id: string;
@@ -281,7 +284,7 @@ export interface Team {
   email: string;
 }
 
-export type DocumentCategory = 'Cancellation Policy' | 'Terms of Service' | 'House Rules' | 'Other';
+export type DocumentCategory = 'Cancellation Policy' | 'Terms of Service' | 'House Rules' | 'Terms & Conditions' | 'Other';
 
 export interface HotelDocument {
   id: string;
@@ -352,7 +355,7 @@ export interface PSPIntegrationsConfig {
 // ---------------------------------------------------------------------------
 
 export interface PMSIntegration {
-  type: 'none' | 'opera_csv' | 'opera_xml' | 'opera_delimited' | 'mews_api';
+  type: 'none' | 'opera_cloud_api' | 'opera_csv' | 'opera_xml' | 'opera_delimited' | 'mews_api';
   reservationCount?: number;
   lastImportAt?: Date;
   lastImportId?: string;
@@ -384,6 +387,7 @@ export interface Hotel {
   id: string;
   name: string;
   location: string;
+  industry?: string;
   teams: Team[];
   documents: HotelDocument[];
   users: HotelUser[];
@@ -413,6 +417,7 @@ export interface Organization {
   id: string;
   name: string;
   location: string;
+  industry?: string;
   pspIntegrations: PSPIntegrationsConfig;
   pmsIntegrations?: Record<string, unknown>;
   pmsIntegration?: PMSIntegration;

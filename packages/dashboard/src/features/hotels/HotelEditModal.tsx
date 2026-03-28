@@ -11,7 +11,7 @@ interface HotelEditModalProps {
   onClose: () => void;
 }
 
-const documentCategories: DocumentCategory[] = ['Cancellation Policy', 'Terms of Service', 'House Rules', 'Other'];
+const documentCategories: DocumentCategory[] = ['Cancellation Policy', 'Terms of Service', 'Terms & Conditions', 'Other'];
 type EditTab = 'details' | 'users' | 'integrations' | 'automation';
 
 const inputBaseStyle = "block w-full text-sm rounded-lg bg-slate-800 border-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-600";
@@ -32,7 +32,7 @@ const TabButton: React.FC<{ active: boolean; onClick: () => void; children: Reac
 );
 
 
-const DetailsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.SetStateAction<Hotel>>; formErrors: { [key: string]: string }; }> = ({ formData, setFormData, formErrors }) => {
+const DetailsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.SetStateAction<Hotel>>; formErrors: { [key: string]: string }; setFormErrors: React.Dispatch<React.SetStateAction<{ [key: string]: string }>>; }> = ({ formData, setFormData, formErrors, setFormErrors }) => {
     const [newTeamName, setNewTeamName] = useState('');
     const [newTeamEmail, setNewTeamEmail] = useState('');
     const [teamErrors, setTeamErrors] = useState<{ name?: string; email?: string }>({});
@@ -43,6 +43,9 @@ const DetailsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.
      const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        if (name === 'name' && formErrors.name) {
+            setFormErrors(prev => { const { name: _, ...rest } = prev; return rest; });
+        }
     };
 
     const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -93,13 +96,17 @@ const DetailsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.
         <div className="space-y-8">
             <div className="space-y-4">
                 <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-slate-400">Hotel Name</label>
+                    <label htmlFor="name" className="block text-sm font-medium text-slate-400">Account Name</label>
                     <input type="text" name="name" id="name" value={formData.name} onChange={handleChange} className={`mt-1 ${darkTextInputStyle} ${formErrors.name ? 'border-red-500' : ''}`} />
                     {formErrors.name && <p className="mt-1 text-xs text-red-500">{formErrors.name}</p>}
                 </div>
                 <div>
                     <label htmlFor="location" className="block text-sm font-medium text-slate-400">Location</label>
                     <input type="text" name="location" id="location" value={formData.location} onChange={handleChange} className={`mt-1 ${darkTextInputStyle}`} />
+                </div>
+                <div>
+                    <label htmlFor="industry" className="block text-sm font-medium text-slate-400">Industry</label>
+                    <input type="text" name="industry" id="industry" value={formData.industry || ''} onChange={handleChange} placeholder="e.g. Ticketing, Hospitality, E-commerce" className={`mt-1 ${darkTextInputStyle}`} />
                 </div>
             </div>
 
@@ -224,7 +231,7 @@ const UsersTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.Se
         <div className="space-y-6">
             <div className="p-4 border border-slate-800 rounded-lg">
                 <h4 className="font-semibold text-slate-50 font-heading">User Accounts</h4>
-                <p className="text-sm text-slate-400 mb-4">Manage login credentials for property staff.</p>
+                <p className="text-sm text-slate-400 mb-4">Manage login credentials for team members.</p>
                 
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-2 mb-6">
                     {formData.users && formData.users.length > 0 ? (
@@ -272,7 +279,7 @@ const UsersTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.Se
                                 name="email" 
                                 value={newUser.email} 
                                 onChange={handleInputChange} 
-                                placeholder="alex@hotel.com" 
+                                placeholder="alex@company.com" 
                                 className={`${darkTextInputStyle} ${errors.email ? 'border-red-500' : ''}`} 
                             />
                             {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}
@@ -368,7 +375,7 @@ export const HotelEditModal: React.FC<HotelEditModalProps> = ({ hotel, onSave, o
     const handleSave = () => {
         const errors: { [key: string]: string } = {};
         if (!formData.name.trim()) {
-            errors.name = 'Hotel name cannot be empty.';
+            errors.name = 'Account name cannot be empty.';
         }
         setFormErrors(errors);
         if (Object.keys(errors).length === 0) {
@@ -390,7 +397,7 @@ export const HotelEditModal: React.FC<HotelEditModalProps> = ({ hotel, onSave, o
                 <div className="inline-block align-bottom bg-slate-900 rounded-xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
                     <div className="bg-slate-900 px-4 pt-5 pb-4 sm:p-6 sm:pb-4 border-b border-slate-800">
                         <h3 className="text-xl leading-6 font-semibold text-slate-50 font-heading" id="modal-title">
-                            {isNewHotel ? 'Add New Hotel' : `Editing ${hotel.name}`}
+                            {isNewHotel ? 'Add New Account' : `Editing ${hotel.name}`}
                         </h3>
                     </div>
                     
@@ -404,7 +411,7 @@ export const HotelEditModal: React.FC<HotelEditModalProps> = ({ hotel, onSave, o
                     </div>
 
                     <div className="px-6 py-6 max-h-[60vh] overflow-y-auto">
-                        {activeTab === 'details' && <DetailsTab formData={formData} setFormData={setFormData} formErrors={formErrors} />}
+                        {activeTab === 'details' && <DetailsTab formData={formData} setFormData={setFormData} formErrors={formErrors} setFormErrors={setFormErrors} />}
                         {activeTab === 'users' && <UsersTab formData={formData} setFormData={setFormData} />}
                         {activeTab === 'integrations' && (
                             <ErrorBoundary>

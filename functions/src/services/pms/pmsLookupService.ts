@@ -11,8 +11,8 @@ import * as admin from "firebase-admin";
 import {findBestMatches, isAmbiguousMatch, type DisputeMatchInput} from "./disputeMatcher";
 import type {PMSReservationDocument, PMSReservation, PMSFolio, PMSActivityLog} from "../../types/pmsData";
 import type {PMSLiveClient} from "./types";
-import {OperaCloudLiveClient} from "../../integrations/operaCloud/operaCloudLiveClient";
-import type {OperaCloudConfig} from "../../integrations/operaCloud/types";
+import {OperaCloudLiveClient} from "./providers/operaCloud/operaCloudLiveClient";
+import type {OperaCloudConfig} from "./providers/operaCloud/types";
 
 export interface PMSMatchResult {
   reservation: PMSReservation;

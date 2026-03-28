@@ -13,6 +13,7 @@ import {
   CardNetwork,
 } from "../../config/disputeCodeMapping";
 import { callLLM } from "./llmService";
+import { buildDisputeContextBlock } from "./promptHelpers";
 
 // ============================================================
 // Evidence Planner
@@ -75,10 +76,11 @@ export async function generateEvidencePlan(
     // NOTE: disputeCase is expected to already be PII-sanitized by the orchestrator
     const prompt = buildEvidencePlanPrompt(disputeCase, codeInfo, network, context);
 
-    // Use enhanced system prompt if we have specialist context
-    const systemPrompt = context?.claimAnalysis
-      ? ENHANCED_EVIDENCE_PLANNER_SYSTEM_PROMPT
-      : EVIDENCE_PLANNER_SYSTEM_PROMPT;
+    // Select system prompt based on vertical + specialist context
+    const vertical = context?.merchantVertical ?? disputeCase.merchantVertical ?? "hospitality";
+    const systemPrompt = vertical === "ticketing"
+      ? (context?.claimAnalysis ? ENHANCED_TICKETING_EVIDENCE_PLANNER_SYSTEM_PROMPT : TICKETING_EVIDENCE_PLANNER_SYSTEM_PROMPT)
+      : (context?.claimAnalysis ? ENHANCED_EVIDENCE_PLANNER_SYSTEM_PROMPT : EVIDENCE_PLANNER_SYSTEM_PROMPT);
 
     // Call the LLM
     const result = await callLLM(prompt, EvidencePlanSchema, {
@@ -206,6 +208,93 @@ EVIDENCE CATEGORIES:
 - delivery: Shipping/tracking (rarely used in hotels)
 - other: Any miscellaneous evidence`;
 
+// ============================================================
+// Ticketing System Prompts
+// ============================================================
+
+const TICKETING_EVIDENCE_PLANNER_SYSTEM_PROMPT = `You are an expert ticketing/events dispute analyst specializing in chargeback defense for ticket platforms and live-event merchants.
+
+Your task is to analyze a ticketing dispute case and generate an evidence plan that will help the merchant win the chargeback.
+
+IMPORTANT GUIDELINES:
+1. Always respond with valid JSON matching the required schema
+2. Be specific to ticketing — focus on order confirmations, ticket delivery proof, venue/partner redemption logs, checkout terms, and buyer communications
+3. Consider the dispute reason when recommending evidence
+4. Prioritize evidence that directly refutes the cardholder's claim
+5. Be realistic about winnability based on the evidence available
+6. For product-not-received disputes, focus on delivery proof (confirmation emails with barcode/QR, download logs, venue scan records)
+7. For fraud disputes, focus on 3D Secure authentication, AVS/CVV match, and linking the cardholder to the purchaser account
+8. For refund/cancellation disputes, focus on checkout terms the buyer agreed to and any refund-policy disclosures
+9. Mark evidence as "required: true" for highly recommended items and "required: false" for helpful items
+10. Merchants can still submit without all evidence, so guide them on priority rather than blocking them
+11. For EACH evidence requirement, generate specific, actionable instructions that directly address the customer's claim
+12. Instructions should include concrete steps (e.g., "Export the order from your ticketing platform...", "Screenshot the delivery log...") with context from this dispute (order IDs, event dates, amounts)
+13. Instructions should clearly state what evidence refutes the customer's specific claim
+
+EVIDENCE CATEGORIES:
+- delivery: Order confirmations, ticket delivery proof, QR/barcode logs, venue redemption records
+- policy: Refund policy, exchange policy, terms of service agreed at checkout
+- communications: Buyer emails, support threads, delivery notifications
+- payment_data: Authorization codes, AVS/CVV results, 3D Secure records
+- other: Any miscellaneous evidence
+
+WINNABILITY ASSESSMENT:
+- high: Strong evidence available, buyer received tickets or accessed the event
+- medium: Some evidence available, outcome uncertain
+- low: Limited evidence, cardholder claim appears valid
+
+RECOMMENDATION:
+- fight: Evidence supports the merchant's case
+- accept: Evidence is insufficient or cardholder claim appears valid`;
+
+const ENHANCED_TICKETING_EVIDENCE_PLANNER_SYSTEM_PROMPT = `You are an expert ticketing/events dispute analyst specializing in chargeback defense for ticket platforms and live-event merchants.
+
+You have been provided with SPECIALIST ANALYSIS that you MUST use to create a targeted evidence plan:
+- CLAIM ANALYSIS: Deep understanding of the customer's arguments and what needs to be disproven
+- EVIDENCE RELEVANCE SCORES: Which evidence types will be most impactful for this specific dispute
+
+## YOUR PRIMARY GOAL
+
+Create an evidence plan that DIRECTLY ADDRESSES each customer argument. Every requirement should either:
+1. Disprove a specific customer claim
+2. Support the merchant's position with strong evidence
+3. Provide necessary context for the dispute
+
+## USING THE SPECIALIST ANALYSIS
+
+### Claim Analysis
+- Each customer argument MUST be addressed by at least one evidence requirement
+- Focus on the "requiredDisproofs" — these tell you exactly what evidence is needed
+- Use the "weakPoints" to prioritize evidence that exploits gaps in the customer's story
+
+### Relevance Scores
+- Prioritize evidence types with high relevance scores (70+)
+- Evidence marked as "directly disproves" should be marked as required
+- Don't waste time on low-relevance evidence unless it supports a key argument
+
+## REVISION HANDLING
+
+If you receive REVISION FEEDBACK, you MUST:
+1. Add any requirements listed in "requirementsToAdd"
+2. Remove any requirements listed in "requirementsToRemove"
+3. Adjust priorities as specified in "prioritiesToChange"
+4. Ensure the revised plan addresses ALL issues mentioned
+
+## OUTPUT REQUIREMENTS
+
+1. Always respond with valid JSON matching the required schema
+2. Include 3-6 evidence requirements, prioritized by relevance
+3. Each requirement needs specific, actionable instructions
+4. Mark critical evidence as priority 1 and required: true
+5. The plan should give the merchant a clear path to winning
+
+EVIDENCE CATEGORIES:
+- delivery: Order confirmations, ticket delivery proof, QR/barcode logs, venue redemption records
+- policy: Refund policy, exchange policy, terms of service agreed at checkout
+- communications: Buyer emails, support threads, delivery notifications
+- payment_data: Authorization codes, AVS/CVV results, 3D Secure records
+- other: Any miscellaneous evidence`;
+
 function buildEvidencePlanPrompt(
   disputeCase: DisputeCase,
   codeInfo: ReturnType<typeof getDisputeCodeInfo>,
@@ -213,11 +302,13 @@ function buildEvidencePlanPrompt(
   context?: SpecialistContext
 ): string {
   const parts: string[] = [];
+  const vertical = context?.merchantVertical ?? "hospitality";
+  const isTicketing = vertical === "ticketing";
 
-  parts.push("# Hotel Dispute Case Analysis\n");
+  parts.push(isTicketing ? "# Ticketing Dispute Case Analysis\n" : "# Hotel Dispute Case Analysis\n");
 
-  // Add prominent folio availability notice at the top if folio is available
-  if (context?.hasFolio) {
+  // Folio block is hotel-only
+  if (!isTicketing && context?.hasFolio) {
     parts.push("## ⚠️ CRITICAL: FOLIO ALREADY AVAILABLE\n");
     parts.push("**A folio document is already available for this dispute.**");
     parts.push("");
@@ -239,6 +330,28 @@ function buildEvidencePlanPrompt(
     parts.push("- ✅ Payment Authorization Records (technical payment data)");
     parts.push("");
     parts.push("Focus on evidence that complements the folio, not duplicates it.\n");
+    parts.push("---\n");
+  }
+
+  // PMS match block is hotel-only
+  if (!isTicketing && context?.pmsMatch) {
+    const pm = context.pmsMatch;
+    parts.push("## PMS DATA AVAILABLE (auto-fulfillable)");
+    parts.push("");
+    parts.push(`The system has matched this dispute to a PMS reservation (confidence: ${pm.confidence}%, source: ${pm.source}).`);
+    parts.push("Evidence items that overlap with this data will be **auto-collected** — do not mark them as high-priority for the user.");
+    parts.push("");
+    parts.push(`- **Reservation**: ${pm.reservation.guestName}, confirmation ${pm.confirmationNumber}`);
+    parts.push(`  Check-in: ${pm.reservation.checkIn}, Check-out: ${pm.reservation.checkOut}, Status: ${pm.reservation.status}`);
+    if (pm.folio) {
+      parts.push(`- **Folio**: ${pm.folio.lines.length} line items, balance ${pm.folio.currency} ${(pm.folio.balance / 100).toFixed(2)}`);
+    }
+    if (pm.activityLogs.length > 0) {
+      parts.push(`- **Activity Logs**: ${pm.activityLogs.length} entries`);
+    }
+    parts.push("");
+    parts.push("Focus evidence requirements on items the PMS data does NOT cover (e.g., signed registration card, cancellation policy documents, guest communications).");
+    parts.push("");
     parts.push("---\n");
   }
 
@@ -359,8 +472,8 @@ function buildEvidencePlanPrompt(
     if (context.existingEvidence) {
       const ee = context.existingEvidence;
       if (ee.availableDocuments.length > 0) {
-        parts.push("### Existing Hotel Documents");
-        parts.push("The hotel already has these documents on file:");
+        parts.push(isTicketing ? "### Existing Merchant Documents" : "### Existing Hotel Documents");
+        parts.push(isTicketing ? "The merchant already has these documents on file:" : "The hotel already has these documents on file:");
         for (const doc of ee.availableDocuments) {
           const relevance = doc.relevantForDispute ? "✅ RELEVANT" : "⬜ not relevant";
           parts.push(`- ${doc.name} (${doc.category}) — ${relevance}`);
@@ -377,7 +490,7 @@ function buildEvidencePlanPrompt(
       }
 
       if (ee.missingDocuments.length > 0) {
-        parts.push("### Missing Documents (hotel should obtain)");
+        parts.push(isTicketing ? "### Missing Documents (merchant should obtain)" : "### Missing Documents (hotel should obtain)");
         for (const missing of ee.missingDocuments) {
           parts.push(`- ${missing}`);
         }
@@ -438,43 +551,16 @@ function buildEvidencePlanPrompt(
     parts.push("---\n");
   }
 
-  // Dispute overview
-  parts.push("## Dispute Details");
-  parts.push(`- **Amount**: ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}`);
-  parts.push(`- **Reason**: ${disputeCase.reason || "Not specified"}`);
-  parts.push(`- **PSP**: ${disputeCase.pspProvider}`);
-  if (disputeCase.transactionDate) {
-    parts.push(`- **Transaction Date**: ${disputeCase.transactionDate}`);
-  }
-  if (disputeCase.respondByDate) {
-    parts.push(`- **Respond By**: ${disputeCase.respondByDate}`);
-
-    // Deadline awareness
-    try {
-      const deadline = new Date(disputeCase.respondByDate);
-      const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursRemaining < 48) {
-        parts.push("");
-        parts.push("## ⏰ URGENT DEADLINE");
-        if (hoursRemaining < 24) {
-          parts.push(`**CRITICAL: Only ~${Math.max(1, Math.round(hoursRemaining))} hours remaining.**`);
-          parts.push("Limit to 3-4 requirements. Focus ONLY on the most critical, easy-to-obtain evidence.");
-          parts.push("Prioritize documents already on file and evidence that can be gathered immediately.");
-        } else {
-          parts.push(`**WARNING: Only ~${Math.round(hoursRemaining)} hours remaining.**`);
-          parts.push("Keep requirements focused. Prioritize high-impact, readily available evidence.");
-        }
-      }
-    } catch { /* invalid date, skip */ }
-  }
-  parts.push("");
-
-  // Customer explanation
-  if (disputeCase.customerExplanation) {
-    parts.push("## Customer's Claim");
-    parts.push(`"${disputeCase.customerExplanation}"`);
-    parts.push("");
-  }
+  parts.push(buildDisputeContextBlock(disputeCase, {
+    includePsp: true,
+    includeDates: true,
+    includeHotelProfile: true,
+    includeHotelPolicies: true,
+    includeBooking: true,
+    includeGuest: true,
+    includePayment: true,
+    includeUrgency: true,
+  }));
 
   // Code info if available
   if (codeInfo) {
@@ -485,123 +571,38 @@ function buildEvidencePlanPrompt(
       parts.push(`- **Subcategory**: ${codeInfo.subcategory}`);
     }
     parts.push(`- **Description**: ${codeInfo.description}`);
-    parts.push(`- **Hotel Relevance**: ${codeInfo.hotelRelevance}`);
+    parts.push(`- **Relevance**: ${codeInfo.hotelRelevance}`);
     parts.push(`- **Default Recommendation**: ${codeInfo.defaultRecommendation}`);
     parts.push(`- **Required Evidence Categories**: ${codeInfo.requiredEvidence.join(", ")}`);
     parts.push("");
   }
 
-  // Hotel profile
-  if (disputeCase.hotelProfile) {
-    parts.push("## Hotel Information");
-    parts.push(`- **Name**: ${disputeCase.hotelProfile.name}`);
-    parts.push(`- **Location**: ${disputeCase.hotelProfile.location}`);
-    if (disputeCase.hotelProfile.policies) {
-      parts.push("- **Policies on File**:");
-      if (disputeCase.hotelProfile.policies.cancellation) {
-        parts.push(`  - Cancellation: ${disputeCase.hotelProfile.policies.cancellation}`);
-      }
-      if (disputeCase.hotelProfile.policies.refund) {
-        parts.push(`  - Refund: ${disputeCase.hotelProfile.policies.refund}`);
-      }
-      if (disputeCase.hotelProfile.policies.noShow) {
-        parts.push(`  - No-Show: ${disputeCase.hotelProfile.policies.noShow}`);
-      }
-    }
-    parts.push("");
-  }
-
-  // Booking data
-  if (disputeCase.booking) {
-    parts.push("## Booking Information (from PMS)");
-    if (disputeCase.booking.checkIn) {
-      parts.push(`- **Check-in**: ${disputeCase.booking.checkIn}`);
-    }
-    if (disputeCase.booking.checkOut) {
-      parts.push(`- **Check-out**: ${disputeCase.booking.checkOut}`);
-    }
-    if (disputeCase.booking.roomNumber) {
-      parts.push(`- **Room**: ${disputeCase.booking.roomNumber}`);
-    }
-    if (disputeCase.booking.roomType) {
-      parts.push(`- **Room Type**: ${disputeCase.booking.roomType}`);
-    }
-    if (disputeCase.booking.ratePlan) {
-      parts.push(`- **Rate Plan**: ${disputeCase.booking.ratePlan}`);
-    }
-    if (disputeCase.booking.totalAmount) {
-      parts.push(
-        `- **Total**: ${disputeCase.booking.currency || disputeCase.currency} ${(
-          disputeCase.booking.totalAmount / 100
-        ).toFixed(2)}`
-      );
-    }
-    if (disputeCase.booking.status) {
-      parts.push(`- **Status**: ${disputeCase.booking.status}`);
-    }
-    if (disputeCase.booking.guestName) {
-      parts.push(`- **Guest Name**: ${disputeCase.booking.guestName}`);
-    }
-    parts.push("");
-  } else {
-    parts.push("## Booking Information");
-    parts.push("*No booking data linked to this dispute*");
-    parts.push("");
-  }
-
-  // Guest data
-  if (disputeCase.guest) {
-    parts.push("## Guest Information (from PMS)");
-    if (disputeCase.guest.firstName || disputeCase.guest.lastName) {
-      parts.push(
-        `- **Name**: ${disputeCase.guest.firstName || ""} ${disputeCase.guest.lastName || ""}`
-      );
-    }
-    if (disputeCase.guest.email) {
-      parts.push(`- **Email**: ${disputeCase.guest.email}`);
-    }
-    if (disputeCase.guest.phone) {
-      parts.push(`- **Phone**: ${disputeCase.guest.phone}`);
-    }
-    parts.push("");
-  }
-
-  // Payment data
-  if (disputeCase.paymentData) {
-    parts.push("## Payment Verification");
-    if (disputeCase.paymentData.last4) {
-      parts.push(`- **Card Last 4**: ${disputeCase.paymentData.last4}`);
-    }
-    if (disputeCase.paymentData.authCode) {
-      parts.push(`- **Auth Code**: ${disputeCase.paymentData.authCode}`);
-    }
-    if (disputeCase.paymentData.avsMatch !== undefined) {
-      parts.push(`- **AVS Match**: ${disputeCase.paymentData.avsMatch ? "Yes" : "No"}`);
-    }
-    if (disputeCase.paymentData.cvvMatch !== undefined) {
-      parts.push(`- **CVV Match**: ${disputeCase.paymentData.cvvMatch ? "Yes" : "No"}`);
-    }
-    if (disputeCase.paymentData.threeDSecure !== undefined) {
-      parts.push(`- **3D Secure**: ${disputeCase.paymentData.threeDSecure ? "Yes" : "No"}`);
-    }
-    parts.push("");
-  }
-
   // Instructions with explicit JSON structure
   parts.push("## Your Task");
-  parts.push("Generate an evidence plan for this hotel dispute.");
+  parts.push(isTicketing
+    ? "Generate an evidence plan for this ticketing dispute."
+    : "Generate an evidence plan for this hotel dispute.");
   parts.push("");
   parts.push("## Instructions for Evidence Requirements");
   parts.push("For EACH evidence requirement, you MUST include an 'instructions' field with:");
-  parts.push("- Specific, actionable steps (e.g., 'Take a photo of...', 'Export logs from...')");
-  parts.push("- Context from this dispute (room numbers, dates, guest names)");
+  parts.push("- Specific, actionable steps (e.g., 'Export the order from...', 'Screenshot the delivery log...')");
+  parts.push(isTicketing
+    ? "- Context from this dispute (order IDs, event dates, amounts, buyer details)"
+    : "- Context from this dispute (room numbers, dates, guest names)");
   parts.push("- What to capture/show that directly refutes the customer's claim");
   parts.push("- Format: Clear, numbered steps or bullet points");
   parts.push("");
-  parts.push("Example: If customer claims 'bed was single', instructions should be:");
-  parts.push('"Take a photo of the bed in Room [roomNumber] showing it is a [actualBedType].');
-  parts.push('Include the room number visible in the photo. If possible, show the room type');
-  parts.push('from the booking confirmation to prove the room type matches what was reserved."');
+  if (isTicketing) {
+    parts.push("Example: If customer claims 'tickets were never received', instructions should be:");
+    parts.push('"Export the order confirmation email from your ticketing platform showing the');
+    parts.push("delivery timestamp, recipient address, and ticket barcode/QR. If available,");
+    parts.push('include venue scan logs showing the tickets were redeemed at the event."');
+  } else {
+    parts.push("Example: If customer claims 'bed was single', instructions should be:");
+    parts.push('"Take a photo of the bed in Room [roomNumber] showing it is a [actualBedType].');
+    parts.push('Include the room number visible in the photo. If possible, show the room type');
+    parts.push('from the booking confirmation to prove the room type matches what was reserved."');
+  }
   parts.push("");
   parts.push("You MUST respond with a JSON object in exactly this format:");
   parts.push("```json");
@@ -611,11 +612,15 @@ function buildEvidencePlanPrompt(
   parts.push('  "recommendation": "fight" or "accept",');
   parts.push('  "winnability": "high" or "medium" or "low",');
   parts.push('  "winnabilityReason": "string explaining why",');
-  parts.push('  "summary": "string summary for hotel staff",');
+  parts.push(isTicketing
+    ? '  "summary": "string summary for merchant staff",'
+    : '  "summary": "string summary for hotel staff",');
   parts.push('  "requirements": [');
   parts.push("    {");
   parts.push('      "id": "req-1",');
-  parts.push('      "category": "pms_data" or "policy" or "proof_of_stay" or "communications" or "payment_data" or "incident_reports" or "delivery" or "other",');
+  parts.push(isTicketing
+    ? '      "category": "delivery" or "policy" or "communications" or "payment_data" or "other",'
+    : '      "category": "pms_data" or "policy" or "proof_of_stay" or "communications" or "payment_data" or "incident_reports" or "delivery" or "other",');
   parts.push('      "label": "short name",');
   parts.push('      "tag": "structured_identifier (see TAG RULES below)",');
   parts.push('      "description": "what to provide",');
@@ -631,10 +636,16 @@ function buildEvidencePlanPrompt(
   parts.push("");
   parts.push("## TAG RULES");
   parts.push("Each requirement MUST include a `tag` field with one of these identifiers:");
-  parts.push("- folio, registration_card, cancellation_policy, refund_policy, terms_of_service");
-  parts.push("- booking_confirmation, checkin_checkout_records, keycard_logs, housekeeping_records");
-  parts.push("- guest_communications, 3d_secure_records, avs_cvv_records, authorization_records");
-  parts.push("- id_verification, signed_agreements, incident_report, damage_report, other");
+  if (isTicketing) {
+    parts.push("- order_confirmation, delivery_proof, redemption_log, refund_policy, terms_of_service");
+    parts.push("- buyer_communications, 3d_secure_records, avs_cvv_records, authorization_records");
+    parts.push("- id_verification, signed_agreements, other");
+  } else {
+    parts.push("- folio, registration_card, cancellation_policy, refund_policy, terms_of_service");
+    parts.push("- booking_confirmation, checkin_checkout_records, keycard_logs, housekeeping_records");
+    parts.push("- guest_communications, 3d_secure_records, avs_cvv_records, authorization_records");
+    parts.push("- id_verification, signed_agreements, incident_report, damage_report, other");
+  }
   parts.push("Use the tag that best matches the evidence type. Tags are used for deduplication.");
   parts.push("");
   parts.push("Include 3-6 evidence requirements based on the dispute type.");
@@ -680,8 +691,10 @@ function generateFallbackPlan(
       hasFolio: hasFolio,
     });
   } else {
-    // Default requirements for unknown dispute types
-    requirements = getDefaultHotelRequirements(disputeCase, hasFolio);
+    const vertical = disputeCase.merchantVertical ?? "hospitality";
+    requirements = vertical === "ticketing"
+      ? getDefaultTicketingRequirements(disputeCase)
+      : getDefaultHotelRequirements(disputeCase, hasFolio);
     summary = `Dispute for ${disputeCase.currency} ${(disputeCase.amount / 100).toFixed(2)}. Reason: ${disputeCase.reason || "Not specified"}.`;
   }
 
@@ -805,6 +818,87 @@ function getDefaultHotelRequirements(disputeCase: DisputeCase, hasFolio: boolean
       example: "Auth code and approval timestamp",
       sourceHint: "Payment gateway / Processor",
       instructions: "Export authorization records from your payment gateway or processor portal. Include the authorization code, timestamp, amount authorized, and approval status. This proves the transaction was properly authorized before processing.",
+      required: true,
+      priority: 1,
+    });
+  }
+
+  return requirements;
+}
+
+/**
+ * Get default requirements for ticketing/events dispute types
+ */
+function getDefaultTicketingRequirements(disputeCase: DisputeCase): EvidenceRequirement[] {
+  const requirements: EvidenceRequirement[] = [];
+  let id = 1;
+
+  requirements.push({
+    id: `req-${id++}`,
+    category: "delivery",
+    tag: "order_confirmation",
+    label: "Order Confirmation",
+    description: "Order receipt showing ticket details, event, buyer email, and amount charged",
+    example: "Order confirmation email or platform receipt with order ID and ticket details",
+    sourceHint: "Ticketing platform / order management system",
+    instructions: "Export the order confirmation from your ticketing platform. Include the order ID, event name, ticket type/tier, buyer email address, purchase timestamp, and amount charged. This proves the buyer completed a legitimate purchase.",
+    required: true,
+    priority: 1,
+  });
+
+  requirements.push({
+    id: `req-${id++}`,
+    category: "delivery",
+    tag: "delivery_proof",
+    label: "Ticket Delivery Proof",
+    description: "Evidence that tickets were delivered to the buyer (email with barcode/QR, download log, or partner delivery record)",
+    example: "Delivery confirmation showing ticket email was sent and opened, or download timestamp",
+    sourceHint: "Email delivery logs / ticketing platform",
+    instructions: "Export proof that the tickets were delivered to the buyer. This could be: (1) email delivery log showing the ticket email was sent and delivered, (2) download/access log showing the buyer retrieved the tickets, or (3) partner API delivery confirmation. Include timestamps and recipient details.",
+    required: true,
+    priority: 1,
+  });
+
+  requirements.push({
+    id: `req-${id++}`,
+    category: "policy",
+    tag: "refund_policy",
+    label: "Refund / Exchange Policy",
+    description: "The refund and exchange policy the buyer agreed to at checkout",
+    example: "Checkout terms screenshot showing no-refund policy for the event",
+    sourceHint: "Website / checkout flow / terms page",
+    instructions: "Screenshot or export your refund and exchange policy as it appeared to the buyer at checkout. Include the policy text and evidence that the buyer was required to accept these terms before completing the purchase.",
+    required: true,
+    priority: 2,
+  });
+
+  requirements.push({
+    id: `req-${id++}`,
+    category: "communications",
+    tag: "buyer_communications",
+    label: "Buyer Communications",
+    description: "Support threads, delivery notifications, or emails exchanged with the buyer",
+    example: "Email thread showing delivery confirmation or support resolution",
+    sourceHint: "Support system / email logs",
+    instructions: "Export any communications with the buyer: support tickets, delivery notifications, event updates, or refund-request threads. Include timestamps and the full thread to show context.",
+    required: false,
+    priority: 3,
+  });
+
+  if (
+    disputeCase.reason?.includes("fraud") ||
+    disputeCase.reason?.includes("unauthorized") ||
+    disputeCase.reason?.includes("fraudulent")
+  ) {
+    requirements.push({
+      id: `req-${id++}`,
+      category: "payment_data",
+      tag: "authorization_records",
+      label: "Authorization / 3DS Records",
+      description: "Payment authorization proof, 3D Secure authentication, and AVS/CVV verification results",
+      example: "Stripe charge details showing 3DS authenticated, AVS match, CVV match",
+      sourceHint: "Payment gateway / Stripe Dashboard",
+      instructions: "Export the payment authorization details from your PSP (e.g. Stripe). Include: (1) authorization code and timestamp, (2) 3D Secure authentication result, (3) AVS address match result, (4) CVV/CVC match result. This proves the cardholder authenticated the transaction.",
       required: true,
       priority: 1,
     });

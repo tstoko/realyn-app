@@ -219,6 +219,9 @@ export const DisputeCaseSchema = z.object({
   booking: BookingInfoSchema.nullable().optional(),
   guest: GuestInfoSchema.nullable().optional(),
   paymentData: PaymentDataSchema.optional(),
+
+  // Industry vertical (drives prompt selection in evidence planning pipeline)
+  merchantVertical: z.enum(["hospitality", "ticketing", "general"]).optional(),
 });
 
 export type DisputeCase = z.infer<typeof DisputeCaseSchema>;
@@ -601,6 +604,8 @@ export interface SpecialistContext {
   revisionFeedback?: RevisionInstructions;
   hasFolio?: boolean; // Indicates if folio is already available for this dispute
   respondByDate?: string; // For deadline awareness
+  pmsMatch?: import("../services/pms/pmsLookupService").PMSMatchResult; // Structured PMS data when matched
+  merchantVertical?: "hospitality" | "ticketing" | "general";
 }
 
 /**

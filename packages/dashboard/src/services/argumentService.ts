@@ -1,6 +1,5 @@
-import { doc, updateDoc, getDoc, Timestamp } from 'firebase/firestore';
-import { db, auth } from '@realyn/shared';
-import type { DisputeArgument, ArgumentVersion } from '@realyn/shared';
+import { auth } from '@realyn/shared';
+import type { DisputeArgument } from '@realyn/shared';
 import { FUNCTIONS_BASE_URL } from '../config/environment';
 
 /**
@@ -82,61 +81,30 @@ export async function generateArgument(
 }
 
 /**
- * Save an edited argument draft to Firestore
- * Creates a new version entry when argument is manually edited
+ * Save an edited argument draft via Cloud Function
  */
 export async function saveArgumentDraft(
   disputeId: string,
-  argument: DisputeArgument
+  argument: DisputeArgument,
+  organizationId: string
 ): Promise<SaveArgumentResponse> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    
-    // Get current dispute to access existing versions
-    const disputeDoc = await getDoc(disputeRef);
-    if (!disputeDoc.exists()) {
-      return {
-        success: false,
-        error: 'Dispute not found',
-      };
-    }
-
-    const dispute = disputeDoc.data();
-    
-    // Get existing argument versions or initialize
-    const existingVersions: ArgumentVersion[] = 
-      (dispute?.argumentVersions as ArgumentVersion[]) || [];
-    
-    // Determine next version number
-    const nextVersion = existingVersions.length > 0
-      ? Math.max(...existingVersions.map(v => v.version || 0)) + 1
-      : 1;
-
-    // Mark all previous versions as not current
-    const updatedVersions = existingVersions.map(v => ({
-      ...v,
-      isCurrent: false,
-    }));
-
-    // Create new version entry for the edited argument
-    const newVersion: ArgumentVersion = {
-      argument,
-      generatedAt: new Date(),
-      version: nextVersion,
-      isCurrent: true,
-      isSubmitted: false,
-    };
-
-    // Add to versions array
-    updatedVersions.push(newVersion);
-
-    // Update both current draft and versions array
-    await updateDoc(disputeRef, {
-      argumentDraft: argument, // Keep current draft for backward compatibility
-      argumentVersions: updatedVersions, // Store all versions
-      updatedAt: Timestamp.now(),
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${FUNCTIONS_BASE_URL}/argumentWriteHandler`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        action: 'saveArgumentDraft',
+        disputeId,
+        argument,
+        organizationId,
+      }),
     });
-    
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data.error || `HTTP error ${response.status}` };
+    }
     return { success: true };
   } catch (error) {
     console.error('Error saving argument draft:', error);
@@ -148,18 +116,28 @@ export async function saveArgumentDraft(
 }
 
 /**
- * Clear the argument draft (e.g., user wants to start over)
+ * Clear the argument draft via Cloud Function
  */
 export async function clearArgumentDraft(
-  disputeId: string
+  disputeId: string,
+  organizationId: string
 ): Promise<SaveArgumentResponse> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    await updateDoc(disputeRef, {
-      argumentDraft: null,
-      argumentDraftGeneratedAt: null,
-      updatedAt: Timestamp.now(),
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${FUNCTIONS_BASE_URL}/argumentWriteHandler`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        action: 'clearArgumentDraft',
+        disputeId,
+        organizationId,
+      }),
     });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data.error || `HTTP error ${response.status}` };
+    }
     return { success: true };
   } catch (error) {
     console.error('Error clearing argument draft:', error);
@@ -171,18 +149,28 @@ export async function clearArgumentDraft(
 }
 
 /**
- * Mark argument as submitted
+ * Mark argument as submitted via Cloud Function
  */
 export async function markArgumentSubmitted(
-  disputeId: string
+  disputeId: string,
+  organizationId: string
 ): Promise<SaveArgumentResponse> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    await updateDoc(disputeRef, {
-      argumentSubmittedAt: Timestamp.now(),
-      lifecycleStatus: 'submitted',
-      updatedAt: Timestamp.now(),
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${FUNCTIONS_BASE_URL}/argumentWriteHandler`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        action: 'markArgumentSubmitted',
+        disputeId,
+        organizationId,
+      }),
     });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data.error || `HTTP error ${response.status}` };
+    }
     return { success: true };
   } catch (error) {
     console.error('Error marking argument as submitted:', error);

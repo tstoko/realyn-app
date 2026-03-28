@@ -16,7 +16,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateToLegal }) => {
   }
 
   return (
-    <footer className="relative border-t border-white/10 bg-slate-950/50 backdrop-blur-sm">
+    <footer className="relative border-t border-white/10 bg-black">
       <div className="container mx-auto px-6 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           {/* Brand Column */}
@@ -44,11 +44,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateToLegal }) => {
               <li>
                 <a href="#trust" className="text-slate-400 hover:text-cyan-400 transition-colors text-sm">
                   Security
-                </a>
-              </li>
-              <li>
-                <a href="#faq" className="text-slate-400 hover:text-cyan-400 transition-colors text-sm">
-                  FAQ
                 </a>
               </li>
             </ul>

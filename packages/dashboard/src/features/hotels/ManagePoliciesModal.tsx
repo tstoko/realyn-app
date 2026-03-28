@@ -7,7 +7,7 @@ interface ManagePoliciesModalProps {
   onClose: () => void;
 }
 
-const documentCategories: DocumentCategory[] = ['Cancellation Policy', 'Terms of Service', 'House Rules', 'Other'];
+const documentCategories: DocumentCategory[] = ['Cancellation Policy', 'Terms of Service', 'Terms & Conditions', 'Other'];
 
 const inputBaseStyle = "block w-full text-sm rounded-lg bg-slate-800 border-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-600";
 const darkTextInputStyle = `${inputBaseStyle} px-3 py-2`;
@@ -106,7 +106,7 @@ export const ManagePoliciesModal: React.FC<ManagePoliciesModalProps> = ({ hotel,
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <p className="mt-2 text-sm text-slate-500">No policies uploaded yet</p>
-                  <p className="text-xs text-slate-600">Add your cancellation policy, T&Cs, and house rules below</p>
+                  <p className="text-xs text-slate-600">Add your cancellation policy, T&Cs, and terms below</p>
                 </div>
               )}
             </div>

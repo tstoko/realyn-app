@@ -36,6 +36,8 @@ const BulkActionBar: React.FC<{
           <option value="needs_review">Needs Review</option>
           <option value="awaiting_docs">Awaiting Docs</option>
           <option value="ready_to_submit">Ready to Submit</option>
+          <option value="evidence_complete">Evidence complete</option>
+          <option value="submitted">Submitted</option>
           <option value="resolved">Resolved</option>
         </select>
       </div>

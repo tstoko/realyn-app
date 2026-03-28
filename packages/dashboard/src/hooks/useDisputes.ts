@@ -1,7 +1,69 @@
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, orderBy, where, onSnapshot, doc, updateDoc, Timestamp as FirestoreTimestamp } from 'firebase/firestore';
-import { db } from '@realyn/shared';
-import type { Dispute, AutomationStep, Note } from '@realyn/shared';
+import { collection, query, orderBy, where, onSnapshot, Timestamp as FirestoreTimestamp } from 'firebase/firestore';
+import { db, auth } from '@realyn/shared';
+import type {
+  Dispute,
+  AutomationStep,
+  Note,
+  InternalStatus,
+  DisputeLifecycleStatus,
+  EvidencePlan,
+} from '@realyn/shared';
+import { FUNCTIONS_BASE_URL } from '../config/environment';
+
+const INTERNAL_STATUSES: readonly InternalStatus[] = [
+  'needs_review',
+  'awaiting_docs',
+  'ready_to_submit',
+  'resolved',
+  'submitted',
+  'evidence_complete',
+] as const;
+
+const LIFECYCLE_STATUSES: readonly DisputeLifecycleStatus[] = [
+  'new',
+  'plan_ready',
+  'evidence_in_progress',
+  'draft_ready',
+  'submitted',
+  'under_review',
+  'won',
+  'lost',
+  'not_contested',
+] as const;
+
+function normalizeInternalStatus(raw: unknown): InternalStatus {
+  if (typeof raw === 'string' && (INTERNAL_STATUSES as readonly string[]).includes(raw)) {
+    return raw as InternalStatus;
+  }
+  return 'needs_review';
+}
+
+function normalizeLifecycleStatus(raw: unknown): DisputeLifecycleStatus {
+  if (typeof raw === 'string' && (LIFECYCLE_STATUSES as readonly string[]).includes(raw)) {
+    return raw as DisputeLifecycleStatus;
+  }
+  return 'new';
+}
+
+function normalizeEvidencePlanFromFirestore(raw: unknown): EvidencePlan | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const ep = raw as Partial<EvidencePlan> & { requirements?: unknown };
+  if (!Array.isArray(ep.requirements)) return undefined;
+  const winnability =
+    ep.winnability === 'high' || ep.winnability === 'medium' || ep.winnability === 'low'
+      ? ep.winnability
+      : 'medium';
+  return {
+    ...ep,
+    disputeCategory: ep.disputeCategory ?? 'General',
+    summary: ep.summary ?? '',
+    recommendation: ep.recommendation === 'accept' ? 'accept' : 'fight',
+    winnability,
+    winnabilityReason: ep.winnabilityReason ?? '',
+    requirements: ep.requirements,
+  } as EvidencePlan;
+}
 
 /**
  * Convert Firestore data to Dispute type with defaults for missing fields
@@ -133,7 +195,7 @@ function mapFirestoreToDispute(docId: string, data: any): Dispute {
   }
 
   // AI Evidence Planning fields
-  const evidencePlan = data.evidencePlan || undefined;
+  const evidencePlan = normalizeEvidencePlanFromFirestore(data.evidencePlan);
   const evidenceItems = Array.isArray(data.evidenceItems) ? data.evidenceItems : [];
   const evidencePlanGeneratedAt = toDate(data.evidencePlanGeneratedAt) || undefined;
   const evidencePlanVersions = Array.isArray(data.evidencePlanVersions) ? data.evidencePlanVersions : [];
@@ -171,7 +233,9 @@ function mapFirestoreToDispute(docId: string, data: any): Dispute {
     respondBy: respondBy ?? undefined,
     createdAt: createdAt,
     updatedAt: updatedAt,
-    customerExplanation: data.customerExplanation || data.reason ? `Dispute reason: ${data.reason}` : '',
+    customerExplanation:
+      data.customerExplanation ??
+      (data.reason ? `Dispute reason: ${data.reason}` : ''),
     
     // AI-related fields
     automationStatus: data.automationStatus || 'manual_review',
@@ -181,11 +245,11 @@ function mapFirestoreToDispute(docId: string, data: any): Dispute {
     aiSummary: data.aiSummary || '',
     aiDraftResponse: data.aiDraftResponse || '',
     isDraftApproved: data.isDraftApproved || false,
-    lifecycleStatus: data.lifecycleStatus || 'new',
+    lifecycleStatus: normalizeLifecycleStatus(data.lifecycleStatus),
     internalNotes: internalNotes,
     assignedTeam: data.assignedTeam,
     assigneeId: data.assigneeId || null,
-    internalStatus: data.internalStatus || 'needs_review',
+    internalStatus: normalizeInternalStatus(data.internalStatus),
     
     // AI Evidence Planning
     evidencePlan,
@@ -254,81 +318,96 @@ export const useDisputes = (organizationId?: string | null) => {
 
     const updateDispute = useCallback(async (disputeId: string, updates: Partial<Dispute>) => {
         try {
-            // Convert Date objects to Firestore Timestamps
-            const firestoreUpdates: any = { ...updates };
-            
-            if (firestoreUpdates.createdAt instanceof Date) {
-                firestoreUpdates.createdAt = FirestoreTimestamp.fromDate(firestoreUpdates.createdAt);
+            const currentUser = auth.currentUser;
+            if (!currentUser) throw new Error('User not authenticated');
+            const idToken = await currentUser.getIdToken();
+
+            const serializedUpdates: any = { ...updates };
+            if (serializedUpdates.createdAt instanceof Date) {
+                serializedUpdates.createdAt = serializedUpdates.createdAt.toISOString();
             }
-            if (firestoreUpdates.updatedAt instanceof Date) {
-                firestoreUpdates.updatedAt = FirestoreTimestamp.fromDate(firestoreUpdates.updatedAt);
-            } else {
-                firestoreUpdates.updatedAt = FirestoreTimestamp.now();
+            if (serializedUpdates.updatedAt instanceof Date) {
+                delete serializedUpdates.updatedAt;
             }
-            if (firestoreUpdates.respondBy instanceof Date) {
-                firestoreUpdates.respondBy = FirestoreTimestamp.fromDate(firestoreUpdates.respondBy);
-            } else if (firestoreUpdates.respondBy === null) {
-                firestoreUpdates.respondBy = null;
+            if (serializedUpdates.respondBy instanceof Date) {
+                serializedUpdates.respondBy = serializedUpdates.respondBy.toISOString();
             }
 
-            // Update in Firestore
-            const disputeRef = doc(db, 'disputes', disputeId);
-            await updateDoc(disputeRef, firestoreUpdates);
+            const response = await fetch(`${FUNCTIONS_BASE_URL}/disputeWriteHandler`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                    action: 'updateDispute',
+                    disputeId,
+                    organizationId: organizationId || '',
+                    updates: serializedUpdates,
+                }),
+            });
 
-            // Update local state
-        setDisputes(currentDisputes => {
-            const index = currentDisputes.findIndex(d => d.id === disputeId);
-            if (index === -1) return currentDisputes;
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 
-            const updatedDisputes = [...currentDisputes];
-            const updatedDispute = { ...updatedDisputes[index], ...updates, updatedAt: new Date() };
-            updatedDisputes[index] = updatedDispute;
-            
-            return updatedDisputes;
-        });
+            setDisputes(currentDisputes => {
+                const index = currentDisputes.findIndex(d => d.id === disputeId);
+                if (index === -1) return currentDisputes;
+                const updatedDisputes = [...currentDisputes];
+                updatedDisputes[index] = { ...updatedDisputes[index], ...updates, updatedAt: new Date() };
+                return updatedDisputes;
+            });
         } catch (err: any) {
             console.error('Error updating dispute:', err);
             throw err;
         }
-    }, []);
+    }, [organizationId]);
     
     const updateMultipleDisputes = useCallback(async (disputeIds: string[], updates: Partial<Dispute>) => {
         try {
-            // Convert Date objects to Firestore Timestamps
-            const firestoreUpdates: any = { ...updates };
-            
-            if (firestoreUpdates.updatedAt instanceof Date) {
-                firestoreUpdates.updatedAt = FirestoreTimestamp.fromDate(firestoreUpdates.updatedAt);
-            } else {
-                firestoreUpdates.updatedAt = FirestoreTimestamp.now();
+            const currentUser = auth.currentUser;
+            if (!currentUser) throw new Error('User not authenticated');
+            const idToken = await currentUser.getIdToken();
+
+            const serializedUpdates: any = { ...updates };
+            if (serializedUpdates.updatedAt instanceof Date) {
+                delete serializedUpdates.updatedAt;
             }
 
-            // Update all disputes in Firestore
-            const updatePromises = disputeIds.map(disputeId => {
-                const disputeRef = doc(db, 'disputes', disputeId);
-                return updateDoc(disputeRef, firestoreUpdates);
+            const response = await fetch(`${FUNCTIONS_BASE_URL}/disputeWriteHandler`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                    action: 'updateMultipleDisputes',
+                    disputeIds,
+                    organizationId: organizationId || '',
+                    updates: serializedUpdates,
+                }),
             });
 
-            await Promise.all(updatePromises);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 
-            // Update local state
-        setDisputes(currentDisputes => {
-            const updatedDisputes = [...currentDisputes];
-            let changed = false;
-            disputeIds.forEach(disputeId => {
-                const index = updatedDisputes.findIndex(d => d.id === disputeId);
-                if (index !== -1) {
-                    updatedDisputes[index] = { ...updatedDisputes[index], ...updates, updatedAt: new Date() };
-                    changed = true;
-                }
+            setDisputes(currentDisputes => {
+                const updatedDisputes = [...currentDisputes];
+                let changed = false;
+                disputeIds.forEach(disputeId => {
+                    const index = updatedDisputes.findIndex(d => d.id === disputeId);
+                    if (index !== -1) {
+                        updatedDisputes[index] = { ...updatedDisputes[index], ...updates, updatedAt: new Date() };
+                        changed = true;
+                    }
+                });
+                return changed ? updatedDisputes : currentDisputes;
             });
-            return changed ? updatedDisputes : currentDisputes;
-        });
         } catch (err: any) {
             console.error('Error updating multiple disputes:', err);
             throw err;
         }
-    }, []);
+    }, [organizationId]);
 
     return { disputes, loading, error, updateDispute, updateMultipleDisputes };
 };

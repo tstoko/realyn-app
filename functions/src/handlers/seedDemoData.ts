@@ -6,6 +6,8 @@ import { buildDisputeCase } from "../services/ai/disputeCaseBuilder";
 import { generateDisputeArgument } from "../services/ai/argumentGenerator";
 import { updateEvidenceItemStatus } from "../services/ai/evidencePlanningService";
 import { EvidenceItem } from "../types/aiDispute";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
 const db = admin.firestore();
 
@@ -86,11 +88,21 @@ const demoDisputes = [
  * - Pre-generates arguments for some disputes
  */
 export const seedDemoData = onRequest(
-  { cors: true, secrets: ["OPENAI_API_KEY"] },
+  { cors: true, secrets: ["ANTHROPIC_API_KEY"] },
   async (req: Request, res: Response) => {
-    // Only allow POST requests
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
+      return;
+    }
+
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
       return;
     }
 

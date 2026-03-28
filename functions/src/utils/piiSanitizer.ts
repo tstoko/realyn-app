@@ -2,7 +2,7 @@
  * PII Sanitizer Utility
  * 
  * Redacts Personally Identifiable Information (PII) before sending data
- * to third-party AI services like OpenAI.
+ * to third-party AI services (Anthropic Claude).
  * 
  * GDPR Compliance: This module implements data minimization (Art. 5(1)(c))
  * by ensuring only necessary, non-identifying data is shared with sub-processors.

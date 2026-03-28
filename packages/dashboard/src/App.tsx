@@ -91,8 +91,8 @@ const HotelUrlSync: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 const NoOrganizationMessage: React.FC = () => (
   <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 max-w-md text-center">
-      <h2 className="text-xl font-semibold text-white mb-2">No Property Assigned</h2>
-      <p className="text-slate-400">Your account is not associated with a property. Please contact your administrator to be assigned to one.</p>
+      <h2 className="text-xl font-semibold text-white mb-2">No Account Assigned</h2>
+      <p className="text-slate-400">Your account is not associated with an organization. Please contact your administrator to be assigned to one.</p>
     </div>
   </div>
 );
@@ -110,8 +110,8 @@ const AuthenticatedRoutes: React.FC = () => {
   return (
     <Suspense fallback={<PageSpinner />}>
       <Routes>
-        <Route index element={<Navigate to="properties" replace />} />
-        <Route path="properties" element={<ErrorBoundary><HotelSelectionWrapper /></ErrorBoundary>} />
+        <Route index element={<Navigate to={user.role === 'admin' ? "properties" : "properties/my/disputes"} replace />} />
+        <Route path="properties" element={user.role === 'admin' ? <ErrorBoundary><HotelSelectionWrapper /></ErrorBoundary> : <Navigate to="/dashboard/properties/my/disputes" replace />} />
         <Route path="properties/:hotelId/disputes" element={
           <ErrorBoundary>
             <HotelUrlSync>
@@ -160,13 +160,13 @@ const AuthenticatedShell: React.FC = () => {
   const hotelView = isHotelAnalytics ? 'analytics' as const : 'disputes' as const;
 
   let pageTitle = 'Dashboard';
-  if (hotel && isHotelAnalytics) pageTitle = 'Hotel Analytics';
+  if (hotel && isHotelAnalytics) pageTitle = 'Account Analytics';
   else if (hotel && isHotelDisputes) pageTitle = 'Dispute Dashboard';
   else if (path.includes('/analytics')) pageTitle = 'Portfolio Analytics';
   else if (path.includes('/activity')) pageTitle = 'Activity Log';
   else if (path.includes('/users')) pageTitle = 'User Management';
   else if (path.includes('/leads')) pageTitle = 'Contact Sales Leads';
-  else if (path.includes('/properties')) pageTitle = 'Manage Properties';
+  else if (path.includes('/properties')) pageTitle = 'Manage Accounts';
 
   const shouldDisablePageScroll = hotel && isHotelDisputes;
   const isDemoMode = hotel?.isDemo === true;
@@ -200,7 +200,7 @@ const AuthenticatedShell: React.FC = () => {
 
   return (
     <>
-      {isDemoMode && <DemoModeBanner />}
+      {isDemoMode && <DemoModeBanner organizationId={hotel?.id} />}
       <AppShell
         user={user}
         onLogout={handleLogout}
@@ -222,7 +222,13 @@ const AuthenticatedShell: React.FC = () => {
       </AppShell>
 
       <Suspense fallback={null}>
-        {isSettingsOpen && <SettingsModal user={user} onClose={() => setIsSettingsOpen(false)} />}
+        {isSettingsOpen && (
+          <SettingsModal
+            user={user}
+            organizationId={hotel?.id ?? null}
+            onClose={() => setIsSettingsOpen(false)}
+          />
+        )}
         {isCommandPaletteOpen && (
           <CommandPalette
             onClose={() => setIsCommandPaletteOpen(false)}

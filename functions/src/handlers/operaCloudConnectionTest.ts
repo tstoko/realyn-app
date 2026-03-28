@@ -2,12 +2,12 @@ import {onRequest} from "firebase-functions/v2/https";
 import {Request, Response} from "express";
 import {verifyUser, sendAuthError} from "../utils/authMiddleware";
 import {encrypt} from "../utils/encryption";
-import {OperaCloudClient} from "../integrations/operaCloud/operaClient";
-import {getOperaToken} from "../integrations/operaCloud/operaAuth";
+import {OperaCloudClient} from "../services/pms/providers/operaCloud/operaClient";
+import {getOperaToken} from "../services/pms/providers/operaCloud/operaAuth";
 import {
   OperaCloudConfig,
   OHIPHotelDetailsResponse,
-} from "../integrations/operaCloud/types";
+} from "../services/pms/providers/operaCloud/types";
 import {logOrgAuditEvent} from "../utils/orgAuditLogger";
 
 /**

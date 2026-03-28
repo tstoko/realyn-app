@@ -1,6 +1,8 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers } from "../config/environment";
 
 // Ensure admin is initialized with explicit project configuration
 if (!admin.apps.length) {
@@ -9,16 +11,22 @@ if (!admin.apps.length) {
   });
 }
 
-/**
- * HTTP endpoint to seed users in Firebase Auth and Firestore
- * Call this once via the function URL
- */
 export const seedUsersHandler = onRequest(
   {
     cors: true,
-    invoker: "public", // Temporarily allow public access for seeding
   },
   async (req: Request, res: Response) => {
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Test handlers disabled in production" });
+      return;
+    }
+
+    const authResult = await verifyAdmin(req);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
+      return;
+    }
+
     try {
       console.log("Starting user seed via HTTP endpoint...");
       await seedUsersDirect();

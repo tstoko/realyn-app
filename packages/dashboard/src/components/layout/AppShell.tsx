@@ -77,8 +77,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                         <div className="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">Overview</div>
                         <NavItem 
                             icon={<UserGroupIcon className="h-5 w-5" />} 
-                            label="Properties" 
-                            active={!isInHotelContext && pageTitle.includes("Properties")} 
+                            label="Accounts" 
+                            active={!isInHotelContext && pageTitle.includes("Accounts")} 
                             onClick={onNavigateToProperties ? () => { onNavigateToProperties(); closeSidebar(); } : undefined} 
                         />
                         <NavItem 
@@ -186,7 +186,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                            <button
                              onClick={onBackToSelection}
                              className="p-2 mr-4 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-                             aria-label="Back to hotel selection"
+                             aria-label="Back to account selection"
                            >
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />

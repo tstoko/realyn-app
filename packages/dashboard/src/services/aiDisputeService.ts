@@ -4,10 +4,28 @@
  * Frontend service for interacting with AI dispute handlers
  */
 
-import { db } from '@realyn/shared';
-import { doc, updateDoc, arrayUnion, serverTimestamp, getDoc } from 'firebase/firestore';
+import { auth } from '@realyn/shared';
 import type { EvidencePlan, EvidenceItem, EvidenceRequirementStatus } from '@realyn/shared';
-import { getFunctionsBaseUrl } from '../config/environment';
+import { getFunctionsBaseUrl, FUNCTIONS_BASE_URL } from '../config/environment';
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('User not authenticated');
+  const idToken = await currentUser.getIdToken();
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` };
+}
+
+async function callEvidenceWriteHandler(body: Record<string, any>): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/evidenceWriteHandler`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
+  return data;
+}
 
 // =============================================================================
 // Types
@@ -56,9 +74,6 @@ export async function generateEvidencePlan(
   try {
     const baseUrl = getFunctionsBaseUrl();
     const fullUrl = `${baseUrl}/planEvidence?disputeId=${disputeId}`;
-    // #region agent log
-    fetch('http://127.0.0.1:7783/ingest/12aca0fa-d38d-4f94-8099-f2b9b25ce51a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb8daa'},body:JSON.stringify({sessionId:'cb8daa',location:'aiDisputeService.ts:58',message:'generateEvidencePlan called',data:{baseUrl,fullUrl,disputeId,organizationId,regenerate},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
     const response = await fetch(fullUrl, {
       method: 'POST',
       headers: {
@@ -70,16 +85,9 @@ export async function generateEvidencePlan(
       }),
     });
 
-    // #region agent log
-    fetch('http://127.0.0.1:7783/ingest/12aca0fa-d38d-4f94-8099-f2b9b25ce51a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb8daa'},body:JSON.stringify({sessionId:'cb8daa',location:'aiDisputeService.ts:72',message:'fetch response received',data:{status:response.status,ok:response.ok,statusText:response.statusText},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
-
     const data = await response.json();
 
     if (!response.ok) {
-      // #region agent log
-      fetch('http://127.0.0.1:7783/ingest/12aca0fa-d38d-4f94-8099-f2b9b25ce51a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb8daa'},body:JSON.stringify({sessionId:'cb8daa',location:'aiDisputeService.ts:78',message:'response not ok',data:{status:response.status,error:data.error},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
       return {
         success: false,
         error: data.error || `HTTP error ${response.status}`,
@@ -88,9 +96,6 @@ export async function generateEvidencePlan(
 
     return data as PlanEvidenceResponse;
   } catch (error) {
-    // #region agent log
-    fetch('http://127.0.0.1:7783/ingest/12aca0fa-d38d-4f94-8099-f2b9b25ce51a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cb8daa'},body:JSON.stringify({sessionId:'cb8daa',location:'aiDisputeService.ts:88',message:'fetch threw error',data:{errorMessage:error instanceof Error ? error.message : String(error),errorName:error instanceof Error ? error.name : 'unknown'},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
     console.error('Error generating evidence plan:', error);
     return {
       success: false,
@@ -221,97 +226,52 @@ export async function toggleAIPlanMode(
 }
 
 // =============================================================================
-// Firestore Direct Functions (for local updates without API call)
+// Evidence Write Functions (via Cloud Function)
 // =============================================================================
 
 /**
- * Update evidence items locally in Firestore
- * Use this for quick updates that don't need server-side validation
+ * Update evidence items via Cloud Function
  */
 export async function updateEvidenceItemsLocal(
   disputeId: string,
-  evidenceItems: EvidenceItem[]
+  evidenceItems: EvidenceItem[],
+  organizationId: string
 ): Promise<boolean> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    await updateDoc(disputeRef, {
+    await callEvidenceWriteHandler({
+      action: 'updateEvidenceItems',
+      disputeId,
+      organizationId,
       evidenceItems,
-      updatedAt: serverTimestamp(),
     });
     return true;
   } catch (error) {
-    console.error('Error updating evidence items locally:', error);
+    console.error('Error updating evidence items:', error);
     return false;
   }
 }
 
 /**
- * Mark a single requirement as uploaded (local update)
+ * Mark a single requirement as uploaded via Cloud Function
  */
 export async function markRequirementUploaded(
   disputeId: string,
   requirementId: string,
   fileId: string,
   fileName: string,
-  uploadedBy?: string
+  uploadedBy?: string,
+  organizationId?: string
 ): Promise<boolean> {
   try {
-    // First get current evidence items
-    const disputeRef = doc(db, 'disputes', disputeId);
-    const disputeSnap = await getDoc(disputeRef);
-    
-    if (!disputeSnap.exists()) {
-      console.error('Dispute not found');
-      return false;
-    }
-    
-    const data = disputeSnap.data();
-    const evidenceItems: EvidenceItem[] = data.evidenceItems || [];
-    
-    // Find and update the item
-    const updatedItems = evidenceItems.map(item => {
-      if (item.requirementId === requirementId) {
-        return {
-          ...item,
-          status: 'uploaded' as const,
-          fileId,
-          fileName,
-          uploadedAt: new Date().toISOString(),
-          uploadedBy,
-        };
-      }
-      return item;
+    await callEvidenceWriteHandler({
+      action: 'markRequirementUploaded',
+      disputeId,
+      organizationId: organizationId || '',
+      requirementId,
+      fileId,
+      fileName,
+      uploadedBy,
     });
-    
-    // Check if all required items are complete
-    const plan: EvidencePlan | undefined = data.evidencePlan;
-    let lifecycleStatus = data.lifecycleStatus;
-    let internalStatus = data.internalStatus;
-    
-    if (plan) {
-      const requiredIds = plan.requirements
-        .filter(r => r.required)
-        .map(r => r.id);
-      
-      const allRequiredComplete = requiredIds.every(id => {
-        const item = updatedItems.find(i => i.requirementId === id);
-        return item && (item.status === 'uploaded' || item.status === 'not_applicable');
-      });
-      
-      if (allRequiredComplete) {
-        lifecycleStatus = 'draft_ready';
-        internalStatus = 'ready_to_submit';
-      }
-    }
-    
-    // Update Firestore
-    await updateDoc(disputeRef, {
-      evidenceItems: updatedItems,
-      lifecycleStatus,
-      internalStatus,
-      updatedAt: serverTimestamp(),
-    });
-    
     return true;
   } catch (error) {
     console.error('Error marking requirement uploaded:', error);
@@ -320,40 +280,22 @@ export async function markRequirementUploaded(
 }
 
 /**
- * Mark a requirement as not available
+ * Mark a requirement as not available via Cloud Function
  */
 export async function markRequirementNotAvailable(
   disputeId: string,
   requirementId: string,
-  notes?: string
+  notes?: string,
+  organizationId?: string
 ): Promise<boolean> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
-    const disputeSnap = await getDoc(disputeRef);
-    
-    if (!disputeSnap.exists()) {
-      return false;
-    }
-    
-    const data = disputeSnap.data();
-    const evidenceItems: EvidenceItem[] = data.evidenceItems || [];
-    
-    const updatedItems = evidenceItems.map(item => {
-      if (item.requirementId === requirementId) {
-        return {
-          ...item,
-          status: 'not_available' as const,
-          notes,
-        };
-      }
-      return item;
+    await callEvidenceWriteHandler({
+      action: 'markRequirementNotAvailable',
+      disputeId,
+      organizationId: organizationId || '',
+      requirementId,
+      notes,
     });
-    
-    await updateDoc(disputeRef, {
-      evidenceItems: updatedItems,
-      updatedAt: serverTimestamp(),
-    });
-    
     return true;
   } catch (error) {
     console.error('Error marking requirement not available:', error);
@@ -362,7 +304,7 @@ export async function markRequirementNotAvailable(
 }
 
 /**
- * Add audit trail entry for evidence-related actions
+ * Add audit trail entry for evidence-related actions via Cloud Function
  */
 export async function addEvidenceAuditEntry(
   disputeId: string,
@@ -385,42 +327,30 @@ export async function addEvidenceAuditEntry(
     evidenceFileIds?: string[];
     evidencePlanId?: string;
     argumentVersionId?: string;
-  }
+  },
+  organizationId?: string
 ): Promise<boolean> {
   try {
-    const disputeRef = doc(db, 'disputes', disputeId);
     const entry: any = {
-      timestamp: new Date().toISOString(),
       title: action,
       description,
       status,
     };
 
-    // Add actor information
     if (userId && userName) {
       entry.actor = { type: 'user', userId, userName };
     } else {
       entry.actor = { type: 'system' };
     }
+    if (category) entry.category = category;
+    if (metadata) entry.metadata = metadata;
+    if (relatedResources) entry.relatedResources = relatedResources;
 
-    // Add category if provided
-    if (category) {
-      entry.category = category;
-    }
-
-    // Add metadata if provided
-    if (metadata) {
-      entry.metadata = metadata;
-    }
-
-    // Add related resources if provided
-    if (relatedResources) {
-      entry.relatedResources = relatedResources;
-    }
-
-    await updateDoc(disputeRef, {
-      auditTrail: arrayUnion(entry),
-      updatedAt: serverTimestamp(),
+    await callEvidenceWriteHandler({
+      action: 'addAuditEntry',
+      disputeId,
+      organizationId: organizationId || '',
+      entry,
     });
     return true;
   } catch (error) {
@@ -476,10 +406,10 @@ export function calculateEvidenceProgress(
  */
 export function getCategoryDisplayName(category: string): string {
   const names: Record<string, string> = {
-    pms_data: 'Property Management Data',
+    pms_data: 'Transaction Records',
     policy: 'Policies & Terms',
-    proof_of_stay: 'Proof of Stay',
-    communications: 'Guest Communications',
+    proof_of_stay: 'Proof of Service',
+    communications: 'Customer Communications',
     payment_data: 'Payment Verification',
     incident_reports: 'Incident Reports',
     delivery: 'Delivery Proof',
@@ -493,7 +423,7 @@ export function getCategoryDisplayName(category: string): string {
  */
 export function getCategoryIcon(category: string): string {
   const icons: Record<string, string> = {
-    pms_data: '🏨',
+    pms_data: '📊',
     policy: '📋',
     proof_of_stay: '🔑',
     communications: '💬',

@@ -27,7 +27,7 @@ export const ActivityLogPage: React.FC = () => {
   return (
     <div>
       <h2 className="text-2xl font-bold text-slate-50 sm:text-3xl font-heading">Global Activity Log</h2>
-      <p className="mt-1 text-base text-slate-400">A feed of recent actions across all properties.</p>
+      <p className="mt-1 text-base text-slate-400">A feed of recent actions across all accounts.</p>
       
       <div className="mt-8 bg-slate-900 shadow-md rounded-xl border border-slate-800">
         {loading ? (

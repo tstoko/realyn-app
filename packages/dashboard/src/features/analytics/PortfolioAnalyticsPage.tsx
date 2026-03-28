@@ -28,7 +28,7 @@ export const PortfolioAnalyticsPage: React.FC = () => {
             const orgId = dispute.organizationId ?? "unknown";
             if (!acc[orgId]) {
                 acc[orgId] = {
-                    propertyName: `Property ${orgId.split('_')[1] ?? orgId}`,
+                    propertyName: `Account ${orgId.split('_')[1] ?? orgId}`,
                     disputeCount: 0,
                     wonCount: 0,
                     concludedCount: 0,
@@ -65,19 +65,19 @@ export const PortfolioAnalyticsPage: React.FC = () => {
             {!loading && !error && (
                 <>
                     <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                        <StatCard title="Total Disputes" value={analytics.totalDisputes.toString()} description="Across all properties" icon={<CollectionIcon />} />
+                        <StatCard title="Total Disputes" value={analytics.totalDisputes.toString()} description="Across all accounts" icon={<CollectionIcon />} />
                         <StatCard title="Total Amount at Risk" value={formatCurrency(analytics.totalAtRisk)} description="In open disputes" icon={<ExclamationTriangleIcon />} />
                         <StatCard title="Total Recovered" value={formatCurrency(analytics.totalRecovered)} description="From won disputes" icon={<CashIcon />} />
                         <StatCard title="Overall Win Rate" value={`${analytics.winRate.toFixed(1)}%`} description="For concluded disputes" icon={<TrendingUpIcon />} />
                     </div>
 
                     <div className="mt-8 bg-slate-900 shadow-md rounded-xl overflow-hidden border border-slate-800">
-                        <h3 className="text-lg font-medium text-slate-200 p-6 border-b border-slate-800 font-heading">Performance by Property</h3>
+                        <h3 className="text-lg font-medium text-slate-200 p-6 border-b border-slate-800 font-heading">Performance by Account</h3>
                         <div className="overflow-x-auto">
                         <table className="min-w-full">
                             <thead className="border-b border-slate-800 bg-slate-900/50">
                                 <tr>
-                                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Property Name</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Account Name</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Disputes</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Win Rate</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount Recovered</th>
