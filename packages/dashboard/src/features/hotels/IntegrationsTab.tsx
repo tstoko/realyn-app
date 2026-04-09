@@ -5,6 +5,8 @@ import { Spinner } from '@realyn/shared';
 import { testStripeConnection, testAdyenConnection } from '../../services/pspService';
 import { testOperaCloudConnection } from '../../services/operaCloudService';
 import { uploadCSVForImport, getImportHistory, type ImportResult, type ImportRecord } from '../../services/pmsImportService';
+import { McpApiKeysSection } from './McpApiKeysSection';
+import { getProjectId, getRegion } from '../../config/environment';
 
 export interface PspCredentials {
   stripe?: { secretKey: string; webhookSecret: string; merchantAccountId?: string };
@@ -401,7 +403,7 @@ export const IntegrationsTab: React.FC<IntegrationsTabProps> = ({ formData, setF
                                 <li>Create/select API credential and enable <strong>ONLY</strong> <code className="bg-slate-800 px-1 rounded">API dispute management</code> permission</li>
                                 <li>Copy the <strong>TEST API key</strong> (must start with <code className="bg-slate-800 px-1 rounded">test_</code>) - copy the ENTIRE key!</li>
                                 <li>Go to <strong>Account &rarr; Merchant accounts</strong> and copy your merchant account codes exactly (case-sensitive)</li>
-                                <li>Go to <strong>Developers &rarr; Webhooks</strong> and create webhook with URL: <code className="bg-slate-800 px-1 rounded">https://us-central1-realyn-app.cloudfunctions.net/adyenWebhook</code></li>
+                                <li>Go to <strong>Developers &rarr; Webhooks</strong> and create webhook with URL: <code className="bg-slate-800 px-1 rounded">{`https://${getRegion()}-${getProjectId()}.cloudfunctions.net/adyenWebhook`}</code></li>
                                 <li>Set webhook username and password for authentication</li>
                             </ol>
                             <p className="text-xs text-cyan-300 mt-2 font-medium">
@@ -1197,6 +1199,10 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
             </p>
           </div>
         </div>
+      )}
+
+      {formData.id && isAdmin && (
+        <McpApiKeysSection organizationId={formData.id} />
       )}
     </div>
   );

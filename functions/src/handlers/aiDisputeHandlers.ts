@@ -14,10 +14,15 @@ import { getEvidenceFiles } from "../services/evidenceService";
 import { EvidencePlan, EvidenceItem, ArgumentVersion } from "../types/aiDispute";
 import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { assertFeatureEnabled, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 // ============================================================
-// AI Dispute Handlers
-// HTTP endpoints for AI evidence planning
+// AI Dispute Handlers  (DEPRECATED — migrate to MCP server)
+// HTTP endpoints for AI evidence planning.
+// These handlers are superseded by MCP tools in packages/mcp-server.
+// The dashboard uses them as a fallback when VITE_MCP_SERVER_URL is unset.
+// Remove once MCP migration is complete.
 // ============================================================
 
 /**
@@ -40,16 +45,14 @@ function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
 }
 
 /**
+ * @deprecated Use MCP tool `plan_evidence` instead.
  * Generate evidence plan for a dispute (async pattern)
  * POST /ai/disputes/:id/plan-evidence
- * 
- * Returns immediately with status: "generating" while processing continues
- * in background. Frontend uses Firestore real-time listener to detect completion.
  */
 export const planEvidence = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     secrets: ["ANTHROPIC_API_KEY"],
     timeoutSeconds: 300, // 5 min – pipeline is sequential (6 LLM calls + revision loop)
     memory: "512MiB",
@@ -71,6 +74,13 @@ export const planEvidence = functions.https.onRequest(
     if (!authResult.success) {
       sendAuthError(res, authResult);
       return;
+    }
+
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
     }
 
     const rateLimitKey = authResult.uid!;
@@ -179,13 +189,14 @@ export const planEvidence = functions.https.onRequest(
 );
 
 /**
+ * @deprecated Use MCP tool `update_evidence_item` instead.
  * Update evidence item status
  * POST /ai/disputes/:id/evidence-item
  */
 export const updateEvidenceItem = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -202,7 +213,6 @@ export const updateEvidenceItem = functions.https.onRequest(
     try {
       const disputeId = req.query.disputeId as string;
       const {
-        organizationId,
         requirementId,
         status,
         fileId,
@@ -237,8 +247,7 @@ export const updateEvidenceItem = functions.https.onRequest(
       }
 
       const dispute = disputeDoc.data();
-      const effectiveOrgId = organizationId || authResult.organizationId;
-      if (effectiveOrgId && dispute?.organizationId !== effectiveOrgId) {
+      if (authResult.role !== "admin" && dispute?.organizationId !== authResult.organizationId) {
         res.status(403).json({ error: "Dispute does not belong to organization" });
         return;
       }
@@ -275,13 +284,14 @@ export const updateEvidenceItem = functions.https.onRequest(
 );
 
 /**
+ * @deprecated Use MCP tool `get_dispute` or Firestore listener instead.
  * Get evidence progress for a dispute
  * GET /ai/disputes/:id/progress
  */
 export const getProgress = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "GET") {
@@ -336,13 +346,14 @@ export const getProgress = functions.https.onRequest(
 );
 
 /**
+ * @deprecated Use MCP tool `plan_evidence` with regenerate=true instead.
  * Toggle AI plan mode
  * POST /ai/disputes/:id/toggle-ai-plan
  */
 export const toggleAIPlan = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -361,6 +372,13 @@ export const toggleAIPlan = functions.https.onRequest(
     if (!authResult.success) {
       sendAuthError(res, authResult);
       return;
+    }
+
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
     }
 
     try {
@@ -407,13 +425,14 @@ export const toggleAIPlan = functions.https.onRequest(
 );
 
 /**
+ * @deprecated Use MCP tool `draft_argument` instead.
  * Draft argument for a dispute
  * POST /ai/disputes/:id/draft-argument
  */
 export const draftArgument = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     secrets: ["ANTHROPIC_API_KEY"],
     timeoutSeconds: 180,
     memory: "512MiB",
@@ -435,6 +454,13 @@ export const draftArgument = functions.https.onRequest(
     if (!authResult.success) {
       sendAuthError(res, authResult);
       return;
+    }
+
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
     }
 
     const rateLimitKey = authResult.uid!;
@@ -500,13 +526,26 @@ export const draftArgument = functions.https.onRequest(
         Promise.resolve(dispute.pmsMatch || undefined),
       ]);
 
+      // Read cached specialist outputs persisted by evidence planning (Phase 2A)
+      const cachedClaimAnalysis = dispute.cachedClaimAnalysis || undefined;
+      const cachedStrategy = dispute.cachedStrategy || undefined;
+      const cachedSchemeRule = dispute.cachedSchemeRule || undefined;
+      const previousValidation = dispute.draftValidation || undefined;
+
       console.log(`Generating argument for dispute ${disputeId} using Claude vision`);
       const argument = await generateDisputeArgument(
         disputeCase,
         evidencePlan,
         evidenceItems,
         disputeId,
-        { preloadedFiles, pmsMatch }
+        {
+          preloadedFiles,
+          pmsMatch,
+          claimAnalysis: cachedClaimAnalysis,
+          strategy: cachedStrategy,
+          schemeRule: cachedSchemeRule,
+          previousValidation: regenerate ? previousValidation : undefined,
+        }
       );
 
       if (!argument) {

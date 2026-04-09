@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export type AuditTrailCategory = 
   | 'dispute_received' 
@@ -13,11 +14,11 @@ export type AuditTrailCategory =
   | 'pms_import'
   | 'error';
 
-export interface AuditTrailActor {
-  type: 'user' | 'system' | 'automation';
-  userId?: string;
-  userName?: string;
-}
+export type AuditTrailActor =
+  | { type: 'user'; userId: string; userName: string }
+  | { type: 'system' }
+  | { type: 'automation' }
+  | { type: 'mcp_client'; userId: string | null; sessionId: string; clientName?: string };
 
 export interface AuditTrailMetadata {
   fileNames?: string[];
@@ -85,8 +86,8 @@ export async function addAuditTrailEntry(
     }
 
     await db.collection("disputes").doc(disputeId).update({
-      auditTrail: admin.firestore.FieldValue.arrayUnion(entry),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      auditTrail: FieldValue.arrayUnion(entry),
+      updatedAt: FieldValue.serverTimestamp(),
     });
   } catch (error) {
     console.error(`Error adding audit trail entry to dispute ${disputeId}:`, error);
@@ -136,6 +137,32 @@ export async function createSystemAuditEntry(
     description,
     'success',
     { type: 'system' },
+    category,
+    metadata,
+    relatedResources
+  );
+}
+
+/**
+ * Create an audit entry for MCP client actions
+ */
+export async function createMcpAuditEntry(
+  disputeId: string,
+  title: string,
+  description: string,
+  sessionId: string,
+  userId: string | null,
+  clientName?: string,
+  category?: AuditTrailCategory,
+  metadata?: AuditTrailMetadata,
+  relatedResources?: AuditTrailRelatedResources
+): Promise<void> {
+  return addAuditTrailEntry(
+    disputeId,
+    title,
+    description,
+    'success',
+    { type: 'mcp_client', userId, sessionId, clientName },
     category,
     metadata,
     relatedResources

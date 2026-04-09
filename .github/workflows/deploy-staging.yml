@@ -1,0 +1,112 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+jobs:
+  deploy-dashboard:
+    name: Deploy Dashboard to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:dashboard
+        env:
+          VITE_ENVIRONMENT: staging
+          VITE_FIREBASE_PROJECT_ID: realyn-app-staging
+          VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app-staging.cloudfunctions.net
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
+          channelId: live
+          projectId: realyn-app-staging
+          target: dashboard
+
+  deploy-website:
+    name: Deploy Website to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:website
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
+          channelId: live
+          projectId: realyn-app-staging
+          target: website
+
+  deploy-functions:
+    name: Deploy Cloud Functions to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        working-directory: functions
+      - uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only functions --project realyn-app-staging
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
+
+  deploy-mcp-server:
+    name: Deploy MCP Server to Staging
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_STAGING_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_STAGING_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build and Push
+        run: |
+          docker build -f packages/mcp-server/Dockerfile \
+            -t us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }} \
+            -t us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:latest \
+            .
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:latest
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: realyn-mcp-server-staging
+          region: us-central1
+          image: us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
+          flags: |
+            --min-instances=0
+            --max-instances=3
+            --memory=512Mi
+            --cpu=1
+            --timeout=300s
+            --concurrency=80
+            --set-secrets=ENCRYPTION_KEY=ENCRYPTION_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest

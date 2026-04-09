@@ -2,10 +2,10 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-import { shouldEnableTestHandlers } from "../config/environment";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
 
 export const seedCustomDispute = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });

@@ -4,6 +4,7 @@
  */
 
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import axios from "axios";
 const pdfParse = require("pdf-parse");
 
@@ -82,13 +83,13 @@ export async function registerEvidenceFile(params: {
     uploadedBy: params.uploadedBy,
     category: params.category,
     ...(params.requirementId ? { requirementId: params.requirementId } : {}),
-    uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+    uploadedAt: FieldValue.serverTimestamp(),
   });
 
   // Update dispute's evidenceFiles array
   const disputeRef = db.collection("disputes").doc(params.disputeId);
   batch.update(disputeRef, {
-    evidenceFiles: admin.firestore.FieldValue.arrayUnion(evidenceDocId),
+    evidenceFiles: FieldValue.arrayUnion(evidenceDocId),
   });
 
   await batch.commit();

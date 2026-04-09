@@ -1,11 +1,14 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import Stripe from "stripe";
 import { Request, Response } from "express";
 import { getOrganizationIdFromStripeEvent, getPaymentMetadata } from "./utils/stripeHelpers";
 import { normalizeStripeDispute } from "./utils/disputeNormalizer";
 import { upsertUnifiedDispute, updateDisputeStatus as updateUnifiedDisputeStatus } from "./services/disputeService";
+import { recordDisputeOutcome } from "./services/winPatternService";
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "./utils/rateLimiter";
 
 admin.initializeApp();
 
@@ -62,7 +65,11 @@ export const stripeWebhook = onRequest(
       return;
     }
 
-    // Process event
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.webhook
+    );
+    if (!rateLimitOk) return;
+
     try {
       await processStripeEvent(event, stripe);
       res.json({ received: true });
@@ -109,7 +116,7 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
           paymentIntentId: dispute.payment_intent || null,
           amount: dispute.amount,
           currency: dispute.currency,
-          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+          receivedAt: FieldValue.serverTimestamp(),
           reason: "Could not resolve organizationId from event metadata",
         });
         console.warn(
@@ -134,8 +141,16 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
     }
     case "charge.dispute.closed": {
       const { mapStripeStatus } = await import("./utils/disputeNormalizer");
-      await updateUnifiedDisputeStatus("stripe", dispute.id, mapStripeStatus(dispute.status));
+      const mappedStatus = mapStripeStatus(dispute.status);
+      await updateUnifiedDisputeStatus("stripe", dispute.id, mappedStatus);
       console.log(`Closed Stripe dispute: ${dispute.id}`);
+
+      if (mappedStatus === "won" || mappedStatus === "lost") {
+        const disputeDocId = `stripe_${dispute.id}`;
+        recordDisputeOutcome(disputeDocId, mappedStatus).catch((err) => {
+          console.error(`[WinPattern] Failed to record outcome for ${disputeDocId}:`, err);
+        });
+      }
       break;
     }
     default:
@@ -184,6 +199,11 @@ export { seedTestDisputes } from "./handlers/seedTestDisputes";
 export { seedCustomDispute } from "./handlers/seedCustomDispute";
 export { seedDemoData } from "./handlers/seedDemoData";
 export { seedDiceDemoData } from "./handlers/seedDiceDemoHandler";
+export { seedNimaxDemoData } from "./handlers/seedNimaxDemoHandler";
+export { seedZipworldDemoData } from "./handlers/seedZipworldDemoHandler";
+export { seedSkiddleDemoData } from "./handlers/seedSkiddleDemoHandler";
+export { seedSadlersWellsDemoData } from "./handlers/seedSadlersWellsDemoHandler";
+export { seedAttractionworldDemoData } from "./handlers/seedAttractionworldDemoHandler";
 export { resetTestEnvironmentHandler } from "./handlers/resetTestEnvironment";
 export { clearDisputesHandler } from "./handlers/clearDisputes";
 export { adminUpdateDispute } from "./handlers/adminUpdateDispute";
@@ -196,3 +216,12 @@ export { organizationWriteHandler } from "./handlers/organizationWriteHandler";
 export { disputeWriteHandler } from "./handlers/disputeWriteHandler";
 export { userWriteHandler } from "./handlers/userWriteHandler";
 export { syncUserClaims, migrateCustomClaims } from "./handlers/setCustomClaims";
+export { mcpApiKeyGenerate, mcpApiKeyList, mcpApiKeyRevoke } from "./handlers/mcpApiKeyHandlers";
+export { signup } from "./handlers/signupHandler";
+export { createCheckoutSession, billingWebhook, createBillingPortalSession } from "./handlers/billingHandlers";
+export { disputeNotificationTrigger } from "./handlers/disputeNotificationTrigger";
+export { deadlineReminderScheduler } from "./handlers/deadlineReminderScheduler";
+export { disputeSyncScheduler } from "./handlers/disputeSyncScheduler";
+export { disputeManualSync } from "./handlers/disputeManualSync";
+export { createInvite, listInvites, revokeInvite } from "./handlers/inviteHandlers";
+export { acceptInvite } from "./handlers/acceptInviteHandler";

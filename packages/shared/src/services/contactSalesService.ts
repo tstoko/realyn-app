@@ -1,7 +1,5 @@
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db, auth } from './firebase';
-
-const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
+import { db, auth, getFunctionsBaseUrl } from './firebase';
 
 export interface ContactSalesSubmission {
   id?: string;
@@ -29,7 +27,7 @@ export interface ContactSalesSubmission {
  * Submit a contact sales form via Cloud Function (no auth required)
  */
 export async function submitContactSalesForm(data: Omit<ContactSalesSubmission, 'id' | 'submittedAt' | 'status'>): Promise<string> {
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+  const response = await fetch(`${getFunctionsBaseUrl()}/userWriteHandler`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -111,7 +109,7 @@ export async function deleteContactSalesSubmission(submissionId: string): Promis
   if (!currentUser) throw new Error('Not authenticated');
   const idToken = await currentUser.getIdToken();
 
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+  const response = await fetch(`${getFunctionsBaseUrl()}/userWriteHandler`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
     body: JSON.stringify({

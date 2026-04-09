@@ -56,3 +56,72 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
         working-directory: functions
+
+  typecheck-core:
+    name: Typecheck Core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+        working-directory: packages/core
+
+  typecheck-mcp-server:
+    name: Typecheck MCP Server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+        working-directory: packages/mcp-server
+
+  core-test:
+    name: Core Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        working-directory: packages/core
+      - run: npm test
+        working-directory: packages/core
+
+  mcp-server-test:
+    name: MCP Server Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        working-directory: packages/core
+      - run: npm test
+        working-directory: packages/mcp-server
+
+  dashboard-test:
+    name: Dashboard Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        working-directory: packages/dashboard

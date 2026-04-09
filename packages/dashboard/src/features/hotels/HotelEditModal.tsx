@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import type { Hotel, Team, HotelDocument, DocumentCategory, AutomationSettings, HotelUser } from '@realyn/shared';
+import type { Hotel, Team, HotelDocument, DocumentCategory, AutomationSettings } from '@realyn/shared';
 import { ErrorBoundary, useAuth } from '@realyn/shared';
 import { IntegrationsTab } from './IntegrationsTab';
 import type { PspCredentials, OperaCloudCredentials } from './IntegrationsTab';
@@ -12,7 +12,7 @@ interface HotelEditModalProps {
 }
 
 const documentCategories: DocumentCategory[] = ['Cancellation Policy', 'Terms of Service', 'Terms & Conditions', 'Other'];
-type EditTab = 'details' | 'users' | 'integrations' | 'automation';
+type EditTab = 'details' | 'integrations' | 'automation';
 
 const inputBaseStyle = "block w-full text-sm rounded-lg bg-slate-800 border-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-600";
 const darkTextInputStyle = `${inputBaseStyle} px-3 py-2`;
@@ -187,139 +187,6 @@ const DetailsTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.
     );
 };
 
-const UsersTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.SetStateAction<Hotel>> }> = ({ formData, setFormData }) => {
-    const [newUser, setNewUser] = useState<Partial<HotelUser>>({ role: 'Staff', name: '', email: '', password: '' });
-    const [errors, setErrors] = useState<{ [key: string]: string }>({});
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setNewUser(prev => ({ ...prev, [name]: value }));
-    };
-
-    const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-    const handleAddUser = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.preventDefault();
-        const newErrors: { [key: string]: string } = {};
-        
-        if (!newUser.name) newErrors.name = 'Name is required';
-        if (!newUser.email) newErrors.email = 'Email is required';
-        else if (!validateEmail(newUser.email!)) newErrors.email = 'Invalid email address';
-        if (!newUser.password) newErrors.password = 'Password is required';
-        else if (newUser.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
-
-        setErrors(newErrors);
-
-        if (Object.keys(newErrors).length === 0 && newUser.name && newUser.email && newUser.password && newUser.role) {
-            const userToAdd: HotelUser = {
-                id: `user_${Date.now()}`,
-                name: newUser.name,
-                email: newUser.email,
-                role: newUser.role as 'Manager' | 'Staff',
-                password: newUser.password
-            };
-            setFormData(prev => ({ ...prev, users: [...(prev.users || []), userToAdd] }));
-            setNewUser({ role: 'Staff', name: '', email: '', password: '' });
-        }
-    };
-
-    const handleRemoveUser = (userId: string) => {
-        setFormData(prev => ({ ...prev, users: prev.users.filter(u => u.id !== userId) }));
-    };
-
-    return (
-        <div className="space-y-6">
-            <div className="p-4 border border-slate-800 rounded-lg">
-                <h4 className="font-semibold text-slate-50 font-heading">User Accounts</h4>
-                <p className="text-sm text-slate-400 mb-4">Manage login credentials for team members.</p>
-                
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-2 mb-6">
-                    {formData.users && formData.users.length > 0 ? (
-                        formData.users.map((user) => (
-                            <div key={user.id} className="flex items-center justify-between bg-slate-800 p-3 rounded-lg">
-                                <div className="flex-1 min-w-0 mr-4">
-                                    <div className="flex items-center space-x-2">
-                                        <p className="text-sm font-medium text-slate-50 truncate">{user.name}</p>
-                                        <span className={`px-2 py-0.5 text-xs rounded-full ${user.role === 'Manager' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'}`}>{user.role}</span>
-                                    </div>
-                                    <p className="text-sm text-slate-400 truncate">{user.email}</p>
-                                    <p className="text-xs text-slate-500 mt-0.5">Password: {user.password}</p>
-                                </div>
-                                <button onClick={() => handleRemoveUser(user.id)} className="flex-shrink-0 h-7 w-7 flex items-center justify-center bg-red-900/50 text-red-400 rounded-full hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-red-500">
-                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                   </svg>
-                                </button>
-                            </div>
-                        ))
-                    ) : (
-                        <p className="text-sm text-slate-500 text-center py-4">No users created yet.</p>
-                    )}
-                </div>
-
-                <div className="border-t border-slate-800 pt-4">
-                    <h5 className="text-sm font-medium text-slate-50 font-heading mb-3">Create New User</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-medium text-slate-400 mb-1">Full Name</label>
-                            <input 
-                                type="text" 
-                                name="name" 
-                                value={newUser.name} 
-                                onChange={handleInputChange} 
-                                placeholder="e.g. Alex Johnson" 
-                                className={`${darkTextInputStyle} ${errors.name ? 'border-red-500' : ''}`} 
-                            />
-                            {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name}</p>}
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-slate-400 mb-1">Email</label>
-                            <input 
-                                type="email" 
-                                name="email" 
-                                value={newUser.email} 
-                                onChange={handleInputChange} 
-                                placeholder="alex@company.com" 
-                                className={`${darkTextInputStyle} ${errors.email ? 'border-red-500' : ''}`} 
-                            />
-                            {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-slate-400 mb-1">Initial Password</label>
-                            <input 
-                                type="text" 
-                                name="password" 
-                                value={newUser.password} 
-                                onChange={handleInputChange} 
-                                placeholder="Secret123" 
-                                className={`${darkTextInputStyle} ${errors.password ? 'border-red-500' : ''}`} 
-                            />
-                            {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-slate-400 mb-1">Role</label>
-                            <select 
-                                name="role" 
-                                value={newUser.role} 
-                                onChange={handleInputChange} 
-                                className={darkSelectStyle}
-                            >
-                                <option value="Staff">Staff</option>
-                                <option value="Manager">Manager</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div className="mt-4 flex justify-end">
-                        <button onClick={handleAddUser} className={`${darkPrimaryBtnStyle} bg-slate-700 hover:bg-slate-600 focus:ring-cyan-600`}>
-                            Add User
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const AutomationTab: React.FC<{ formData: Hotel; setFormData: React.Dispatch<React.SetStateAction<Hotel>> }> = ({ formData, setFormData }) => {
     
     const handleToggle = (key: keyof AutomationSettings) => {
@@ -404,7 +271,6 @@ export const HotelEditModal: React.FC<HotelEditModalProps> = ({ hotel, onSave, o
                     <div className="p-6 border-b border-slate-800">
                         <div className="flex space-x-2">
                             <TabButton active={activeTab === 'details'} onClick={() => setActiveTab('details')}>Details</TabButton>
-                            <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')}>Users & Login</TabButton>
                             <TabButton active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')}>Integrations</TabButton>
                             <TabButton active={activeTab === 'automation'} onClick={() => setActiveTab('automation')}>Automation & AI</TabButton>
                         </div>
@@ -412,7 +278,6 @@ export const HotelEditModal: React.FC<HotelEditModalProps> = ({ hotel, onSave, o
 
                     <div className="px-6 py-6 max-h-[60vh] overflow-y-auto">
                         {activeTab === 'details' && <DetailsTab formData={formData} setFormData={setFormData} formErrors={formErrors} setFormErrors={setFormErrors} />}
-                        {activeTab === 'users' && <UsersTab formData={formData} setFormData={setFormData} />}
                         {activeTab === 'integrations' && (
                             <ErrorBoundary>
                                 <IntegrationsTab 

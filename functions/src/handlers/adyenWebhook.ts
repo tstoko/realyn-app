@@ -3,6 +3,8 @@ import { Request, Response } from "express";
 import { verifyAdyenSignature, getOrganizationFromAdyenNotification } from "../utils/adyenHelpers";
 import { normalizeAdyenDispute } from "../utils/disputeNormalizer";
 import { upsertUnifiedDispute } from "../services/disputeService";
+import { recordDisputeOutcome } from "../services/winPatternService";
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 
 /**
  * Adyen webhook handler for dispute events
@@ -12,6 +14,11 @@ export const adyenWebhook = onRequest(
     cors: false,
   },
   async (req: Request, res: Response) => {
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.webhook
+    );
+    if (!rateLimitOk) return;
+
     try {
       const notification = req.body;
 
@@ -77,8 +84,19 @@ export const adyenWebhook = onRequest(
       if (disputeEvents.includes(eventCode)) {
         // Normalize and store dispute using unified service
         const normalized = normalizeAdyenDispute(notification, orgData.organizationId);
-        await upsertUnifiedDispute(normalized);
+        const disputeDocId = await upsertUnifiedDispute(normalized);
         console.log(`Adyen webhook: ✅ Created/updated dispute ${normalized.pspDisputeId} for organization: ${orgData.organizationId}`);
+
+        const outcomeMap: Record<string, "won" | "lost"> = {
+          CHARGEBACK_REVERSED: "won",
+          DEFENSE_DEBIT: "lost",
+        };
+        const outcome = outcomeMap[eventCode];
+        if (outcome) {
+          recordDisputeOutcome(disputeDocId, outcome).catch((err) => {
+            console.error(`[WinPattern] Failed to record Adyen outcome for ${disputeDocId}:`, err);
+          });
+        }
       } else {
         console.log(`Adyen webhook: Event ${eventCode} is not a dispute event, skipping`);
       }

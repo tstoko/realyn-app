@@ -15,8 +15,10 @@ import {
   Loader2
 } from 'lucide-react';
 import { Dispute, DisputeArgument, TimelineEvent, ArgumentParagraph } from '@realyn/shared';
-import { generateArgument, saveArgumentDraft, submitArgumentToPsp } from '../../services/argumentService';
+import { saveArgumentDraft, submitArgumentToPsp } from '../../services/argumentService';
 import { ArgumentDraftSkeleton } from './ArgumentDraftSkeleton';
+import { callTool, pollOperation } from '../../services/mcpClient';
+import { ValidationResults, type ValidationData } from '../disputes/ValidationResults';
 
 interface SubmissionResult {
   success: boolean;
@@ -45,6 +47,9 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [mcpProgress, setMcpProgress] = useState<string | null>(null);
+  const [validationData, setValidationData] = useState<ValidationData | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     summary: true,
     timeline: true,
@@ -66,29 +71,62 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleGenerate = async (regenerate: boolean = false) => {
-    if (readOnly) return;
-    setIsGenerating(true);
-    setError(null);
-
+  const runMcpValidation = async () => {
+    setIsValidating(true);
     try {
-      const result = await generateArgument(
-        dispute.id,
-        dispute.organizationId!,
-        regenerate
-      );
-
-      if (result.success && result.argument) {
-        setArgument(result.argument);
-        setHasUnsavedChanges(false);
-      } else {
-        setError(result.error || 'Failed to generate argument');
+      const res = await callTool<ValidationData>('validate_draft', { caseId: dispute.id });
+      if (res.ok && res.data) {
+        setValidationData(res.data);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      console.warn('MCP validate_draft failed (non-blocking):', err);
     } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleGenerateViaMcp = async (regenerate: boolean) => {
+    setIsGenerating(true);
+    setError(null);
+    setMcpProgress(null);
+    setValidationData(null);
+
+    try {
+      const draftRes = await callTool<{ operationId: string }>('draft_argument', {
+        caseId: dispute.id,
+        regenerate,
+      });
+
+      if (!draftRes.ok || !draftRes.data?.operationId) {
+        throw new Error(draftRes.error || 'MCP draft_argument failed');
+      }
+
+      const opResult = await pollOperation(draftRes.data.operationId, {
+        onProgress: (status) => {
+          if (status.progress?.step) setMcpProgress(status.progress.step);
+        },
+      });
+
+      if (!opResult.ok || opResult.data?.status === 'failed') {
+        throw new Error(opResult.data?.error?.message || opResult.error || 'Argument generation failed');
+      }
+
+      setMcpProgress(null);
+      setIsGenerating(false);
+      setHasUnsavedChanges(false);
+
+      // Auto-validate the draft
+      await runMcpValidation();
+    } catch (err) {
+      setMcpProgress(null);
+      setError(err instanceof Error ? err.message : String(err));
       setIsGenerating(false);
     }
+  };
+
+  const handleGenerate = async (regenerate: boolean = false) => {
+    if (readOnly) return;
+    return handleGenerateViaMcp(regenerate);
   };
 
   const handleSave = async () => {
@@ -271,7 +309,15 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
 
             {/* Loading State */}
             {isGenerating && (
-              <ArgumentDraftSkeleton />
+              <div>
+                {mcpProgress && (
+                  <div className="mb-4 px-4 py-2.5 bg-violet-900/15 border border-violet-800/30 rounded-lg flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+                    <span className="text-xs text-violet-300">{mcpProgress}</span>
+                  </div>
+                )}
+                <ArgumentDraftSkeleton />
+              </div>
             )}
 
             {/* Argument Editor */}
@@ -466,6 +512,19 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                     {argument.model &&
                       !/^demo-/i.test(argument.model) &&
                       ` • Model: ${argument.model}`}
+                  </div>
+                )}
+
+                {/* Validation Results (MCP) */}
+                {isValidating && (
+                  <div className="flex items-center gap-2 p-3 bg-violet-900/10 border border-violet-800/30 rounded-lg">
+                    <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+                    <span className="text-xs text-violet-300">Validating draft...</span>
+                  </div>
+                )}
+                {validationData && !isValidating && (
+                  <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/60">
+                    <ValidationResults validation={validationData} />
                   </div>
                 )}
               </div>

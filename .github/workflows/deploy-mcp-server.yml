@@ -1,0 +1,55 @@
+name: Deploy MCP Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/core/**"
+      - "packages/mcp-server/**"
+
+jobs:
+  deploy:
+    name: Build and Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Build and Push
+        run: |
+          docker build -f packages/mcp-server/Dockerfile \
+            -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }} \
+            -t us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/realyn/mcp-server:latest \
+            .
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
+          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/realyn/mcp-server:latest
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: realyn-mcp-server
+          region: us-central1
+          image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
+          flags: |
+            --min-instances=0
+            --max-instances=10
+            --memory=512Mi
+            --cpu=1
+            --timeout=300s
+            --concurrency=80
+            --set-secrets=ENCRYPTION_KEY=ENCRYPTION_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest

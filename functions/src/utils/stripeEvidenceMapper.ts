@@ -1,9 +1,14 @@
 /**
  * Stripe Evidence Mapper
- * Maps our internal evidence structure to Stripe's dispute evidence format
+ * Maps our internal evidence structure to Stripe's dispute evidence format.
+ *
+ * When PSP format rules are available from the knowledge base, the mapper
+ * consults them to decide whether to send text or file URLs per slot and
+ * logs warnings when evidence exceeds the PSP's maxSize.
  */
 
 import type { EvidenceFile } from "../services/evidenceService";
+import type { PSPFormatRule } from "../types/knowledgeBase";
 
 export interface StripeEvidenceMapping {
   customer_communication?: string; // URL or text
@@ -21,6 +26,11 @@ export interface StripeEvidenceMapping {
   customer_purchase_ip?: string; // Text
   customer_purchase_ip_address?: string; // Text (deprecated, use customer_purchase_ip)
   uncategorized_text?: string; // Text
+  cancellation_policy?: string; // Text
+  cancellation_policy_disclosure?: string; // Text
+  refund_policy?: string; // Text
+  refund_policy_disclosure?: string; // Text
+  refund_refusal_explanation?: string; // Text
 }
 
 /**
@@ -150,7 +160,11 @@ export function mapTextEvidenceToStripe(
 }
 
 /**
- * Combine file and text evidence into complete Stripe evidence payload
+ * Combine file and text evidence into complete Stripe evidence payload.
+ *
+ * When `pspFormatRules` are provided, the mapper checks each slot to
+ * determine whether the PSP expects text or a file and logs warnings
+ * for evidence exceeding maxSizeBytes.
  */
 export function buildStripeEvidencePayload(
   evidenceFiles: EvidenceFile[],
@@ -168,7 +182,8 @@ export function buildStripeEvidencePayload(
       ratePlan?: string;
       incidentals?: string;
     };
-  }
+  },
+  pspFormatRules?: PSPFormatRule[],
 ): StripeEvidenceMapping {
   const fileMapping = mapEvidenceFilesToStripe(evidenceFiles);
   const textMapping = mapTextEvidenceToStripe(
@@ -177,10 +192,73 @@ export function buildStripeEvidencePayload(
   );
 
   // Merge mappings, with file URLs taking precedence
-  return {
+  const merged: StripeEvidenceMapping = {
     ...textMapping,
-    ...fileMapping, // File URLs override text fields where applicable
+    ...fileMapping,
   };
+
+  // When format rules are available, enforce PSP slot expectations
+  if (pspFormatRules && pspFormatRules.length > 0) {
+    applyPSPFormatRules(merged, evidenceFiles, pspFormatRules);
+  }
+
+  return merged;
+}
+
+/**
+ * Apply PSP format rules to the merged evidence payload.
+ *
+ * For each populated slot, if a PSP format rule exists:
+ * - If the rule only accepts "text" but we have a file URL, log a warning
+ *   (callers should use textExtractor to convert file evidence to text upstream).
+ * - If evidence fileSize exceeds maxSizeBytes, log a warning.
+ */
+function applyPSPFormatRules(
+  mapping: StripeEvidenceMapping,
+  evidenceFiles: EvidenceFile[],
+  rules: PSPFormatRule[],
+): void {
+  const rulesBySlot = new Map<string, PSPFormatRule>();
+  for (const rule of rules) {
+    rulesBySlot.set(rule.evidenceSlot, rule);
+    if (rule.apiFieldName && rule.apiFieldName !== rule.evidenceSlot) {
+      rulesBySlot.set(rule.apiFieldName, rule);
+    }
+  }
+
+  for (const [slot, value] of Object.entries(mapping)) {
+    if (!value) continue;
+    const rule = rulesBySlot.get(slot);
+    if (!rule) continue;
+
+    const acceptsText = rule.acceptedFormats.includes("text");
+    const acceptsFile = rule.acceptedFormats.some((f) => f !== "text");
+    const looksLikeUrl = value.startsWith("http://") || value.startsWith("https://");
+
+    if (looksLikeUrl && !acceptsFile && acceptsText) {
+      console.warn(
+        `[StripeMapper] PSP format rule for slot "${slot}" only accepts text, but a file URL was provided. ` +
+        `Consider using textExtractor to convert file evidence to text.`,
+      );
+    }
+
+    if (!looksLikeUrl && !acceptsText && acceptsFile) {
+      console.warn(
+        `[StripeMapper] PSP format rule for slot "${slot}" only accepts files, but text was provided.`,
+      );
+    }
+
+    // Size check for file-based evidence
+    if (looksLikeUrl && rule.maxSizeBytes) {
+      const matchedFile = evidenceFiles.find((f) => f.downloadURL === value);
+      if (matchedFile && matchedFile.fileSize > rule.maxSizeBytes) {
+        console.warn(
+          `[StripeMapper] Evidence file "${matchedFile.fileName}" (${matchedFile.fileSize} bytes) ` +
+          `exceeds PSP maxSize for slot "${slot}" (${rule.maxSizeBytes} bytes).`,
+        );
+      }
+    }
+  }
 }
 
 

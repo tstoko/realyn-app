@@ -2,11 +2,11 @@ import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import { resetTestEnvironment } from "../scripts/resetTestEnvironment";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-import { shouldEnableTestHandlers } from "../config/environment";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
 
 export const resetTestEnvironmentHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {

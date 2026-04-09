@@ -4,6 +4,8 @@ import {
   EvidenceItem,
   DisputeArgument,
   DisputeArgumentSchema,
+  ClaimAnalysis,
+  DisputeStrategy,
 } from "../../types/aiDispute";
 import { callLLMWithVision, ImageInput } from "./llmService";
 import { 
@@ -14,6 +16,7 @@ import {
   EVIDENCE_SLOT_DESCRIPTIONS,
 } from "../evidenceService";
 import type { PMSMatchResult } from "../pms/pmsLookupService";
+import type { DisputeCodeInfo } from "../../config/disputeCodeMapping";
 import { 
   sanitizeDisputeCaseWithLog, 
   sanitizePdfContent 
@@ -28,6 +31,10 @@ import {
 export interface ArgumentGeneratorContext {
   preloadedFiles?: EvidenceFile[];
   pmsMatch?: PMSMatchResult;
+  claimAnalysis?: ClaimAnalysis;
+  strategy?: DisputeStrategy;
+  schemeRule?: DisputeCodeInfo | null;
+  previousValidation?: Record<string, unknown>;
 }
 
 /**
@@ -82,7 +89,7 @@ export async function generateDisputeArgument(
 
     // Build the comprehensive prompt with sanitized data
     // Uses sanitized case and evidence to prevent PII from being sent to third-party AI
-    const prompt = buildArgumentPrompt(sanitizedCase, evidencePlan, sanitizedEvidence);
+    const prompt = buildArgumentPrompt(sanitizedCase, evidencePlan, sanitizedEvidence, context);
 
     // Call the LLM with vision capabilities
     const result = await callLLMWithVision(prompt, DisputeArgumentSchema, {
@@ -191,7 +198,8 @@ Remember: Generic arguments lose. Specific, evidence-backed arguments WIN.`;
 function buildArgumentPrompt(
   disputeCase: DisputeCase,
   evidencePlan: EvidencePlan,
-  enrichedEvidence: EnrichedEvidence[]
+  enrichedEvidence: EnrichedEvidence[],
+  context?: ArgumentGeneratorContext,
 ): string {
   const parts: string[] = [];
 
@@ -210,6 +218,58 @@ function buildArgumentPrompt(
   parts.push(`**Dispute Category**: ${evidencePlan.disputeCategory}${evidencePlan.disputeSubtype ? ` - ${evidencePlan.disputeSubtype}` : ''}`);
   parts.push(`**AI Summary**: ${evidencePlan.summary}`);
   parts.push("");
+
+  // ==========================================================
+  // SPECIALIST INTELLIGENCE (from cached pipeline outputs)
+  // ==========================================================
+
+  if (context?.claimAnalysis) {
+    const ca = context.claimAnalysis;
+    parts.push("## CLAIM ANALYSIS");
+    parts.push(`**Claim Type**: ${ca.claimType}`);
+    parts.push("");
+    if (ca.customerArguments.length > 0) {
+      parts.push("**Customer Arguments** (your argument MUST counter each):");
+      for (const arg of ca.customerArguments) { parts.push(`- ${arg}`); }
+      parts.push("");
+    }
+    if (ca.requiredDisproofs.length > 0) {
+      parts.push("**Required Disproofs**:");
+      for (const d of ca.requiredDisproofs) { parts.push(`- ${d}`); }
+      parts.push("");
+    }
+    if (ca.suggestedCounterarguments.length > 0) {
+      parts.push("**Counterargument Strategies**:");
+      for (const c of ca.suggestedCounterarguments) { parts.push(`- ${c}`); }
+      parts.push("");
+    }
+  }
+
+  if (context?.strategy) {
+    const s = context.strategy;
+    parts.push("## DEFENSE STRATEGY");
+    parts.push(`**Recommendation**: ${s.recommendation} (confidence: ${s.confidence}%)`);
+    parts.push(`**Primary Defense**: ${s.primaryDefense}`);
+    parts.push("");
+    if (s.defensePoints.length > 0) {
+      parts.push("**Defense Points**:");
+      for (const dp of s.defensePoints) {
+        parts.push(`- ${dp.point} (addresses: "${dp.addressesClaim}")`);
+      }
+      parts.push("");
+    }
+  }
+
+  if (context?.schemeRule) {
+    const ci = context.schemeRule;
+    parts.push("## DISPUTE CODE CONTEXT");
+    parts.push(`**Code**: ${ci.code} (${ci.network.toUpperCase()}) — ${ci.description}`);
+    parts.push(`**Required Evidence**: ${ci.requiredEvidence.join(", ")}`);
+    if (ci.optionalEvidence.length > 0) {
+      parts.push(`**Optional Evidence**: ${ci.optionalEvidence.join(", ")}`);
+    }
+    parts.push("");
+  }
 
   // ==========================================================
   // DISPUTE DETAILS

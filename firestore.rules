@@ -41,6 +41,14 @@ service cloud.firestore {
                     && userCanReadOrg(get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId);
         allow write: if false;
       }
+
+      // Tasks subcollection — inherits parent dispute's org scope
+      match /tasks/{taskId} {
+        allow read: if isAuthenticated()
+                    && get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId != null
+                    && userCanReadOrg(get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId);
+        allow write: if false;
+      }
     }
 
     // =========================================================================
@@ -66,6 +74,11 @@ service cloud.firestore {
         allow read: if userCanReadOrg(orgId);
         allow write: if false;
       }
+
+      // MCP API keys — server-only, no client access
+      match /mcpApiKeys/{keyId} {
+        allow read, write: if false;
+      }
     }
 
     // =========================================================================
@@ -85,6 +98,36 @@ service cloud.firestore {
                   && resource.data.organizationId != null
                   && userCanReadOrg(resource.data.organizationId);
       allow write: if false;
+    }
+
+    // =========================================================================
+    // Operations Collection (MCP long-running jobs)
+    // =========================================================================
+    match /operations/{operationId} {
+      allow read: if isAuthenticated()
+                  && resource.data.organizationId != null
+                  && userCanReadOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Rulesets Collection (versioned scheme rules)
+    // =========================================================================
+    match /rulesets/{rulesetId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      match /rules/{ruleId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // =========================================================================
+    // MCP API Key Index (server-only — no client access)
+    // =========================================================================
+    match /mcpApiKeyIndex/{hashedKey} {
+      allow read, write: if false;
     }
 
     // =========================================================================

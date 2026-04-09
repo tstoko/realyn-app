@@ -63,3 +63,6 @@ packages/*/build/
 
 # Cursor
 .cursor/
+
+# Bulky duplicate of docs/nimax-stakeholder-screenshots/ (folder is source of truth)
+docs/nimax-stakeholder-screenshots.zip

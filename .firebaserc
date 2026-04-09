@@ -13,6 +13,16 @@
           "realyn-dashboard"
         ]
       }
+    },
+    "realyn-app-staging": {
+      "hosting": {
+        "website": [
+          "realyn-app-staging-website"
+        ],
+        "dashboard": [
+          "realyn-app-staging-dashboard"
+        ]
+      }
     }
   }
 }
