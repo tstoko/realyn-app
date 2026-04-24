@@ -2,9 +2,7 @@ import React from "react"
 import { Logo, Button } from "@realyn/shared"
 import { ArrowLeftIcon } from "@radix-ui/react-icons"
 import { AnimatedGrid } from "../../components/landing/animated-grid"
-
-// TODO: Replace with your registered company address before going live
-const COMPANY_ADDRESS = "TODO_COMPANY_ADDRESS"
+import { COMPANY_ADDRESS, PRIVACY_EMAIL } from "../../config/companyInfo"
 
 interface PrivacyPolicyProps {
   onBack: () => void
@@ -205,7 +203,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ onBack, onNavigate
                 If you have questions about this Privacy Policy, please contact us at:
               </p>
               <p className="mt-2">
-                <strong>Email:</strong> privacy@realyn.com<br />
+                <strong>Email:</strong> {PRIVACY_EMAIL}<br />
                 <strong>Address:</strong> {COMPANY_ADDRESS}
               </p>
             </section>

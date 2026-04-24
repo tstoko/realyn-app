@@ -2,11 +2,12 @@
  * Seed script to create a DICE demo organization, user, and ticketing disputes.
  *
  * Usage (from functions/):
- *   npx tsx src/scripts/seedDiceDemo.ts
+ *   npm run seed:dice                    # cloud project (ADC / service account)
+ *   npm run seed:dice:emulator           # local emulators (requires emulator hosts in .env.emulator.seed)
  *
  * Prerequisites:
- *   - GOOGLE_APPLICATION_CREDENTIALS or default Firebase credentials configured
- *   - The Firebase project must already exist (realyn-app)
+ *   - Cloud: GOOGLE_APPLICATION_CREDENTIALS or gcloud application-default login
+ *   - Emulators: `firebase emulators:start` running; uses FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST
  *
  * By default removes existing disputes for the DICE org before inserting (matches HTTP seed).
  * Set env DICE_SEED_APPEND=1 to skip deletion and only add rows.
@@ -23,6 +24,8 @@ import {
   DICE_DEMO_PASSWORD,
   DICE_ORG_ID,
 } from "../lib/diceDemoConstants";
+import { DEMO_SEEDED_POLICY_VERSION } from "../config/demoSeededPolicyVersion";
+import { applyDemoUserClaims } from "../lib/demoSeedUserClaims";
 
 if (!admin.apps.length) {
   const projectId =
@@ -132,9 +135,14 @@ async function seedUser(db: admin.firestore.Firestore, organizationId: string): 
       hotelName: "DICE",
       createdAt: now,
       updatedAt: now,
+      tosAcceptedAt: now,
+      tosVersion: DEMO_SEEDED_POLICY_VERSION,
+      privacyAcceptedAt: now,
+      privacyVersion: DEMO_SEEDED_POLICY_VERSION,
     },
     { merge: true },
   );
+  await applyDemoUserClaims(uid, organizationId, "user");
 
   console.log(`Firestore user doc written for ${DICE_DEMO_EMAIL}`);
 }
@@ -171,6 +179,17 @@ async function seedDisputes(db: admin.firestore.Firestore, organizationId: strin
 
 async function main() {
   console.log("=== DICE Demo Seed ===\n");
+  if (process.env.FIRESTORE_EMULATOR_HOST) {
+    console.log(`Firestore emulator: ${process.env.FIRESTORE_EMULATOR_HOST}`);
+  }
+  if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    console.log(`Auth emulator: ${process.env.FIREBASE_AUTH_EMULATOR_HOST}`);
+  }
+  if (!process.env.FIRESTORE_EMULATOR_HOST) {
+    console.log("Targeting cloud Firestore (no FIRESTORE_EMULATOR_HOST).\n");
+  } else {
+    console.log("");
+  }
   const db = getDb();
 
   const orgId = await seedOrganization(db);

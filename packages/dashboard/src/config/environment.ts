@@ -32,13 +32,14 @@ export function isDevelopment(): boolean {
 // Firebase Functions Configuration
 // =============================================================================
 
-const DEFAULT_FUNCTIONS_URL = "https://us-central1-realyn-app.cloudfunctions.net";
-
 export function getFunctionsBaseUrl(): string {
-  if (import.meta.env.VITE_FIREBASE_FUNCTIONS_URL) {
-    return import.meta.env.VITE_FIREBASE_FUNCTIONS_URL;
+  const url = import.meta.env.VITE_FIREBASE_FUNCTIONS_URL;
+  if (!url) {
+    throw new Error(
+      "Missing VITE_FIREBASE_FUNCTIONS_URL. Set it in your .env file."
+    );
   }
-  return DEFAULT_FUNCTIONS_URL;
+  return url;
 }
 
 export const FUNCTIONS_BASE_URL = getFunctionsBaseUrl();
@@ -48,7 +49,13 @@ export const FUNCTIONS_BASE_URL = getFunctionsBaseUrl();
 // =============================================================================
 
 export function getProjectId(): string {
-  return import.meta.env.VITE_FIREBASE_PROJECT_ID || "realyn-app";
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "Missing VITE_FIREBASE_PROJECT_ID. Set it in your .env file."
+    );
+  }
+  return projectId;
 }
 
 export function getRegion(): string {

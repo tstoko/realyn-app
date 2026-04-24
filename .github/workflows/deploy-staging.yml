@@ -1,0 +1,98 @@
+name: Deploy to Staging
+
+# Required GitHub repo secrets (Settings > Secrets and variables > Actions):
+#   FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING     — JSON service account for realyn-app-staging (hosting + functions deploy)
+#
+# Dashboard Vite build (staging Firebase web app + billing):
+#   STAGING_VITE_FIREBASE_API_KEY
+#   STAGING_VITE_FIREBASE_MESSAGING_SENDER_ID
+#   STAGING_VITE_FIREBASE_APP_ID
+#   STAGING_VITE_STRIPE_PRICE_STARTER_MONTHLY
+#   STAGING_VITE_STRIPE_PRICE_STARTER_YEARLY
+#   STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY
+#   STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY
+#
+# Optional repository variable (Settings > Secrets and variables > Actions > Variables):
+#   STAGING_VITE_WEBSITE_URL  — defaults below if unset
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+jobs:
+  deploy-dashboard:
+    name: Deploy Dashboard to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:dashboard
+        env:
+          VITE_ENVIRONMENT: staging
+          VITE_FIREBASE_PROJECT_ID: realyn-app-staging
+          VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app-staging.cloudfunctions.net
+          VITE_FIREBASE_REGION: us-central1
+          VITE_FIREBASE_AUTH_DOMAIN: realyn-app-staging.firebaseapp.com
+          VITE_FIREBASE_STORAGE_BUCKET: realyn-app-staging.firebasestorage.app
+          VITE_WEBSITE_URL: ${{ vars.STAGING_VITE_WEBSITE_URL || 'https://realyn-app-staging-website.web.app' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.STAGING_VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.STAGING_VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.STAGING_VITE_FIREBASE_APP_ID }}
+          VITE_STRIPE_PRICE_STARTER_MONTHLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_STARTER_MONTHLY }}
+          VITE_STRIPE_PRICE_STARTER_YEARLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_STARTER_YEARLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY }}
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
+          channelId: live
+          projectId: realyn-app-staging
+          target: dashboard
+
+  deploy-website:
+    name: Deploy Website to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:website
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
+          channelId: live
+          projectId: realyn-app-staging
+          target: website
+
+  # After deploy: set `DASHBOARD_URL` and `RESEND_API_KEY` on Gen2 Cloud Run services for
+  # disputeNotificationTrigger, deadlineReminderScheduler, and createInvite (emails + invite links).
+  deploy-functions:
+    name: Deploy Cloud Functions to Staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm ci
+        working-directory: functions
+      - run: npm run build
+        working-directory: functions
+      - uses: w9jds/firebase-action@v15.15.0
+        with:
+          args: deploy --only functions --project realyn-app-staging
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}

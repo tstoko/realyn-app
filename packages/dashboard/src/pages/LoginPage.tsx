@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Logo, useAuthContext, Spinner } from '@realyn/shared';
 
 export const LoginPage: React.FC = () => {
@@ -67,6 +67,12 @@ export const LoginPage: React.FC = () => {
               />
             </div>
 
+            <div className="flex justify-end">
+              <Link to="/forgot-password" className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors">
+                Forgot your password?
+              </Link>
+            </div>
+
             {error && (
               <p className="text-sm text-red-400 text-center">{error}</p>
             )}
@@ -79,6 +85,14 @@ export const LoginPage: React.FC = () => {
               {loading ? <Spinner /> : 'Log in'}
             </button>
           </form>
+
+          <p className="mt-6 text-center text-sm text-slate-400">
+            Don't have an account?{' '}
+            <Link to="/signup" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
+              Sign up
+            </Link>
+          </p>
+
         </div>
       </div>
     </div>

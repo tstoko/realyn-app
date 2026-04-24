@@ -489,12 +489,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ user, onClose, org
                   </div>
                   <div>
                     <h4 className="text-lg font-medium text-white font-heading mb-4">Two-Factor Authentication</h4>
-                    <Toggle
-                      label="Enable Two-Factor Authentication"
-                      enabled={preferences.twoFactorEnabled}
-                      setEnabled={(enabled) => handlePreferenceChange({ twoFactorEnabled: enabled })}
-                      description="Add an extra layer of security to your account"
-                    />
+                    <div className="flex items-center justify-between py-3">
+                      <div className="flex-1">
+                        <span className="font-medium text-slate-300 block">Two-Factor Authentication</span>
+                        <span className="text-xs text-slate-500 mt-0.5 block">
+                          Add an extra layer of security to your account
+                        </span>
+                      </div>
+                      <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-400">
+                        Coming Soon
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <h4 className="text-lg font-medium text-white font-heading mb-4">Active Sessions</h4>

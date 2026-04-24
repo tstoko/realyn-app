@@ -1,0 +1,85 @@
+/**
+ * Create (or verify) the Pinecone Serverless index used by the RAG pipeline.
+ *
+ * Idempotent: safe to re-run. If the index already exists it will report the
+ * observed configuration and exit non-zero if the config drifts from the
+ * locked values in `@realyn/ai-core/config/ragConfig`.
+ *
+ * Usage (from `functions/`):
+ *   npm run build && node lib/scripts/setupPineconeIndex.js
+ *
+ * Environment variables:
+ *   PINECONE_API_KEY       Required. Secret set via `firebase functions:secrets:set`.
+ *   PINECONE_INDEX_NAME    Optional override (default: `realyn-rag`).
+ *
+ * Runs locally against the real Pinecone control plane — there is no emulator.
+ * Review your Pinecone dashboard after running to confirm the index appears.
+ */
+
+import {
+  EMBEDDING_DIM,
+  PINECONE_CLOUD,
+  PINECONE_REGION,
+  getPineconeIndexName,
+} from "@realyn/ai-core";
+import { getPineconeClient } from "../services/ai/pineconeVectorStore";
+
+// Pinecone recommends `cosine` for dense retrieval with sentence-style embeddings.
+// `multilingual-e5-large` was trained with cosine similarity as the objective.
+const METRIC = "cosine" as const;
+
+async function main(): Promise<void> {
+  const indexName = getPineconeIndexName();
+  const pc = getPineconeClient();
+
+  console.log(`[rag-setup] target index: ${indexName}`);
+  console.log(`[rag-setup] cloud/region: ${PINECONE_CLOUD}/${PINECONE_REGION}`);
+  console.log(`[rag-setup] dimension: ${EMBEDDING_DIM}, metric: ${METRIC}`);
+
+  const existing = await pc.listIndexes();
+  const already = (existing.indexes ?? []).find((i) => i.name === indexName);
+
+  if (already) {
+    console.log(`[rag-setup] index already exists`);
+    const drift: string[] = [];
+    if (already.dimension !== EMBEDDING_DIM) {
+      drift.push(`dimension=${already.dimension} (expected ${EMBEDDING_DIM})`);
+    }
+    if (already.metric !== METRIC) {
+      drift.push(`metric=${already.metric} (expected ${METRIC})`);
+    }
+    if (drift.length) {
+      console.error(`[rag-setup] FATAL: index config drift: ${drift.join(", ")}`);
+      console.error(
+        `[rag-setup] Re-indexing required. Delete the index via Pinecone console ` +
+          `or use a new PINECONE_INDEX_NAME before re-running.`,
+      );
+      process.exit(2);
+    }
+    console.log(`[rag-setup] config matches locked values; no action required`);
+    return;
+  }
+
+  console.log(`[rag-setup] creating serverless index…`);
+  await pc.createIndex({
+    name: indexName,
+    dimension: EMBEDDING_DIM,
+    metric: METRIC,
+    spec: {
+      serverless: {
+        cloud: PINECONE_CLOUD,
+        region: PINECONE_REGION,
+      },
+    },
+    // Wait for the index to be ready before returning so subsequent scripts
+    // (e.g. ingestRulebooks) don't race the control plane.
+    waitUntilReady: true,
+  });
+
+  console.log(`[rag-setup] index ${indexName} created and ready`);
+}
+
+main().catch((err) => {
+  console.error("[rag-setup] failed:", err);
+  process.exit(1);
+});

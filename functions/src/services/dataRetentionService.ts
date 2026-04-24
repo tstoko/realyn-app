@@ -14,6 +14,7 @@
  */
 
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import type { Organization } from "../types/organization";
 import { PII_PLACEHOLDERS } from "../utils/piiSanitizer";
 
@@ -384,8 +385,8 @@ export async function anonymizeDispute(
       pspLast4Digits: PII_PLACEHOLDERS.CARD_LAST4,
       
       // Mark as anonymized
-      anonymizedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      anonymizedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     await disputeRef.update(anonymizedData);

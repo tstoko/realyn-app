@@ -63,3 +63,13 @@ packages/*/build/
 
 # Cursor
 .cursor/
+
+# Bulky duplicate of docs/nimax-stakeholder-screenshots/ (folder is source of truth)
+docs/nimax-stakeholder-screenshots.zip
+
+# RAG — local-only source PDFs. Scheme rulebooks are often licensed and too
+# large to commit. Scripts accept absolute paths via --file, so drop files
+# wherever is convenient on your machine.
+data/rulebooks/
+functions/data/
+

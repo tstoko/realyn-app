@@ -18,6 +18,7 @@
  */
 
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 // Initialize Firebase Admin if not already done
 if (!admin.apps.length) {
@@ -126,7 +127,7 @@ async function migrateDisputeFields(dryRun: boolean): Promise<MigrationStats> {
       // Build the update object
       const updatePayload: Record<string, any> = { ...updates };
       for (const field of deletes) {
-        updatePayload[field] = admin.firestore.FieldValue.delete();
+        updatePayload[field] = FieldValue.delete();
       }
 
       batch.update(doc.ref, updatePayload);

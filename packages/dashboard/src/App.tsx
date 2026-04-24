@@ -9,6 +9,10 @@ import { DemoModeBanner } from './components/layout/DemoModeBanner';
 import { AppShell } from './components/layout/AppShell';
 import { PolicyConsentModal } from './components/shared/PolicyConsentModal';
 import { LoginPage } from './pages/LoginPage';
+import { SignupPage } from './pages/SignupPage';
+import { OnboardingPage } from './pages/OnboardingPage';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 
 const HotelSelectionPage = lazy(() => import('./features/hotels/HotelSelectionPage').then(m => ({ default: m.HotelSelectionPage })));
 const HotelAnalyticsPage = lazy(() => import('./features/hotels/HotelAnalyticsPage').then(m => ({ default: m.HotelAnalyticsPage })));
@@ -17,6 +21,8 @@ const PortfolioAnalyticsPage = lazy(() => import('./features/analytics/Portfolio
 const ActivityLogPage = lazy(() => import('./features/admin/ActivityLogPage').then(m => ({ default: m.ActivityLogPage })));
 const UserManagementPage = lazy(() => import('./features/admin/UserManagementPage').then(m => ({ default: m.UserManagementPage })));
 const ContactSalesLeadsPage = lazy(() => import('./features/admin/ContactSalesLeadsPage').then(m => ({ default: m.ContactSalesLeadsPage })));
+const BillingPage = lazy(() => import('./features/billing/BillingPage').then(m => ({ default: m.BillingPage })));
+const TeamManagementPage = lazy(() => import('./features/team/TeamManagementPage').then(m => ({ default: m.TeamManagementPage })));
 const SettingsModal = lazy(() => import('./features/settings/SettingsModal').then(m => ({ default: m.SettingsModal })));
 const CommandPalette = lazy(() => import('./features/settings/CommandPalette').then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcutsModal = lazy(() => import('./features/settings/KeyboardShortcutsModal').then(m => ({ default: m.KeyboardShortcutsModal })));
@@ -28,6 +34,21 @@ const LoginPageRoute: React.FC = () => {
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Spinner /></div>;
   if (user) return <Navigate to="/" replace />;
   return <LoginPage />;
+};
+
+const SignupPageRoute: React.FC = () => {
+  const { user, loading } = useAuthContext();
+  if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Spinner /></div>;
+  if (user) return <Navigate to="/" replace />;
+  return <SignupPage />;
+};
+
+const OnboardingRoute: React.FC = () => {
+  return (
+    <ProtectedRoute>
+      <OnboardingPage />
+    </ProtectedRoute>
+  );
 };
 
 const PageSpinner = () => (
@@ -140,6 +161,8 @@ const AuthenticatedRoutes: React.FC = () => {
         <Route path="activity" element={user.role === 'admin' ? <ErrorBoundary><ActivityLogPage /></ErrorBoundary> : <Navigate to="/dashboard" replace />} />
         <Route path="users" element={user.role === 'admin' ? <ErrorBoundary><UserManagementPage /></ErrorBoundary> : <Navigate to="/dashboard" replace />} />
         <Route path="leads" element={user.role === 'admin' ? <ErrorBoundary><ContactSalesLeadsPage /></ErrorBoundary> : <Navigate to="/dashboard" replace />} />
+        <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
+        <Route path="team" element={<ErrorBoundary><TeamManagementPage /></ErrorBoundary>} />
       </Routes>
     </Suspense>
   );
@@ -166,6 +189,7 @@ const AuthenticatedShell: React.FC = () => {
   else if (path.includes('/activity')) pageTitle = 'Activity Log';
   else if (path.includes('/users')) pageTitle = 'User Management';
   else if (path.includes('/leads')) pageTitle = 'Contact Sales Leads';
+  else if (path.includes('/team')) pageTitle = 'Team Management';
   else if (path.includes('/properties')) pageTitle = 'Manage Accounts';
 
   const shouldDisablePageScroll = hotel && isHotelDisputes;
@@ -200,7 +224,9 @@ const AuthenticatedShell: React.FC = () => {
 
   return (
     <>
-      {isDemoMode && <DemoModeBanner organizationId={hotel?.id} />}
+      {isDemoMode && (
+        <DemoModeBanner organizationId={hotel?.id} canReset={user.role === 'admin'} />
+      )}
       <AppShell
         user={user}
         onLogout={handleLogout}
@@ -212,6 +238,7 @@ const AuthenticatedShell: React.FC = () => {
         onNavigateToActivityLog={user.role === 'admin' ? () => { clearHotel(); navigate('/activity'); } : undefined}
         onNavigateToUserManagement={user.role === 'admin' ? () => { clearHotel(); navigate('/users'); } : undefined}
         onNavigateToContactSales={user.role === 'admin' ? () => { clearHotel(); navigate('/leads'); } : undefined}
+        onNavigateToTeam={() => { clearHotel(); navigate('/team'); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         hotelView={hotelView}
         onNavigateToHotelDisputes={hotel ? () => navigate(`/properties/${hotel.id}/disputes`) : undefined}
@@ -263,6 +290,10 @@ const App: React.FC = () => {
       <Suspense fallback={<PageSpinner />}>
         <Routes>
           <Route path="/login" element={<LoginPageRoute />} />
+          <Route path="/signup" element={<SignupPageRoute />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/onboarding" element={<OnboardingRoute />} />
+          <Route path="/accept-invite" element={<AcceptInvitePage />} />
           <Route path="/dashboard" element={<ProtectedRoute><DashboardRedirect /></ProtectedRoute>} />
           <Route path="/*" element={
             <ProtectedRoute>

@@ -153,6 +153,8 @@ export async function triggerEvidencePlanning(
     const cachedData = cachedDoc.data();
     const cachedClaimAnalysis = cachedData?.cachedClaimAnalysis as ClaimAnalysis | undefined;
     const cachedExistingEvidence = cachedData?.cachedExistingEvidence as ExistingEvidenceAnalysis | undefined;
+    const cachedStrategyData = cachedData?.cachedStrategy as DisputeStrategy | undefined;
+    const cachedRelevanceScoresData = cachedData?.cachedRelevanceScores as EvidenceRelevanceScores | undefined;
 
     // ============================================================
     // STEP 1: Claim Analyst (guaranteed result via fallback)
@@ -202,12 +204,18 @@ export async function triggerEvidencePlanning(
     // ============================================================
     // STEP 3: Relevance Scorer (informed by claim + existing evidence)
     // ============================================================
-    console.log(`[EvidencePlanning] Step 3: Relevance Scorer`);
-    const relevanceScores: EvidenceRelevanceScores | null = await scoreEvidenceRelevance(
-      sanitizedCase,
-      claimAnalysis,
-      existingEvidence
-    );
+    let relevanceScores: EvidenceRelevanceScores | null;
+    if (cachedRelevanceScoresData && !forceRefresh) {
+      console.log(`[EvidencePlanning] Step 3: Using cached Relevance Scores`);
+      relevanceScores = cachedRelevanceScoresData;
+    } else {
+      console.log(`[EvidencePlanning] Step 3: Relevance Scorer${cachedRelevanceScoresData ? " (force refresh)" : ""}`);
+      relevanceScores = await scoreEvidenceRelevance(
+        sanitizedCase,
+        claimAnalysis,
+        existingEvidence
+      );
+    }
     if (relevanceScores) {
       console.log(`[EvidencePlanning] Relevance Scores: top priority = [${relevanceScores.topPriorityEvidence.join(", ")}]`);
     }
@@ -218,8 +226,11 @@ export async function triggerEvidencePlanning(
     let strategy: DisputeStrategy | null = null;
     const urgent = isUrgentDeadline(disputeCase.respondByDate);
 
-    if (hasTimeRemaining(startTime, STRATEGY_SKIP_BUDGET_MS) && !urgent) {
-      console.log(`[EvidencePlanning] Step 4: Strategy Advisor`);
+    if (cachedStrategyData && !forceRefresh) {
+      console.log(`[EvidencePlanning] Step 4: Using cached Strategy`);
+      strategy = cachedStrategyData;
+    } else if (hasTimeRemaining(startTime, STRATEGY_SKIP_BUDGET_MS) && !urgent) {
+      console.log(`[EvidencePlanning] Step 4: Strategy Advisor${cachedStrategyData ? " (force refresh)" : ""}`);
       strategy = await synthesizeStrategy(
         sanitizedCase,
         claimAnalysis,
@@ -385,8 +396,12 @@ export async function triggerEvidencePlanning(
         lifecycleStatus: "evidence_in_progress",
         internalStatus: "awaiting_docs",
         // Cache specialist outputs so regeneration can skip Steps 1-2
+        // and so the argument generator can consume them later
         cachedClaimAnalysis: claimAnalysis,
         cachedExistingEvidence: existingEvidence || null,
+        cachedStrategy: strategy || null,
+        cachedSchemeRule: codeInfo || null,
+        cachedRelevanceScores: relevanceScores || null,
         updatedAt: FieldValue.serverTimestamp(),
       });
 

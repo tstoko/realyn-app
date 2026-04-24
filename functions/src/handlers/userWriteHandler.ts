@@ -1,12 +1,12 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyUser, verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-
-const FieldValue = admin.firestore.FieldValue;
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 export const userWriteHandler = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ success: false, error: "Method not allowed" });

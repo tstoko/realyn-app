@@ -92,7 +92,7 @@ const fakeDisputeCase: DisputeCase = {
   reason: "fraudulent",
   customerExplanation: "I did not make this purchase",
   transactionDate: "2025-12-01T12:00:00Z",
-  respondByDate: "2026-03-01T12:00:00Z",
+  respondByDate: "2027-06-01T12:00:00Z",
 };
 
 const fakeClaimAnalysis: ClaimAnalysis = {
@@ -220,6 +220,7 @@ function setupHappyPath() {
   (applyCodeBasedMerge as jest.Mock).mockImplementation((plan) => plan);
   (applyFolioDedup as jest.Mock).mockImplementation((plan) => plan);
   (checkEvidencePlanQuality as jest.Mock).mockResolvedValue(fakeQualityPass);
+  (generateFallbackStrategy as jest.Mock).mockReturnValue(fakeStrategy);
 
   // Firestore mock – existing dispute doc with no previous plan versions
   mockGet.mockResolvedValue({

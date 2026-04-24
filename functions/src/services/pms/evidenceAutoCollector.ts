@@ -23,7 +23,10 @@ import {
 import {updateEvidenceItemStatus} from "../ai/evidencePlanningService";
 import {registerEvidenceFile} from "../evidenceService";
 import {createSystemAuditEntry, createErrorAuditEntry} from "../../utils/auditTrailHelper";
+import {getOutputTemplate} from "../knowledgeBaseService";
+import {extractFolioText, extractReservationText, extractActivityLogText} from "../textExtractor";
 import type {EvidencePlan, EvidenceItem, EvidenceRequirement} from "../../types/aiDispute";
+import type {PSPProvider, OutputFormat} from "../../types/knowledgeBase";
 
 // Tags that can be auto-fulfilled from PMS CSV data
 const AUTO_FULFILLABLE_TAGS: Record<string, (match: PMSMatchResult) => boolean> = {
@@ -113,13 +116,21 @@ export async function autoCollectFromPMS(
 
   // Get hotel name for PDF provenance
   const orgDoc = await admin.firestore().collection("organizations").doc(organizationId).get();
-  const hotelName = orgDoc.data()?.name || "Hotel";
+  const orgData = orgDoc.data();
+  const hotelName = orgData?.name || "Hotel";
   const provenance = {
     hotelName,
     importDate: new Date().toISOString().split("T")[0],
     sourceHashPrefix: pmsMatch.confirmationNumber,
     source,
   };
+
+  // Resolve PSP for output template lookups (no vertical registry in functions — default to "general")
+  const pspProvider: PSPProvider = (["stripe", "adyen"].includes(disputeData.pspProvider || "")
+    ? disputeData.pspProvider
+    : "other") as PSPProvider;
+
+  const verticalId = "general";
 
   // Process each pending evidence item
   for (const item of evidenceItems) {
@@ -141,7 +152,45 @@ export async function autoCollectFromPMS(
     }
 
     try {
-      const {pdfBuffer, fileName} = await generateEvidencePDF(requirement, pmsMatch, provenance);
+      // Look up the output template for this evidence type + vertical + PSP
+      const evidenceType = requirement.tag || requirement.category;
+      let outputFormat: OutputFormat = "pdf"; // default: generate a PDF
+      try {
+        const template = await getOutputTemplate(evidenceType, verticalId, pspProvider);
+        if (template) {
+          outputFormat = template.outputFormat;
+          console.log(
+            `[AutoCollect] Output template for ${evidenceType}/${verticalId}/${pspProvider}: format=${outputFormat}`,
+          );
+        }
+      } catch (templateErr) {
+        console.warn(
+          `[AutoCollect] Failed to fetch output template, defaulting to PDF: ${(templateErr as Error).message}`,
+        );
+      }
+
+      let fileBuffer: Buffer;
+      let fileName: string;
+      let fileType: string;
+
+      if (outputFormat === "text") {
+        const textContent = extractTextForRequirement(requirement, pmsMatch);
+        fileBuffer = Buffer.from(textContent, "utf-8");
+        fileName = `${evidenceType}_${pmsMatch.confirmationNumber}.txt`;
+        fileType = "text/plain";
+      } else if (outputFormat === "passthrough") {
+        // Keep original PMS data as-is in a JSON representation
+        const rawData = buildPassthroughPayload(requirement, pmsMatch);
+        fileBuffer = Buffer.from(JSON.stringify(rawData, null, 2), "utf-8");
+        fileName = `${evidenceType}_${pmsMatch.confirmationNumber}.json`;
+        fileType = "application/json";
+      } else {
+        // Default: "pdf" or "image" — generate PDF
+        const pdfResult = await generateEvidencePDF(requirement, pmsMatch, provenance);
+        fileBuffer = pdfResult.pdfBuffer;
+        fileName = pdfResult.fileName;
+        fileType = "application/pdf";
+      }
 
       // Upload to Firebase Storage
       const bucket = admin.storage().bucket();
@@ -150,26 +199,25 @@ export async function autoCollectFromPMS(
       const storagePath = `${basePath}/evidence/pms_data/${timestamp}_${fileName}`;
 
       const file = bucket.file(storagePath);
-      await file.save(pdfBuffer, {
+      await file.save(fileBuffer, {
         metadata: {
-          contentType: "application/pdf",
+          contentType: fileType,
           metadata: {
             source,
             confirmationNumber: pmsMatch.confirmationNumber,
             confidence: String(pmsMatch.confidence),
+            outputFormat,
           },
         },
       });
 
       const [signedUrl] = await file.getSignedUrl({action: "read", expires: "2099-12-31"});
 
-      // Register in the evidence subcollection so downstream consumers
-      // (getEvidenceFiles, getEnrichedEvidence, PSP mappers) can find it
       const evidenceDocId = await registerEvidenceFile({
         disputeId,
         fileName,
-        fileSize: pdfBuffer.length,
-        fileType: "application/pdf",
+        fileSize: fileBuffer.length,
+        fileType,
         storagePath,
         downloadURL: signedUrl,
         uploadedBy: "system:pms_auto_collect",
@@ -177,7 +225,6 @@ export async function autoCollectFromPMS(
         requirementId: requirement.id,
       });
 
-      // Mark the evidence item as uploaded (pass the Firestore doc ID, not the storage path)
       const success = await updateEvidenceItemStatus(
           disputeId,
           requirement.id,
@@ -187,12 +234,12 @@ export async function autoCollectFromPMS(
           "system:pms_auto_collect",
           `Auto-collected from PMS data (source: ${source}, ` +
           `confirmation: ${pmsMatch.confirmationNumber}, ` +
-          `confidence: ${pmsMatch.confidence}%)`,
+          `confidence: ${pmsMatch.confidence}%, format: ${outputFormat})`,
       );
 
       if (success) {
         result.itemsFulfilled.push(requirement.id);
-        console.log(`[AutoCollect] Fulfilled evidence item ${requirement.id} for dispute ${disputeId}`);
+        console.log(`[AutoCollect] Fulfilled evidence item ${requirement.id} for dispute ${disputeId} (format: ${outputFormat})`);
       } else {
         result.errors.push(`Failed to update status for ${requirement.id}`);
       }
@@ -348,4 +395,72 @@ async function generateEvidencePDF(
   // Default: generate reservation confirmation as general PMS evidence
   const pdfBuffer = await generateCheckInOutPDF(match.reservation, provenance);
   return {pdfBuffer, fileName: `PMSRecord_${match.confirmationNumber}.pdf`};
+}
+
+/**
+ * Extract structured text from PMS data for a requirement.
+ * Used when the output template specifies format="text".
+ */
+function extractTextForRequirement(
+    requirement: EvidenceRequirement,
+    match: PMSMatchResult,
+): string {
+  const tag = requirement.tag || "";
+  const labelLower = requirement.label.toLowerCase();
+
+  const isFolio = tag === "folio" || tag === "reservation_folio" ||
+      labelLower.includes("folio") || labelLower.includes("invoice");
+
+  if (isFolio && match.folio) {
+    return extractFolioText(match.folio, match.reservation);
+  }
+
+  if (tag === "checkin_checkout_records" || labelLower.includes("check-in") ||
+      labelLower.includes("check-out") || labelLower.includes("reservation")) {
+    return extractReservationText(match.reservation);
+  }
+
+  if (tag === "keycard_logs" || tag === "guest_activity_log" ||
+      labelLower.includes("activity") || labelLower.includes("keycard") || labelLower.includes("key card")) {
+    return extractActivityLogText(match.activityLogs, match.confirmationNumber);
+  }
+
+  if (tag === "authorization_records" || labelLower.includes("authorization") || labelLower.includes("payment")) {
+    if (match.folio) {
+      const paymentFolio = {
+        ...match.folio,
+        lines: match.folio.lines.filter((l) => l.category === "payment"),
+      };
+      return extractFolioText(paymentFolio, match.reservation);
+    }
+  }
+
+  // Fallback: reservation text
+  return extractReservationText(match.reservation);
+}
+
+/**
+ * Build a passthrough payload preserving raw PMS data structure.
+ * Used when the output template specifies format="passthrough".
+ */
+function buildPassthroughPayload(
+    requirement: EvidenceRequirement,
+    match: PMSMatchResult,
+): Record<string, unknown> {
+  const tag = requirement.tag || "";
+  const labelLower = requirement.label.toLowerCase();
+
+  const isFolio = tag === "folio" || tag === "reservation_folio" ||
+      labelLower.includes("folio") || labelLower.includes("invoice");
+
+  if (isFolio && match.folio) {
+    return {type: "folio", data: match.folio, confirmation: match.confirmationNumber};
+  }
+
+  if (tag === "guest_activity_log" || tag === "keycard_logs" ||
+      labelLower.includes("activity") || labelLower.includes("keycard")) {
+    return {type: "activity_log", data: match.activityLogs, confirmation: match.confirmationNumber};
+  }
+
+  return {type: "reservation", data: match.reservation, confirmation: match.confirmationNumber};
 }

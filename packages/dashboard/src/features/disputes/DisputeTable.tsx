@@ -364,24 +364,25 @@ export const DisputeTable: React.FC<DisputeTableProps> = ({
                             {paginatedDisputes.map((dispute) => (
                                 <tr 
                                     key={dispute.id} 
-                                    className={`group transition-colors duration-200 hover:bg-slate-800/60 ${selectedDisputes.includes(dispute.id) ? 'bg-cyan-900/10' : ''}`}
+                                    className={`group transition-colors duration-200 hover:bg-slate-800/60 cursor-pointer ${selectedDisputes.includes(dispute.id) ? 'bg-cyan-900/10' : ''}`}
+                                    onClick={() => setDetailDispute(dispute)}
                                 >
-                                    <td className={`px-3 ${rowPadding} text-center`}>
+                                    <td className={`px-3 ${rowPadding} text-center`} onClick={(e) => e.stopPropagation()}>
                                         <input type="checkbox" className="h-4 w-4 rounded border-slate-600 text-cyan-600 bg-slate-800 focus:ring-cyan-600 focus:ring-offset-slate-900 transition duration-150 ease-in-out" checked={selectedDisputes.includes(dispute.id)} onChange={() => handleSelectRow(dispute.id)} />
                                     </td>
                                     
-                                    {visibleColumns.has('createdAt') && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm text-slate-300 cursor-pointer`} onClick={() => setDetailDispute(dispute)}>{formatDate(dispute.createdAt)}</td>}
-                                    {(visibleColumns.has('internalStatus') || true) && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm cursor-pointer`} onClick={() => setDetailDispute(dispute)}>
+                                    {visibleColumns.has('createdAt') && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm text-slate-300`}>{formatDate(dispute.createdAt)}</td>}
+                                    {(visibleColumns.has('internalStatus') || true) && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm`}>
                                         <div className="flex flex-col">
                                             <DisputeWorkflowBadge dispute={dispute} />
                                             <EvidenceProgress dispute={dispute} />
                                         </div>
                                     </td>}
-                                    {(visibleColumns.has('respondBy') || true) && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm cursor-pointer truncate`} onClick={() => setDetailDispute(dispute)}><TimeToRespond respondBy={dispute.respondBy} /></td>}
-                                    {visibleColumns.has('amount') && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm font-semibold text-slate-100 cursor-pointer truncate text-right`} onClick={() => setDetailDispute(dispute)}>{formatCurrency(dispute.amount, dispute.currency)}</td>}
+                                    {(visibleColumns.has('respondBy') || true) && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm truncate`}><TimeToRespond respondBy={dispute.respondBy} /></td>}
+                                    {visibleColumns.has('amount') && <td className={`px-3 ${rowPadding} whitespace-nowrap text-sm font-semibold text-slate-100 truncate text-right`}>{formatCurrency(dispute.amount, dispute.currency)}</td>}
                                     
                                     {visibleColumns.has('reason') && (
-                                        <td className={`px-3 ${rowPadding} whitespace-nowrap text-xs text-slate-300 font-medium capitalize cursor-pointer truncate max-w-[1px]`} onClick={() => setDetailDispute(dispute)} title={dispute.reason?.replace(/_/g, ' ')}>
+                                        <td className={`px-3 ${rowPadding} whitespace-nowrap text-xs text-slate-300 font-medium capitalize truncate max-w-[1px]`} title={dispute.reason?.replace(/_/g, ' ')}>
                                             <div className="flex items-center space-x-2">
                                                 <span className="truncate block">{dispute.reason?.replace(/_/g, ' ') || 'N/A'}</span>
                                                 {(dispute.pspDisputeId?.includes('demo') || dispute.id?.includes('demo')) && (

@@ -1,5 +1,5 @@
-// @ts-nocheck
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import type { Organization } from "../types/organization";
 import { encryptCredentials, decryptCredentials } from "../utils/encryption";
 
@@ -66,11 +66,11 @@ export async function updateOrganization(
   organizationId: string,
   updates: Partial<Omit<Organization, "id" | "createdAt">>
 ): Promise<void> {
-  const encryptedUpdates = encryptOrganizationCredentials(updates as any);
+  const encryptedUpdates = encryptOrganizationCredentials(updates);
   const db = getDb();
   await db.collection("organizations").doc(organizationId).update({
     ...encryptedUpdates,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   });
 }
 
@@ -153,14 +153,14 @@ function encryptOrganizationCredentials<T extends Partial<Organization>>(org: T)
     if (encrypted.pspIntegrations.stripe) {
       encrypted.pspIntegrations.stripe = encryptCredentials(
         encrypted.pspIntegrations.stripe,
-        PSP_ENCRYPTED_FIELDS.stripe
-      ) as any;
+        [...PSP_ENCRYPTED_FIELDS.stripe]
+      );
     }
     if (encrypted.pspIntegrations.adyen) {
       encrypted.pspIntegrations.adyen = encryptCredentials(
         encrypted.pspIntegrations.adyen,
-        PSP_ENCRYPTED_FIELDS.adyen
-      ) as any;
+        [...PSP_ENCRYPTED_FIELDS.adyen]
+      );
     }
   }
 
@@ -178,14 +178,14 @@ function decryptOrganizationCredentials(org: Organization): Organization {
     if (decrypted.pspIntegrations.stripe) {
       decrypted.pspIntegrations.stripe = decryptCredentials(
         decrypted.pspIntegrations.stripe,
-        PSP_ENCRYPTED_FIELDS.stripe
-      ) as any;
+        [...PSP_ENCRYPTED_FIELDS.stripe]
+      );
     }
     if (decrypted.pspIntegrations.adyen) {
       decrypted.pspIntegrations.adyen = decryptCredentials(
         decrypted.pspIntegrations.adyen,
-        PSP_ENCRYPTED_FIELDS.adyen
-      ) as any;
+        [...PSP_ENCRYPTED_FIELDS.adyen]
+      );
     }
   }
 
