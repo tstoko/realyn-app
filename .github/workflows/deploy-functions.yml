@@ -28,6 +28,14 @@ jobs:
         run: npm ci
         working-directory: functions
 
+      - name: Build AI Core
+        run: npm run build
+        working-directory: packages/ai-core
+
+      - name: Build Functions
+        run: npm run build
+        working-directory: functions
+
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:
