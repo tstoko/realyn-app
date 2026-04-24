@@ -348,10 +348,116 @@ functions/src/handlers/
 
 ---
 
-## Prerequisites
+## Locked decisions (2026-04)
 
-- [ ] Pinecone Serverless account (free starter tier available)
-- [ ] Embedding API access (OpenAI or Vertex AI)
-- [ ] Scheme rulebook PDFs (Visa Core Rules, Mastercard Chargeback Guide)
-- [ ] `PINECONE_API_KEY` added to Cloud Functions secrets
-- [ ] `OPENAI_API_KEY` or Vertex AI credentials (may already exist for other features)
+These are the load-bearing constants. Changing any of them means re-indexing
+every vector in Pinecone. They live in
+[`packages/ai-core/src/config/ragConfig.ts`](../packages/ai-core/src/config/ragConfig.ts) — the code is the source of truth; this list is a mirror.
+
+| Decision | Value | Rationale |
+|---|---|---|
+| **Embedding provider** | Pinecone Inference | One vendor; no separate API key. See `embedding-provider-setup.md`. |
+| **Embedding model** | `multilingual-e5-large` | 1024-dim, hosted by Pinecone, supports asymmetric passage/query input types. |
+| **Vector dimension** | 1024 | Matches the embedding model. |
+| **Similarity metric** | cosine | Matches the model's training objective. |
+| **Chunk target size** | 700 tokens | Inside the 500–800 retrieval sweet spot. |
+| **Chunk overlap** | 100 tokens | Preserves context across boundaries. |
+| **Chunk hard cap** | 1200 tokens | Safety for single long paragraphs; sentence-split above this. |
+| **Namespaces** | `rulebooks`, `cases`, `policies` | Isolate content types; queries always scope to one. |
+| **Index name (default)** | `realyn-rag` | Overridable via `PINECONE_INDEX_NAME`; use distinct names per environment. |
+| **Cloud / region** | GCP / `us-central1` | Matches Cloud Functions region. |
+| **Default topK** | rulebooks 5, cases 3, policies 3 | Enough for prompt context without blowing token budgets. |
+| **Min score threshold** | 0.35 | Below this, chunks are discarded rather than injected. |
+| **Upsert batch size** | 90 vectors | Safely below Pinecone's 100/req limit. |
+| **Schema version** | 1 | Stamped on every record; bump when anything above changes. |
+
+### What changes without a re-index
+
+These can be tuned per-request or per-release without touching Pinecone:
+
+- `topK` overrides, `minScore` overrides, namespace filters, per-request filters.
+- Prompt-injection formatting in `formatRetrievedContext`.
+- Which specialists consume retrieval results.
+
+### What requires a re-index
+
+Any change to: embedding model, vector dim, chunking params, metadata shape,
+namespace names, or similarity metric. Bump `RAG_SCHEMA_VERSION`, use a new
+index name (or delete+recreate), and re-run `rag:ingest`.
+
+---
+
+## Scaffolding shipped (2026-04)
+
+The prep work before Phase 1 development is done. The following exists in the
+repo ready to be used:
+
+- `packages/ai-core/src/config/ragConfig.ts` — locked constants.
+- `packages/ai-core/src/types/rag.ts` — metadata + query/result Zod schemas.
+- `packages/ai-core/src/services/embeddingService.ts` — Pinecone Inference
+  wrapper with document/query split, batching, telemetry.
+- `packages/ai-core/src/services/ragService.ts` — retrieval API + `VectorStorePort`
+  (pure port; fail-safe; returns empty result on error so RAG never blocks
+  the deterministic pipeline).
+- `functions/src/services/ai/pineconeVectorStore.ts` — concrete Pinecone adapter
+  (implements `VectorStorePort`, also provides `upsertRecords` for ingestion).
+- `functions/src/services/ai/{ragService,embeddingService}.ts` — local re-export
+  shims; importing `ragService` registers the Pinecone adapter.
+- `functions/src/scripts/setupPineconeIndex.ts` — idempotent index creation.
+- `functions/src/scripts/ingestRulebooks.ts` — PDF → chunks → embed → upsert
+  with deterministic content-addressed IDs, dry-run and sample modes.
+- `functions/src/scripts/testRagRetrieval.ts` — smoke-test CLI for retrieval.
+- `functions/src/scripts/lib/textChunker.ts` — heading-aware chunker tuned for
+  rulebook section structure (`§11.3.2` preserved in output).
+- npm scripts: `rag:setup`, `rag:ingest`, `rag:test`.
+- `docs/eval/` — baseline template and workflow for before/after comparisons.
+
+---
+
+## Prerequisites (remaining)
+
+- [x] Pinecone Serverless account created
+- [x] `PINECONE_API_KEY` secret set
+- [x] Scaffolding, types, services, scripts committed
+- [ ] Run `npm run rag:setup` in `functions/` to create the index
+- [ ] Obtain scheme rulebook PDFs (Visa Public Rules / MC Chargeback Guide
+      as the public starting point; full rulebooks via acquirer/Visa Online
+      later if licensing allows)
+- [ ] Record a baseline with `docs/eval/rag-baseline-template.md`
+      **before** ingesting anything — baseline is easier to capture now
+      than to reconstruct later
+- [ ] Run `npm run rag:ingest -- --file ... --network ... --name ... --version ...`
+- [ ] Smoke test with `npm run rag:test -- --q "..."`
+- [ ] Wire `retrieveRulebookContext` into `evidencePlanner` and
+      `argumentGenerator` (this is the Phase 1 development work proper)
+
+---
+
+## Running the scripts
+
+All RAG scripts live in `functions/src/scripts/` and run against the real
+Pinecone control plane (no emulator). Use distinct `PINECONE_INDEX_NAME`
+values for staging vs production so you cannot accidentally cross-pollute.
+
+```bash
+cd functions
+
+# One-time, per environment. Idempotent — safe to re-run.
+PINECONE_API_KEY=... npm run rag:setup
+
+# Ingest one or more PDFs.
+PINECONE_API_KEY=... npm run rag:ingest -- \
+  --file /abs/path/to/visa-public-rules-2024.pdf \
+  --network visa \
+  --name "Visa Public Rules" \
+  --version 2024-04-15 \
+  [--dry-run] [--sample 3]
+
+# Retrieval smoke test.
+PINECONE_API_KEY=... npm run rag:test -- \
+  --q "Did the hotel double-charge the guest?" \
+  [--network visa] [--reason 13.1]
+```
+
+The `.env` file at `functions/.env` is auto-loaded by the npm scripts via
+`node --env-file=.env`. See `functions/.env.example` for the variables.

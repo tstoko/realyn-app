@@ -204,3 +204,76 @@ export {
 
 export type { AITelemetryEvent, AITelemetryEmitter, TelemetryContext } from "./telemetry";
 export { nullTelemetryEmitter, configureTelemetry, getTelemetryEmitter } from "./telemetry";
+
+// =============================================================================
+// RAG (retrieval-augmented generation)
+// =============================================================================
+
+export {
+  EMBEDDING_MODEL,
+  EMBEDDING_DIM,
+  RAG_NAMESPACES,
+  RAG_SCHEMA_VERSION,
+  PINECONE_CLOUD,
+  PINECONE_REGION,
+  CHUNK_TARGET_TOKENS,
+  CHUNK_OVERLAP_TOKENS,
+  CHUNK_MAX_TOKENS,
+  MIN_RELEVANCE_SCORE,
+  DEFAULT_TOP_K,
+  UPSERT_BATCH_SIZE,
+  EMBED_BATCH_SIZE,
+  getPineconeIndexName,
+} from "./config/ragConfig";
+
+export type {
+  EmbeddingModel as RagEmbeddingModel,
+  EmbeddingInputType,
+  RagNamespace,
+} from "./config/ragConfig";
+
+export type {
+  RagRecord,
+  RagQuery,
+  RagResult,
+  RetrievedChunk,
+  RagMetadata,
+  RagBaseMetadata,
+  RulebookMetadata,
+  CaseMetadata,
+  PolicyMetadata,
+  RulebookQueryFilter,
+  CaseQueryFilter,
+  PolicyQueryFilter,
+} from "./types/rag";
+
+export {
+  RagNamespaceSchema,
+  RagBaseMetadataSchema,
+  RulebookMetadataSchema,
+  CaseMetadataSchema,
+  PolicyMetadataSchema,
+  RagMetadataSchema,
+  EMPTY_RAG_RESULT,
+} from "./types/rag";
+
+export {
+  embedDocuments,
+  embedQuery,
+  isEmbeddingAvailable,
+  getEmbeddingInitError,
+} from "./services/embeddingService";
+
+export type { EmbedOptions, EmbedResult, EmbedQueryResult } from "./services/embeddingService";
+
+export {
+  retrieveRagContext,
+  retrieveRulebookContext,
+  retrieveSimilarCases,
+  retrievePolicyContext,
+  formatRetrievedContext,
+  configureVectorStore,
+  getVectorStore,
+} from "./services/ragService";
+
+export type { VectorStorePort, VectorQuery, VectorMatch } from "./services/ragService";

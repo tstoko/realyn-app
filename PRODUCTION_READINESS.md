@@ -144,6 +144,35 @@ This is where the product goes from "working demo" to "thing someone can actuall
 
 ---
 
+## RAG Phase 1 — scaffolding shipped, waiting on content + wiring
+
+Everything code-side is in place for retrieval-augmented generation. The
+remaining work is content (rulebook PDFs) and pipeline wiring (injecting
+retrieved context into the specialist prompts).
+
+### 23. RAG infrastructure — done
+- **Pinecone Serverless index** — target config locked in [`packages/ai-core/src/config/ragConfig.ts`](packages/ai-core/src/config/ragConfig.ts). Setup is idempotent via `npm run rag:setup` in `functions/`.
+- **Embedding provider** — Pinecone Inference (`multilingual-e5-large`, 1024-dim cosine). One API key covers embedding + vector storage. Full rationale in [`docs/embedding-provider-setup.md`](docs/embedding-provider-setup.md).
+- **Retrieval service** — `retrieveRulebookContext` / `retrieveSimilarCases` / `retrievePolicyContext` in [`packages/ai-core/src/services/ragService.ts`](packages/ai-core/src/services/ragService.ts). Fail-safe: returns empty result on error so RAG never blocks the deterministic pipeline.
+- **Ingestion pipeline** — [`functions/src/scripts/ingestRulebooks.ts`](functions/src/scripts/ingestRulebooks.ts): PDF → heading-aware chunks → embed → upsert with deterministic content-addressed IDs, dry-run and sample modes.
+- **Smoke test** — [`functions/src/scripts/testRagRetrieval.ts`](functions/src/scripts/testRagRetrieval.ts).
+- **Eval workflow** — [`docs/eval/`](docs/eval/README.md) template for before/after comparisons.
+
+### 24. RAG Phase 1 — remaining
+- [ ] `npm run rag:setup` against the production Pinecone project.
+- [ ] Source rulebook PDFs (public `Visa Public Rules` + MC Chargeback Guide as a starting point; acquirer-provided or licensed versions later).
+- [ ] Capture a pre-RAG baseline per [`docs/eval/rag-baseline-template.md`](docs/eval/rag-baseline-template.md) on ~5–10 representative disputes.
+- [ ] Ingest via `npm run rag:ingest`.
+- [ ] Wire `retrieveRulebookContext` into [`packages/ai-core/src/services/evidencePlanner.ts`](packages/ai-core/src/services/evidencePlanner.ts) (evidence requirements) and [`packages/ai-core/src/services/argumentGenerator.ts`](packages/ai-core/src/services/argumentGenerator.ts) (argument drafting) — retrieved context is injected as a `## REFERENCE MATERIAL` section via `formatRetrievedContext`.
+- [ ] Re-run the eval; compare to baseline.
+- [ ] Add `PINECONE_API_KEY` to the Cloud Functions runtime checklist below.
+
+### 25. RAG Phase 2/3 (future, out of scope here)
+- Past-case ingestion (`cases` namespace) — anonymised won/lost disputes to surface successful argument patterns.
+- Org policy ingestion (`policies` namespace) — merchant refund/cancellation policy documents stored alongside their uploaded evidence.
+
+---
+
 ## Tier 5 — Before Scaling (Growth Readiness)
 
 ### 23. Customer support widget
@@ -183,6 +212,8 @@ Workflow files: [`.github/workflows/deploy-dashboard.yml`](.github/workflows/dep
 | `SENTRY_DSN` | Read in [`functions/src/utils/errorReporting.ts`](functions/src/utils/errorReporting.ts). Set on the deployed Gen2 environment (Google Cloud Console → Cloud Run service for each function, or your usual Firebase/GCP env mechanism). Not injected by the hosting workflows above. |
 | `RESEND_API_KEY` | Secret for Resend; bound on [`disputeNotificationTrigger`](functions/src/handlers/disputeNotificationTrigger.ts), [`deadlineReminderScheduler`](functions/src/handlers/deadlineReminderScheduler.ts), and [`createInvite`](functions/src/handlers/inviteHandlers.ts). `firebase functions:secrets:set RESEND_API_KEY`. |
 | `DASHBOARD_URL` | Non-secret env: base URL for email and invite links. Set per Cloud Run service (production vs staging dashboard). See [`functions/src/config/emailAndDashboardParams.ts`](functions/src/config/emailAndDashboardParams.ts) and [`functions/.env.example`](functions/.env.example). |
+| `PINECONE_API_KEY` | Secret for Pinecone Serverless (RAG retrieval + ingestion). Bind on any function that calls `retrieveRagContext` or related helpers; also required by the `rag:setup` / `rag:ingest` / `rag:test` scripts. `firebase functions:secrets:set PINECONE_API_KEY`. |
+| `PINECONE_INDEX_NAME` | Optional non-secret env: override the default `realyn-rag` index. Use distinct names per environment (e.g. `realyn-rag-staging`) to prevent staging ingestion from writing into the production index. |
 | Other secrets | `defineSecret` values in [`functions/src/index.ts`](functions/src/index.ts) (e.g. Stripe, Anthropic) — set via `firebase functions:secrets:set` as already documented for your project. |
 
 ---

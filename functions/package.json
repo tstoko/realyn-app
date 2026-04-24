@@ -22,16 +22,20 @@
     "seed:sadlerswells": "npm run build && node lib/scripts/seedSadlersWellsDemo.js",
     "seed:sadlerswells:emulator": "npm run build && node --env-file=.env.emulator.seed lib/scripts/seedSadlersWellsDemo.js",
     "seed:attractionworld": "npm run build && node lib/scripts/seedAttractionworldDemo.js",
-    "seed:attractionworld:emulator": "npm run build && node --env-file=.env.emulator.seed lib/scripts/seedAttractionworldDemo.js"
+    "seed:attractionworld:emulator": "npm run build && node --env-file=.env.emulator.seed lib/scripts/seedAttractionworldDemo.js",
+    "rag:setup": "npm run build && node --env-file=.env lib/scripts/setupPineconeIndex.js",
+    "rag:ingest": "npm run build && node --env-file=.env lib/scripts/ingestRulebooks.js",
+    "rag:test": "npm run build && node --env-file=.env lib/scripts/testRagRetrieval.js"
   },
   "engines": {
     "node": "20"
   },
   "main": "lib/index.js",
   "dependencies": {
-    "@realyn/ai-core": "file:../packages/ai-core",
     "@adyen/api-library": "^30.1.0",
     "@anthropic-ai/sdk": "^0.39.0",
+    "@pinecone-database/pinecone": "^7.2.0",
+    "@realyn/ai-core": "file:../packages/ai-core",
     "@sentry/node": "^9.27.0",
     "axios": "^1.13.6",
     "csv-parse": "^6.1.0",

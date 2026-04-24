@@ -65,6 +65,22 @@
       "types": "./dist/services/specialists/claimAnalyst.d.ts",
       "default": "./dist/services/specialists/claimAnalyst.js"
     },
+    "./services/embeddingService": {
+      "types": "./dist/services/embeddingService.d.ts",
+      "default": "./dist/services/embeddingService.js"
+    },
+    "./services/ragService": {
+      "types": "./dist/services/ragService.d.ts",
+      "default": "./dist/services/ragService.js"
+    },
+    "./config/ragConfig": {
+      "types": "./dist/config/ragConfig.d.ts",
+      "default": "./dist/config/ragConfig.js"
+    },
+    "./types/rag": {
+      "types": "./dist/types/rag.d.ts",
+      "default": "./dist/types/rag.js"
+    },
     "./verticals/types": {
       "types": "./dist/verticals/types.d.ts",
       "default": "./dist/verticals/types.js"
@@ -92,6 +108,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@pinecone-database/pinecone": "^7.2.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
