@@ -87,6 +87,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run build
+        working-directory: packages/ai-core
       - run: npm ci
         working-directory: functions
       - run: npm run build
