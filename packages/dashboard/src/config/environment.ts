@@ -63,20 +63,6 @@ export function getRegion(): string {
 }
 
 // =============================================================================
-// MCP Server Configuration
-// =============================================================================
-
-export function getMcpServerUrl(): string {
-  const url = import.meta.env.VITE_MCP_SERVER_URL;
-  if (!url) {
-    throw new Error(
-      "Missing VITE_MCP_SERVER_URL. The MCP server is required for AI features. Set it in your .env file."
-    );
-  }
-  return url;
-}
-
-// =============================================================================
 // Feature Flags
 // =============================================================================
 

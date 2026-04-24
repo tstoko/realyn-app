@@ -7,7 +7,7 @@
 
 import * as functions from "firebase-functions/v2";
 import { processCSVImport } from "../services/pms/pmsImportService";
-import { applyRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from "../utils/rateLimiter";
+import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 import { verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
 import { assertFeatureEnabled, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
 import { ALLOWED_ORIGINS } from "../config/environment";
@@ -47,8 +47,8 @@ export const processCSVImportHandler = functions.https.onRequest(
       throw err;
     }
 
-    const rateLimitKey = organizationId || getClientIP(req);
-    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
+    const rateLimitKey = `org:${organizationId}`;
+    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.csvImport);
     if (!allowed) return;
 
     try {

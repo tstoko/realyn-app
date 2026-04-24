@@ -5,6 +5,7 @@ import * as crypto from "crypto";
 import { Request, Response } from "express";
 import { assertTeamSeatQuota, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
 import { ALLOWED_ORIGINS } from "../config/environment";
+import { applyRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from "../utils/rateLimiter";
 
 const db = admin.firestore();
 
@@ -17,6 +18,14 @@ async function handleAcceptInvite(req: Request, res: Response): Promise<void> {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
+
+  const rateOk = await applyRateLimit(
+    req,
+    res,
+    getClientIP(req),
+    RATE_LIMIT_CONFIGS.inviteAccept,
+  );
+  if (!rateOk) return;
 
   const { idToken, inviteToken } = req.body as {
     idToken?: string;

@@ -10,8 +10,10 @@ import type {
   PSPFormatRule,
   PSPProvider,
   EvidenceOutputTemplate,
+  WinPattern,
+  CardNetwork,
 } from "../types/knowledgeBase";
-import {KB_COLLECTIONS} from "../types/knowledgeBase";
+import {KB_COLLECTIONS, winPatternDocId} from "../types/knowledgeBase";
 
 function getDb() {
   return admin.firestore();
@@ -44,4 +46,19 @@ export async function getPSPFormats(
 
   if (snap.empty) return [];
   return snap.docs.map((doc) => doc.data() as PSPFormatRule);
+}
+
+export async function getWinPatterns(
+  network: CardNetwork,
+  reasonCode: string,
+  verticalId: string,
+): Promise<WinPattern[]> {
+  const db = getDb();
+  const docId = winPatternDocId(network, reasonCode, verticalId);
+  const snap = await db.collection(KB_COLLECTIONS.WIN_PATTERNS).doc(docId).get();
+
+  if (snap.exists) {
+    return [snap.data() as WinPattern];
+  }
+  return [];
 }

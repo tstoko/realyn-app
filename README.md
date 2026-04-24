@@ -1,15 +1,15 @@
 # Realyn
 
-PSP-agnostic, PMS-agnostic hotel chargeback dispute management platform.
+PSP-agnostic, industry-agnostic chargeback dispute management platform — built first for **hospitality** and **ticketing**, with vertical-specific evidence rules and PMS / ops-system adapters (Opera, ticketing stacks, and similar).
 
 ## Structure
 
 - `packages/dashboard` — React 19 / TypeScript / Vite dashboard (Firebase-connected)
 - `packages/shared` — Shared types, Firebase config, hooks
-- `packages/core` — Shared core business logic (services, types, AI pipeline, PSP/PMS adapters)
-- `packages/mcp-server` — MCP (Model Context Protocol) server for AI agent access (Cloud Run)
+- `packages/ai-core` — Portable AI pipeline (types, specialists, dispute/KB mapping); **source of truth** for LLM-facing logic. Published to `dist/` on build; consumed by `functions` and `packages/core`.
+- `packages/core` — Shared business logic and PSP/PMS adapters, Jest tests; uses `@realyn/ai-core` for AI. Not imported by the dashboard or Cloud Functions at runtime today (keeps Functions deploy lean; optional future consolidation).
 - `packages/website` — Marketing website
-- `functions/` — Firebase Cloud Functions backend (Node 20, TypeScript)
+- `functions/` — Firebase Cloud Functions backend (Node 20, TypeScript); depends on `@realyn/ai-core` via `file:../packages/ai-core` plus Firestore/HTTP adapters
 
 ## Development
 
@@ -37,20 +37,17 @@ npm run dev:dashboard:emulators
 # Build dashboard
 npm run build:dashboard
 
-# Type-check Cloud Functions
+# Type-check Cloud Functions (build packages/ai-core first so dist/ exists)
 cd functions && npx tsc --noEmit
 
 # Type-check dashboard
 cd packages/dashboard && npx tsc --noEmit
 
-# Type-check core (shared business logic)
+# Build ai-core (emits dist/ — required before type-checking functions or core against @realyn/ai-core)
+cd packages/ai-core && npm run build
+
+# Type-check core (shared business logic; run ai-core build above first)
 cd packages/core && npx tsc --noEmit
-
-# Type-check MCP server (requires core to be built first)
-cd packages/core && npx tsc && cd ../mcp-server && npx tsc --noEmit
-
-# MCP server local dev (hot reload)
-cd packages/mcp-server && npm run dev
 
 # Other available scripts
 npm run dev:website              # Marketing website dev server
@@ -105,21 +102,10 @@ cd functions && npm run copy-firestore-to-emulator
 
 This does NOT copy Auth users or Storage files. Run `seedUsersHandler` against the emulator after copying to create login-able accounts.
 
-## MCP Server
-
-The MCP server exposes Realyn's dispute operations via the [Model Context Protocol](https://modelcontextprotocol.io/) for AI agent access. It runs as a standalone Express server deployed to Cloud Run.
-
-- **Endpoint:** Streamable HTTP on `/mcp` (POST to initialize, GET for SSE, DELETE to close)
-- **Auth:** Firebase ID token (`Authorization: Bearer <token>`) or API key (`X-Api-Key: <key>`)
-- **API keys:** Generated via the `mcpApiKeyGenerate` Cloud Function (admin only), or from the dashboard Integrations tab
-- **Docker build:** `docker build -f packages/mcp-server/Dockerfile .`
-- **Deploy:** Auto-deploys on push to `main` via `.github/workflows/deploy-mcp-server.yml`
-
 ## Tech Stack
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS
 - **Backend:** Firebase Cloud Functions, Firestore, Firebase Auth, Firebase Storage
-- **MCP Server:** Express, `@modelcontextprotocol/sdk`, Cloud Run
 - **AI:** Anthropic Claude (evidence planning, argument generation)
 - **PSP Integrations:** Stripe, Adyen (adapter pattern — extensible)
-- **PMS Integrations:** Opera Cloud OHIP, Opera CSV/XML/delimited imports (adapter pattern — extensible)
+- **Verticals & ops data:** Hospitality and ticketing (and extensible to other industries); **PMS / venue integrations:** Opera Cloud OHIP, Opera CSV/XML/delimited imports, and related adapters

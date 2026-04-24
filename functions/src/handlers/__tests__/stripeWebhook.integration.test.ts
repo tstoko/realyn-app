@@ -54,6 +54,12 @@ jest.mock("../../services/ai/evidencePlanningService", () => ({
 // Mock Firebase Admin
 jest.mock("firebase-admin", () => {
   const mockFirestore = {
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
     collection: jest.fn(() => ({
       doc: jest.fn(() => ({
         get: jest.fn(),

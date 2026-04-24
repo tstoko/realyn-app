@@ -12,6 +12,23 @@ jest.mock("../../utils/adyenHelpers");
 jest.mock("../../utils/disputeNormalizer");
 jest.mock("../../services/disputeService");
 
+jest.mock("firebase-admin", () => ({
+  initializeApp: jest.fn(),
+  apps: [],
+  firestore: jest.fn(() => ({
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({ get: jest.fn() })),
+    })),
+  })),
+  FieldValue: { serverTimestamp: jest.fn(() => "SERVER_TS") },
+}));
+
 describe("adyenWebhook", () => {
   let mockRequest: any;
   let mockResponse: any;

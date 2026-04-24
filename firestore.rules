@@ -75,10 +75,6 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // MCP API keys — server-only, no client access
-      match /mcpApiKeys/{keyId} {
-        allow read, write: if false;
-      }
     }
 
     // =========================================================================
@@ -101,7 +97,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Operations Collection (MCP long-running jobs)
+    // Operations Collection (long-running jobs)
     // =========================================================================
     match /operations/{operationId} {
       allow read: if isAuthenticated()
@@ -124,9 +120,38 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // MCP API Key Index (server-only — no client access)
+    // Knowledge Base Collections (read-only for authenticated users)
+    // Writes handled exclusively by Cloud Functions (admin SDK / seed handlers).
     // =========================================================================
-    match /mcpApiKeyIndex/{hashedKey} {
+    match /schemeRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /evidenceRequirements/{reqId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /pspFormats/{formatId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /evidenceOutputTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /winPatterns/{patternId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Webhook Idempotency (internal — no client access)
+    // =========================================================================
+    match /_processedWebhookEvents/{eventId} {
       allow read, write: if false;
     }
 

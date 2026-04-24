@@ -1,4 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
+import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyAdyenSignature, getOrganizationFromAdyenNotification } from "../utils/adyenHelpers";
 import { normalizeAdyenDispute } from "../utils/disputeNormalizer";
@@ -71,8 +73,30 @@ export const adyenWebhook = onRequest(
 
       // Process dispute-related events
       const eventCode = notificationItem.eventCode;
+      const pspReference = notificationItem.pspReference || "";
+      const adyenEventId = `adyen_${pspReference}_${eventCode}`;
       console.log(`Adyen webhook: Processing event: ${eventCode} for organization: ${orgData.organizationId}`);
-      
+
+      // Idempotency: skip if this notification was already processed
+      const db = admin.firestore();
+      const eventRef = db.collection("_processedWebhookEvents").doc(adyenEventId);
+      const alreadyProcessed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(eventRef);
+        if (snap.exists) return true;
+        tx.set(eventRef, {
+          provider: "adyen",
+          eventType: eventCode,
+          processedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
+      });
+
+      if (alreadyProcessed) {
+        console.log(`[AdyenWebhook] Duplicate event ${adyenEventId} — skipping`);
+        res.status(200).send("[accepted]");
+        return;
+      }
+
       const disputeEvents = [
         "CHARGEBACK",
         "SECOND_CHARGEBACK",

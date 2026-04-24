@@ -14,5 +14,9 @@ module.exports = {
     "!src/**/mocks/**",
   ],
   moduleFileExtensions: ["ts", "js", "json"],
+  moduleNameMapper: {
+    "^@realyn/ai-core$": "<rootDir>/node_modules/@realyn/ai-core/dist/index.js",
+    "^@realyn/ai-core/(.*)$": "<rootDir>/node_modules/@realyn/ai-core/dist/$1",
+  },
   verbose: true,
 };

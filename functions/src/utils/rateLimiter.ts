@@ -75,6 +75,34 @@ export const RATE_LIMIT_CONFIGS = {
     keyType: "ip" as const,
     failMode: "open" as const,
   },
+  /** Signup - fail-closed to reduce throwaway accounts behind shared NAT */
+  signup: {
+    maxRequests: 15,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  /** Authenticated invite/revoke/list team HTTP handlers */
+  invite: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "user" as const,
+    failMode: "closed" as const,
+  },
+  /** Accept invite (pre-auth body); keyed by IP */
+  inviteAccept: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  /** Heavy CSV import; key with organization:{id} */
+  csvImport: {
+    maxRequests: 25,
+    windowSeconds: 3600,
+    keyType: "custom" as const,
+    failMode: "closed" as const,
+  },
 } as const;
 
 // ============================================================

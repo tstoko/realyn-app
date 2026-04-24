@@ -1,5 +1,23 @@
 name: Deploy to Staging
 
+# Required GitHub repo secrets (Settings > Secrets and variables > Actions):
+#   FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING     — JSON service account for realyn-app-staging (hosting + functions deploy)
+#
+# Dashboard Vite build (staging Firebase web app + billing + optional Sentry):
+#   STAGING_VITE_FIREBASE_API_KEY
+#   STAGING_VITE_FIREBASE_MESSAGING_SENDER_ID
+#   STAGING_VITE_FIREBASE_APP_ID
+#   STAGING_VITE_STRIPE_PRICE_STARTER_MONTHLY
+#   STAGING_VITE_STRIPE_PRICE_STARTER_YEARLY
+#   STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY
+#   STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY
+#
+# Optional:
+#   STAGING_VITE_SENTRY_DSN
+#
+# Optional repository variable (Settings > Secrets and variables > Actions > Variables):
+#   STAGING_VITE_WEBSITE_URL  — defaults below if unset
+
 on:
   push:
     branches:
@@ -22,6 +40,18 @@ jobs:
           VITE_ENVIRONMENT: staging
           VITE_FIREBASE_PROJECT_ID: realyn-app-staging
           VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app-staging.cloudfunctions.net
+          VITE_FIREBASE_REGION: us-central1
+          VITE_FIREBASE_AUTH_DOMAIN: realyn-app-staging.firebaseapp.com
+          VITE_FIREBASE_STORAGE_BUCKET: realyn-app-staging.firebasestorage.app
+          VITE_WEBSITE_URL: ${{ vars.STAGING_VITE_WEBSITE_URL || 'https://realyn-app-staging-website.web.app' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.STAGING_VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.STAGING_VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.STAGING_VITE_FIREBASE_APP_ID }}
+          VITE_SENTRY_DSN: ${{ secrets.STAGING_VITE_SENTRY_DSN }}
+          VITE_STRIPE_PRICE_STARTER_MONTHLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_STARTER_MONTHLY }}
+          VITE_STRIPE_PRICE_STARTER_YEARLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_STARTER_YEARLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY: ${{ secrets.STAGING_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY }}
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -49,6 +79,8 @@ jobs:
           projectId: realyn-app-staging
           target: website
 
+  # After deploy: set `DASHBOARD_URL` and `RESEND_API_KEY` on Gen2 Cloud Run services for
+  # disputeNotificationTrigger, deadlineReminderScheduler, and createInvite (emails + invite links).
   deploy-functions:
     name: Deploy Cloud Functions to Staging
     runs-on: ubuntu-latest
@@ -59,6 +91,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm ci
+        working-directory: functions
       - run: npm run build
         working-directory: functions
       - uses: w9jds/firebase-action@master
@@ -66,47 +100,3 @@ jobs:
           args: deploy --only functions --project realyn-app-staging
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING }}
-
-  deploy-mcp-server:
-    name: Deploy MCP Server to Staging
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_STAGING_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_STAGING_SERVICE_ACCOUNT }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
-
-      - name: Build and Push
-        run: |
-          docker build -f packages/mcp-server/Dockerfile \
-            -t us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }} \
-            -t us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:latest \
-            .
-          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
-          docker push us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:latest
-
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: realyn-mcp-server-staging
-          region: us-central1
-          image: us-central1-docker.pkg.dev/${{ secrets.GCP_STAGING_PROJECT_ID }}/realyn/mcp-server:${{ github.sha }}
-          flags: |
-            --min-instances=0
-            --max-instances=3
-            --memory=512Mi
-            --cpu=1
-            --timeout=300s
-            --concurrency=80
-            --set-secrets=ENCRYPTION_KEY=ENCRYPTION_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest

@@ -5,7 +5,6 @@ import { Spinner } from '@realyn/shared';
 import { testStripeConnection, testAdyenConnection } from '../../services/pspService';
 import { testOperaCloudConnection } from '../../services/operaCloudService';
 import { uploadCSVForImport, getImportHistory, type ImportResult, type ImportRecord } from '../../services/pmsImportService';
-import { McpApiKeysSection } from './McpApiKeysSection';
 import { getProjectId, getRegion } from '../../config/environment';
 
 export interface PspCredentials {
@@ -1201,9 +1200,6 @@ const PMSIntegrationSection: React.FC<PMSSectionProps> = ({ formData, setFormDat
         </div>
       )}
 
-      {formData.id && isAdmin && (
-        <McpApiKeysSection organizationId={formData.id} />
-      )}
     </div>
   );
 };

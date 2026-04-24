@@ -33,8 +33,14 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
   });
 }
 
+/** Firestore may store org roles beyond the narrow `User` type from shared. */
+function orgRole(userRole: string | undefined): string {
+  return String(userRole ?? '');
+}
+
 export const TeamManagementPage: React.FC = () => {
-  const { user } = useAuthContext();
+  const { user, logout } = useAuthContext();
+  const myOrgRole = orgRole(user?.role);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<InviteRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,12 +53,21 @@ export const TeamManagementPage: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!user?.organizationId) return;
     setLoading(true);
+    setError(null);
     try {
-      const invitesRes = await fetchWithAuth(`${FUNCTIONS_BASE_URL}/listInvites`, { method: 'POST' });
+      const [invitesRes, membersRes] = await Promise.all([
+        fetchWithAuth(`${FUNCTIONS_BASE_URL}/listInvites`, { method: 'POST' }),
+        fetchWithAuth(`${FUNCTIONS_BASE_URL}/listTeamMembers`, { method: 'POST' }),
+      ]);
       const invitesData = await invitesRes.json();
+      const membersData = await membersRes.json();
+      if (!invitesRes.ok) throw new Error(invitesData.error || 'Failed to load invites');
+      if (!membersRes.ok) throw new Error(membersData.error || 'Failed to load team members');
       setInvites(invitesData.invites || []);
+      setMembers(membersData.members || []);
     } catch (err) {
       console.error('Failed to load team data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load team');
     } finally {
       setLoading(false);
     }
@@ -75,7 +90,14 @@ export const TeamManagementPage: React.FC = () => {
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send invite');
+      if (!res.ok) {
+        throw new Error(
+          data.error ||
+            (res.status === 503
+              ? 'Email could not be sent. No invite was created — try again or contact support.'
+              : 'Failed to send invite'),
+        );
+      }
       setSuccess(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
       loadData();
@@ -83,6 +105,42 @@ export const TeamManagementPage: React.FC = () => {
       setError(err.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!window.confirm('Remove this person from your organization? They will lose access to disputes and evidence.')) return;
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${FUNCTIONS_BASE_URL}/removeTeamMember`, {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove member');
+      if (userId === user?.id) {
+        await logout();
+        window.location.href = '/login';
+        return;
+      }
+      loadData();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to remove member');
+    }
+  };
+
+  const handleRoleChange = async (userId: string, role: 'Manager' | 'Staff') => {
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${FUNCTIONS_BASE_URL}/updateTeamMemberRole`, {
+        method: 'POST',
+        body: JSON.stringify({ userId, role }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update role');
+      loadData();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update role');
     }
   };
 
@@ -113,12 +171,70 @@ export const TeamManagementPage: React.FC = () => {
   const pendingInvites = invites.filter(i => i.status === 'pending');
   const pastInvites = invites.filter(i => i.status !== 'pending');
 
+  const canEditMember = (m: TeamMember) => {
+    if (m.role === 'admin') return false;
+    if (myOrgRole === 'Manager' && m.role === 'Manager') return false;
+    return true;
+  };
+
   return (
     <div className="space-y-8 max-w-4xl">
       <div>
         <h2 className="text-2xl font-bold text-white">Team Management</h2>
         <p className="text-slate-400 mt-1">Invite team members and manage access to your organization.</p>
       </div>
+
+      {members.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Current members</h3>
+          <p className="text-sm text-slate-500 mb-4">
+            Role changes apply after the user refreshes their session (sign out and back in) so permissions update everywhere.
+          </p>
+          <div className="divide-y divide-slate-800">
+            {members.map((m) => (
+              <div key={m.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-4">
+                <div>
+                  <p className="text-white font-medium">{m.name || '—'}</p>
+                  <p className="text-sm text-slate-400">{m.email}</p>
+                  <p className="text-xs text-slate-500 mt-1">Role: {m.role}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canEditMember(m) ? (
+                    <>
+                      <select
+                        aria-label={`Role for ${m.email}`}
+                        value={m.role === 'Manager' || m.role === 'Staff' ? m.role : 'Staff'}
+                        onChange={(e) => {
+                          const next = e.target.value as 'Manager' | 'Staff';
+                          const current = m.role === 'Manager' || m.role === 'Staff' ? m.role : 'Staff';
+                          if (next === current) return;
+                          handleRoleChange(m.id, next);
+                        }}
+                        disabled={m.id === user?.id}
+                        className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 disabled:opacity-40"
+                      >
+                        <option value="Staff">Staff</option>
+                        {myOrgRole === 'admin' && <option value="Manager">Manager</option>}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMember(m.id)}
+                        className="text-sm text-red-400 hover:text-red-300 px-3 py-2 rounded-lg hover:bg-red-900/20"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-slate-500">
+                      {m.role === 'admin' ? 'Organization admins are managed separately' : 'You cannot change this member'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Invite Team Member</h3>

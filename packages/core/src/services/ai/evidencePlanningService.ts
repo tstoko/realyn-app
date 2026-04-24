@@ -426,7 +426,7 @@ export async function triggerEvidencePlanning(
         cachedClaimAnalysis: claimAnalysis,
         cachedExistingEvidence: existingEvidence || null,
         cachedStrategy: strategy || null,
-        cachedSchemeRule: codeInfo || null,
+        cachedSchemeRule: kbSchemeRule || codeInfo || null,
         cachedRelevanceScores: relevanceScores || null,
         updatedAt: FieldValue.serverTimestamp(),
       });

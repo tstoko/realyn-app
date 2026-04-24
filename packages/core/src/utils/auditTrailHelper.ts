@@ -16,8 +16,7 @@ export type AuditTrailCategory =
 export type AuditTrailActor =
   | { type: 'user'; userId: string; userName: string }
   | { type: 'system' }
-  | { type: 'automation' }
-  | { type: 'mcp_client'; userId: string | null; sessionId: string; clientName?: string };
+  | { type: 'automation' };
 
 export interface AuditTrailMetadata {
   fileNames?: string[];
@@ -136,32 +135,6 @@ export async function createSystemAuditEntry(
     description,
     'success',
     { type: 'system' },
-    category,
-    metadata,
-    relatedResources
-  );
-}
-
-/**
- * Create an audit entry for MCP client actions
- */
-export async function createMcpAuditEntry(
-  disputeId: string,
-  title: string,
-  description: string,
-  sessionId: string,
-  userId: string | null,
-  clientName?: string,
-  category?: AuditTrailCategory,
-  metadata?: AuditTrailMetadata,
-  relatedResources?: AuditTrailRelatedResources
-): Promise<void> {
-  return addAuditTrailEntry(
-    disputeId,
-    title,
-    description,
-    'success',
-    { type: 'mcp_client', userId, sessionId, clientName },
     category,
     metadata,
     relatedResources

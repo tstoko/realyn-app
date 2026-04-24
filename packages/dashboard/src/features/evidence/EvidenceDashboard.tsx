@@ -3,14 +3,11 @@ import type { Dispute, Hotel, User, EvidencePlan, EvidenceItem, EvidenceRequirem
 import { Dropzone } from './Dropzone';
 import { useToast } from '@realyn/shared';
 import { useAuth } from '@realyn/shared';
-import { updateEvidenceItemStatus, initializeEvidenceItems } from '../../services/aiDisputeService';
+import { updateEvidenceItemStatus, initializeEvidenceItems, generateEvidencePlan } from '../../services/aiDisputeService';
 import { uploadEvidenceFileWithTracking, getEvidenceFiles, deleteEvidenceFile, type EvidenceFile } from '../../services/evidenceService';
 import ArgumentDraftModal from './ArgumentDraftModal';
 import { EvidencePlanSkeleton } from './EvidencePlanSkeleton';
 import { getCategoryInfo } from './evidenceCategoryInfo';
-import { callTool, pollOperation, initSession, closeSession } from '../../services/mcpClient';
-import { EvidenceGapsPanel, type EvidenceGapsData } from '../disputes/EvidenceGapsPanel';
-import { ReadinessBadge, type ReadinessData } from '../disputes/ReadinessBadge';
 
 // =============================================================================
 // Props and Types
@@ -532,9 +529,6 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
     dispute.evidenceItems || []
   );
   const [showArgumentModal, setShowArgumentModal] = useState(false);
-  const [mcpGaps, setMcpGaps] = useState<EvidenceGapsData | null>(null);
-  const [mcpReadiness, setMcpReadiness] = useState<ReadinessData | null>(null);
-  const [mcpProgress, setMcpProgress] = useState<string | null>(null);
   
   // Evidence items state (for AI mode) - use local state that syncs with dispute
   // Now that localEvidenceItems is declared, we can use it
@@ -542,18 +536,6 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   
   const plan = localPlan || dispute.evidencePlan;
   const displayAIMode = readOnly ? !!plan : useAIMode;
-
-  // MCP session lifecycle
-  useEffect(() => {
-    let cancelled = false;
-    initSession().catch((err) => {
-      if (!cancelled) console.error('MCP session init failed:', err);
-    });
-    return () => {
-      cancelled = true;
-      closeSession().catch(() => {});
-    };
-  }, []);
 
   // Sync localPlan with dispute.evidencePlan when dispute changes or on initial load
   useEffect(() => {
@@ -589,8 +571,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
         setPlanGenerationError(errorMsg);
         addToast({ type: 'error', message: errorMsg });
       }
-    } else if (status === 'generating') {
-      // Plan is being generated - ensure spinner is showing
+    } else if (status === 'queued' || status === 'generating') {
       if (!isGeneratingPlan) {
         setIsGeneratingPlan(true);
       }
@@ -822,76 +803,41 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   
   const progress = calculateProgress();
   
-  // Fetch MCP gaps + readiness after a plan is available
-  const fetchMcpInsights = useCallback(async () => {
-    try {
-      const [gapsRes, readinessRes] = await Promise.all([
-        callTool<EvidenceGapsData>('check_evidence_gaps', { caseId: dispute.id }),
-        callTool<ReadinessData>('assess_readiness', { caseId: dispute.id }),
-      ]);
-      if (gapsRes.ok && gapsRes.data) setMcpGaps(gapsRes.data);
-      if (readinessRes.ok && readinessRes.data) setMcpReadiness(readinessRes.data);
-    } catch (err) {
-      console.warn('MCP insights fetch failed (non-blocking):', err);
-    }
-  }, [dispute.id]);
-
-  // Generate evidence plan via MCP or Cloud Function
-  const generatePlanViaMcp = useCallback(async (regenerate: boolean) => {
+  // Generate evidence plan via Cloud Function
+  const handleGeneratePlanCF = useCallback(async (regenerate: boolean) => {
     setIsGeneratingPlan(true);
     setPlanGenerationError(null);
-    setMcpProgress(null);
 
     try {
-      const planRes = await callTool<{ operationId: string }>('plan_evidence', {
-        caseId: dispute.id,
-        regenerate,
-      });
+      addToast({ type: 'info', message: 'Generating evidence plan...' });
 
-      if (!planRes.ok || !planRes.data?.operationId) {
-        throw new Error(planRes.error || 'MCP plan_evidence failed');
+      const result = await generateEvidencePlan(
+        dispute.id,
+        dispute.organizationId!,
+        regenerate
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Evidence plan generation failed');
       }
 
-      addToast({ type: 'info', message: 'Generating evidence plan via MCP...' });
-
-      const opResult = await pollOperation(planRes.data.operationId, {
-        onProgress: (status) => {
-          if (status.progress?.step) setMcpProgress(status.progress.step);
-        },
-      });
-
-      if (!opResult.ok || opResult.data?.status === 'failed') {
-        throw new Error(opResult.data?.error?.message || opResult.error || 'Plan generation failed');
-      }
-
-      setIsGeneratingPlan(false);
-      setMcpProgress(null);
-      addToast({ type: 'success', message: 'Evidence plan generated successfully!' });
-
-      await fetchMcpInsights();
+      // The CF is async — it sets evidencePlanStatus on the dispute document.
+      // The useEffect watching dispute.evidencePlanStatus will handle UI updates.
     } catch (error: any) {
-      console.error('MCP plan generation error:', error);
-      setMcpProgress(null);
-      setPlanGenerationError(error.message || 'MCP plan generation failed');
-      addToast({ type: 'error', message: error.message || 'MCP plan generation failed' });
+      console.error('Plan generation error:', error);
+      setPlanGenerationError(error.message || 'Plan generation failed');
+      addToast({ type: 'error', message: error.message || 'Plan generation failed' });
       setIsGeneratingPlan(false);
     }
-  }, [dispute.id, addToast, fetchMcpInsights]);
+  }, [dispute.id, dispute.organizationId, addToast]);
 
   const handleGeneratePlan = async () => {
-    return generatePlanViaMcp(false);
+    return handleGeneratePlanCF(false);
   };
 
   const handleRegeneratePlan = async () => {
-    return generatePlanViaMcp(true);
+    return handleGeneratePlanCF(true);
   };
-
-  // Auto-fetch MCP insights when plan becomes available
-  useEffect(() => {
-    if (plan && !mcpGaps) {
-      fetchMcpInsights();
-    }
-  }, [plan, mcpGaps, fetchMcpInsights]);
   
   // Submit evidence
   const handleSubmit = async () => {
@@ -1249,16 +1195,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                 {isGeneratingPlan && (
                   // Generating plan - show skeleton loading
                   <div>
-                    {mcpProgress && (
-                      <div className="max-w-2xl mx-auto mb-4 px-4 py-2.5 bg-cyan-900/15 border border-cyan-800/30 rounded-lg flex items-center gap-2">
-                        <svg className="w-4 h-4 text-cyan-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        <span className="text-xs text-cyan-300">{mcpProgress}</span>
-                      </div>
-                    )}
-                    <EvidencePlanSkeleton />
+                      <EvidencePlanSkeleton />
                   </div>
                 )}
                 
@@ -1353,20 +1290,6 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
               {displayAIMode && plan && (
                 <div className="w-80 border-l border-slate-800 overflow-y-auto hidden lg:block bg-slate-900/50">
                   <AIPlanSidebar plan={plan} evidenceItems={evidenceItems} />
-
-                  {/* MCP Readiness Badge */}
-                  {mcpReadiness && (
-                    <div className="px-6 pb-4">
-                      <ReadinessBadge readiness={mcpReadiness} />
-                    </div>
-                  )}
-
-                  {/* MCP Evidence Gaps Panel */}
-                  {mcpGaps && (
-                    <div className="px-6 pb-6">
-                      <EvidenceGapsPanel gaps={mcpGaps} />
-                    </div>
-                  )}
                 </div>
               )}
             </div>

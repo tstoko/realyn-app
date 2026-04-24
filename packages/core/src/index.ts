@@ -54,7 +54,6 @@ export {
   addAuditTrailEntry,
   createUserAuditEntry,
   createSystemAuditEntry,
-  createMcpAuditEntry,
   createErrorAuditEntry,
 } from "./utils/auditTrailHelper";
 

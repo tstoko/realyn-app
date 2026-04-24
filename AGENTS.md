@@ -4,7 +4,9 @@
 
 ### Overview
 
-Realyn is a PSP-agnostic, PMS-agnostic hotel chargeback dispute management platform. The active product is the dashboard in `packages/dashboard` — a React 19 / TypeScript / Vite frontend connected to Firebase (Firestore, Auth, Storage). The backend is in `functions/` (Firebase Cloud Functions, Node 20). Shared types and Firebase config live in `packages/shared`. Shared core business logic (services, types, config, AI pipeline, PSP/PMS adapters) lives in `packages/core`. The MCP (Model Context Protocol) server for AI agent access is in `packages/mcp-server`.
+Realyn is a PSP-agnostic, **industry-agnostic** chargeback dispute management platform, with first-class support for **hospitality** and **ticketing** (vertical-specific evidence requirements, KB, and prompts live in `packages/ai-core` verticals). The active product is the dashboard in `packages/dashboard` — a React 19 / TypeScript / Vite frontend connected to Firebase (Firestore, Auth, Storage). The backend is in `functions/` (Firebase Cloud Functions, Node 20). Shared types and Firebase config live in `packages/shared`. The codebase still uses some “hotel” naming in types and UI for historical reasons; treat that as “merchant property / venue” unless the context is explicitly hospitality-only.
+
+**AI and shared logic:** Portable AI (LLM pipeline, dispute/KB types, specialists, static dispute-code mapping) lives in **`packages/ai-core`** (`@realyn/ai-core`) — that package is the **single source of truth** for those concerns. **`functions/`** depends on it via `file:../packages/ai-core` in `functions/package.json` and adds Firestore/HTTP-specific adapters (evidence loaders, triggers, handlers). **`packages/core`** (`@realyn/core`) mirrors the same ai-core + adapter pattern for **unit/integration tests** (Jest) and optional future reuse; nothing in the dashboard or website imports `@realyn/core` today, and Cloud Functions do **not** import `@realyn/core` (only `@realyn/ai-core`).
 
 ### Running the app
 
@@ -12,25 +14,11 @@ Realyn is a PSP-agnostic, PMS-agnostic hotel chargeback dispute management platf
 - **Dev server (local emulators):** `npm run dev:emulators` in one terminal, then `npm run dev:dashboard` in another — or use `npm run dev:dashboard:emulators` to run both together
 - **Build:** `npm run build:dashboard`
 - **Type check dashboard:** `cd packages/dashboard && npx tsc --noEmit`
-- **Type check functions:** `cd functions && npx tsc --noEmit`
-- **Type check core:** `cd packages/core && npx tsc --noEmit`
-- **Type check MCP server:** `cd packages/mcp-server && npx tsc --noEmit` (requires `packages/core` to be built first: `cd packages/core && npx tsc`)
+- **Build / type check ai-core:** `cd packages/ai-core && npm run build` (or `npm run typecheck`) — must produce `packages/ai-core/dist/` before `functions` typecheck/build, because Functions resolves `@realyn/ai-core` subpath exports from `dist/`.
+- **Type check functions:** `cd packages/ai-core && npm run build && cd ../../functions && npx tsc --noEmit` (from repo root: build ai-core first).
+- **Type check core:** `cd packages/ai-core && npm run build && cd ../core && npx tsc --noEmit`
 - **Build core:** `cd packages/core && npm run build` — outputs to `packages/core/dist/`
-- **MCP server dev:** `cd packages/mcp-server && npm run dev` — uses `tsx watch` for hot reload
-- **MCP server Docker:** `docker build -f packages/mcp-server/Dockerfile .` — builds the Cloud Run image
 - Standard commands are documented in the root `README.md`.
-
-### MCP Server
-
-The MCP server (`packages/mcp-server`) exposes Realyn's dispute operations via the Model Context Protocol for AI agent access. It runs as a standalone Express server deployed to Cloud Run.
-
-- **Transport:** Streamable HTTP on `/mcp` (POST to initialize/interact, GET for SSE, DELETE to close)
-- **Health check:** `GET /health`
-- **Auth:** Firebase ID token (`Authorization: Bearer <token>`) or API key (`X-Api-Key: <key>`)
-- **API keys:** Generated via the `mcpApiKeyGenerate` Cloud Function (admin only). Managed in the dashboard under Integrations.
-- **Module system:** `packages/core` is CommonJS (`"module": "commonjs"`), `packages/mcp-server` is ESM (`"type": "module"`). The MCP server imports from `@realyn/core` which must be built before the MCP server can type-check.
-- **Deployment:** Pushes to `main` affecting `packages/core/**` or `packages/mcp-server/**` trigger `.github/workflows/deploy-mcp-server.yml` which builds the Docker image and deploys to Cloud Run.
-- **Code duplication:** `packages/core` was created by copying code from `functions/src/`. The two trees are independent — changes in one do not propagate to the other. New shared logic should go in `packages/core`.
 
 ### Firebase Emulators
 
@@ -52,7 +40,6 @@ The project has a full Firebase Emulator Suite configured for local development 
 - Tailwind CSS and PostCSS are configured per package (`.cjs` config files under `packages/dashboard` and `packages/website`). The root `package.json` lists `tailwindcss@3` and `autoprefixer` as devDependencies.
 - The dashboard requires Firebase credentials to connect to a backend. Without a `.env` file or Firebase project, it will render the login page but authentication will fail. With emulators running, this is not an issue.
 - No ESLint config exists for the dashboard. The only ESLint config is in `functions/.eslintrc.js` (Firebase Cloud Functions).
-- Jest is configured in `functions/` (`npm test` from `functions/`, config in `functions/jest.config.js`, test files as `*.test.ts` under `functions/src`). The dashboard, website, and shared packages have no test runner configured.
+- Jest is configured in `functions/` (`npm test` from `functions/`, config in `functions/jest.config.js`, test files as `*.test.ts` under `functions/src`) and in `packages/core`. The dashboard uses Vitest (`npm test` from `packages/dashboard`); the website and `packages/shared` have no test runner configured.
 - Demo login credentials are shown on the login page (e.g., `admin@realyn.com` / `masterpass`) — these work against the production/staging Firebase project but NOT against a fresh emulator (you must seed users first).
-- `packages/core` and `packages/mcp-server` are workspace packages (`packages/*` glob). `functions/` is NOT a workspace package — it has its own `node_modules` and does not import from `@realyn/core`.
-- The MCP server requires `packages/core` to be built (`npx tsc` in `packages/core`) before it can type-check or build, because the MCP server's `Node16` module resolution needs the `.d.ts` files in `packages/core/dist/`.
+- `packages/ai-core` and `packages/core` are workspace packages (`packages/*` glob). `functions/` is NOT a workspace package — it has its own `node_modules` and links `@realyn/ai-core` via `file:../packages/ai-core`. It does not depend on `@realyn/core`. `functions/tsconfig.json` maps `@realyn/ai-core` and `@realyn/ai-core/*` to `node_modules/@realyn/ai-core/dist` so TypeScript resolves package `exports` without moving the whole Functions project to `Node16` resolution (which would require `.js` extensions on relative imports). `packages/core` uses `module` / `moduleResolution` `Node16` instead.

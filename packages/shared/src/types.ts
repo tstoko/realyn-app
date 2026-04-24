@@ -103,8 +103,7 @@ export interface AutomationStep {
   actor?:
     | { type: 'user'; userId: string; userName: string }
     | { type: 'system' }
-    | { type: 'automation' }
-    | { type: 'mcp_client'; userId: string | null; sessionId: string; clientName?: string };
+    | { type: 'automation' };
   category?: AuditTrailCategory;
   metadata?: Record<string, unknown>;
   relatedResources?: {
@@ -167,7 +166,7 @@ export interface Dispute {
   argumentVersions?: ArgumentVersion[];
   argumentSubmittedAt?: Date;
 
-  // MCP / Readiness
+  // Readiness & draft validation
   readinessAssessment?: {
     caseId: string;
     assessedAt: Date | string;

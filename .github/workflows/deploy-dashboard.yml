@@ -1,4 +1,21 @@
 name: Deploy Dashboard to Firebase Hosting on merge
+
+# Dashboard Vite build requires Firebase web app keys and Stripe price IDs at build time.
+# Add these as GitHub Actions secrets (Settings > Secrets and variables > Actions):
+#   DASHBOARD_VITE_FIREBASE_API_KEY
+#   DASHBOARD_VITE_FIREBASE_MESSAGING_SENDER_ID
+#   DASHBOARD_VITE_FIREBASE_APP_ID
+#   DASHBOARD_VITE_STRIPE_PRICE_STARTER_MONTHLY
+#   DASHBOARD_VITE_STRIPE_PRICE_STARTER_YEARLY
+#   DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY
+#   DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY
+#
+# Optional:
+#   DASHBOARD_VITE_SENTRY_DSN
+#
+# Optional repository variable:
+#   DASHBOARD_VITE_WEBSITE_URL  — defaults to https://realyn.app if unset
+
 on:
   push:
     branches:
@@ -14,7 +31,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build:dashboard
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:dashboard
+        env:
+          VITE_ENVIRONMENT: production
+          VITE_FIREBASE_PROJECT_ID: realyn-app
+          VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app.cloudfunctions.net
+          VITE_FIREBASE_REGION: us-central1
+          VITE_FIREBASE_AUTH_DOMAIN: realyn-app.firebaseapp.com
+          VITE_FIREBASE_STORAGE_BUCKET: realyn-app.firebasestorage.app
+          VITE_WEBSITE_URL: ${{ vars.DASHBOARD_VITE_WEBSITE_URL || 'https://realyn.app' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.DASHBOARD_VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.DASHBOARD_VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.DASHBOARD_VITE_FIREBASE_APP_ID }}
+          VITE_SENTRY_DSN: ${{ secrets.DASHBOARD_VITE_SENTRY_DSN }}
+          VITE_STRIPE_PRICE_STARTER_MONTHLY: ${{ secrets.DASHBOARD_VITE_STRIPE_PRICE_STARTER_MONTHLY }}
+          VITE_STRIPE_PRICE_STARTER_YEARLY: ${{ secrets.DASHBOARD_VITE_STRIPE_PRICE_STARTER_YEARLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY: ${{ secrets.DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY }}
+          VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY: ${{ secrets.DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_YEARLY }}
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

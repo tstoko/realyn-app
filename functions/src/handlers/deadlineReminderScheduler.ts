@@ -1,9 +1,15 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { sendDeadlineReminder } from "../services/emailService";
+import {
+  resendApiKeySecret,
+  getDashboardBaseUrl,
+} from "../config/emailAndDashboardParams";
 
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_URL || "https://dashboard.realyn.app";
 const REMINDER_DAYS_THRESHOLD = 3;
+/** Do not send another deadline email for the same dispute within this window (avoids daily duplicates). */
+const REMINDER_COOLDOWN_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Daily scheduled function that emails users about disputes
@@ -16,9 +22,11 @@ export const deadlineReminderScheduler = onSchedule(
     region: "us-central1",
     timeoutSeconds: 300,
     memory: "512MiB",
+    secrets: [resendApiKeySecret],
   },
   async () => {
     const db = admin.firestore();
+    const dashboardBaseUrl = getDashboardBaseUrl();
     const now = new Date();
     const thresholdDate = new Date(now.getTime() + REMINDER_DAYS_THRESHOLD * 86_400_000);
 
@@ -44,6 +52,11 @@ export const deadlineReminderScheduler = onSchedule(
       const organizationId = data.organizationId as string | undefined;
       if (!organizationId) continue;
 
+      const lastSent = data.lastDeadlineReminderSentAt?.toDate?.() as Date | undefined;
+      if (lastSent && now.getTime() - lastSent.getTime() < REMINDER_COOLDOWN_MS) {
+        continue;
+      }
+
       const respondBy = data.respondBy?.toDate?.() ?? new Date(data.respondBy);
       const daysRemaining = Math.max(0, Math.ceil((respondBy.getTime() - now.getTime()) / 86_400_000));
 
@@ -55,7 +68,10 @@ export const deadlineReminderScheduler = onSchedule(
           reason: data.reason ?? null,
           daysRemaining,
           respondBy,
-          dashboardUrl: `${DASHBOARD_BASE_URL}/disputes/${doc.id}`,
+          dashboardUrl: `${dashboardBaseUrl}/disputes/${doc.id}`,
+        });
+        await doc.ref.update({
+          lastDeadlineReminderSentAt: FieldValue.serverTimestamp(),
         });
         sent++;
       } catch (error) {

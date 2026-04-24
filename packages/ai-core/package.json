@@ -1,0 +1,103 @@
+{
+  "name": "@realyn/ai-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry.d.ts",
+      "default": "./dist/telemetry.js"
+    },
+    "./config/disputeCodeMapping": {
+      "types": "./dist/config/disputeCodeMapping.d.ts",
+      "default": "./dist/config/disputeCodeMapping.js"
+    },
+    "./types/aiDispute": {
+      "types": "./dist/types/aiDispute.d.ts",
+      "default": "./dist/types/aiDispute.js"
+    },
+    "./types/knowledgeBase": {
+      "types": "./dist/types/knowledgeBase.d.ts",
+      "default": "./dist/types/knowledgeBase.js"
+    },
+    "./utils/piiSanitizer": {
+      "types": "./dist/utils/piiSanitizer.d.ts",
+      "default": "./dist/utils/piiSanitizer.js"
+    },
+    "./services/argumentGenerator": {
+      "types": "./dist/services/argumentGenerator.d.ts",
+      "default": "./dist/services/argumentGenerator.js"
+    },
+    "./services/evidencePlanner": {
+      "types": "./dist/services/evidencePlanner.d.ts",
+      "default": "./dist/services/evidencePlanner.js"
+    },
+    "./services/llmService": {
+      "types": "./dist/services/llmService.d.ts",
+      "default": "./dist/services/llmService.js"
+    },
+    "./services/promptHelpers": {
+      "types": "./dist/services/promptHelpers.d.ts",
+      "default": "./dist/services/promptHelpers.js"
+    },
+    "./services/specialists/evidenceAnalyzer": {
+      "types": "./dist/services/specialists/evidenceAnalyzer.d.ts",
+      "default": "./dist/services/specialists/evidenceAnalyzer.js"
+    },
+    "./services/specialists/evidencePlanChecker": {
+      "types": "./dist/services/specialists/evidencePlanChecker.d.ts",
+      "default": "./dist/services/specialists/evidencePlanChecker.js"
+    },
+    "./services/specialists/evidenceRelevanceScorer": {
+      "types": "./dist/services/specialists/evidenceRelevanceScorer.d.ts",
+      "default": "./dist/services/specialists/evidenceRelevanceScorer.js"
+    },
+    "./services/specialists/strategyAdvisor": {
+      "types": "./dist/services/specialists/strategyAdvisor.d.ts",
+      "default": "./dist/services/specialists/strategyAdvisor.js"
+    },
+    "./services/specialists/claimAnalyst": {
+      "types": "./dist/services/specialists/claimAnalyst.d.ts",
+      "default": "./dist/services/specialists/claimAnalyst.js"
+    },
+    "./verticals/types": {
+      "types": "./dist/verticals/types.d.ts",
+      "default": "./dist/verticals/types.js"
+    },
+    "./verticals/registry": {
+      "types": "./dist/verticals/registry.d.ts",
+      "default": "./dist/verticals/registry.js"
+    },
+    "./verticals/general": {
+      "types": "./dist/verticals/general/index.d.ts",
+      "default": "./dist/verticals/general/index.js"
+    },
+    "./verticals/hospitality": {
+      "types": "./dist/verticals/hospitality/index.d.ts",
+      "default": "./dist/verticals/hospitality/index.js"
+    },
+    "./verticals/ticketing": {
+      "types": "./dist/verticals/ticketing/index.d.ts",
+      "default": "./dist/verticals/ticketing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

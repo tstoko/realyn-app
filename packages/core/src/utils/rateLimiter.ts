@@ -75,6 +75,30 @@ export const RATE_LIMIT_CONFIGS = {
     keyType: "ip" as const,
     failMode: "open" as const,
   },
+  signup: {
+    maxRequests: 15,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  invite: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "user" as const,
+    failMode: "closed" as const,
+  },
+  inviteAccept: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  csvImport: {
+    maxRequests: 25,
+    windowSeconds: 3600,
+    keyType: "custom" as const,
+    failMode: "closed" as const,
+  },
 } as const;
 
 // ============================================================

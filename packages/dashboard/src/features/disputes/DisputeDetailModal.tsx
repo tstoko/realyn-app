@@ -3,7 +3,7 @@ import React from 'react';
 import type { Dispute, User, Hotel } from '@realyn/shared';
 import { StatusBadge } from './StatusBadge';
 import { AutomationStatusBadge } from './AutomationStatusBadge';
-import { useDisputeTasks, useDisputeOperations } from '../../hooks/useMcpData';
+import { useDisputeTasks } from '../../hooks/useDisputeTasks';
 
 interface DisputeDetailModalProps {
   dispute: Dispute;
@@ -17,7 +17,6 @@ interface DisputeDetailModalProps {
 
 export const DisputeDetailModal: React.FC<DisputeDetailModalProps> = ({ dispute, onClose, updateDispute, user, hotel }) => {
   const { tasks } = useDisputeTasks(dispute.id);
-  const { operations } = useDisputeOperations(dispute.id, dispute.organizationId);
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -166,41 +165,19 @@ export const DisputeDetailModal: React.FC<DisputeDetailModalProps> = ({ dispute,
                       </div>
                     )}
 
-                    {operations.length > 0 && (
-                      <div>
-                        <h4 className="text-md font-semibold text-slate-50 font-heading">MCP Operations</h4>
-                        <div className="mt-2 space-y-2 max-h-[200px] overflow-y-auto">
-                          {operations.map((op) => (
-                            <div key={op.id} className="p-2 bg-slate-800/50 rounded-lg flex items-center gap-2 text-xs">
-                              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${op.status === 'succeeded' ? 'bg-emerald-400' : op.status === 'failed' ? 'bg-red-400' : op.status === 'running' ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'}`} />
-                              <span className="text-slate-300 font-medium">{op.type.replace(/_/g, ' ')}</span>
-                              <span className={`ml-auto px-1.5 py-0.5 rounded ${op.status === 'succeeded' ? 'bg-emerald-900/30 text-emerald-300' : op.status === 'failed' ? 'bg-red-900/30 text-red-300' : 'bg-slate-700 text-slate-400'}`}>
-                                {op.status}
-                              </span>
-                              {op.error && <span className="text-red-400 truncate max-w-[150px]" title={op.error.message}>{op.error.code}</span>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {dispute.auditTrail && dispute.auditTrail.length > 0 && (
                       <div>
                         <h4 className="text-md font-semibold text-slate-50 font-heading">Activity Timeline</h4>
                         <div className="mt-2 space-y-2 max-h-[200px] overflow-y-auto">
-                          {dispute.auditTrail.slice().reverse().slice(0, 20).map((entry, i) => {
-                            const isMcp = entry.actor?.type === 'mcp_client';
-                            return (
+                          {dispute.auditTrail.slice().reverse().slice(0, 20).map((entry, i) => (
                               <div key={i} className="flex items-start gap-2 text-xs">
-                                <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${isMcp ? 'bg-violet-400' : entry.actor?.type === 'system' ? 'bg-cyan-400' : entry.actor?.type === 'automation' ? 'bg-amber-400' : 'bg-slate-500'}`} />
+                                <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${entry.actor?.type === 'system' ? 'bg-cyan-400' : entry.actor?.type === 'automation' ? 'bg-amber-400' : 'bg-slate-500'}`} />
                                 <div className="flex-1 min-w-0">
                                   <span className="text-slate-300">{entry.title}</span>
-                                  {isMcp && <span className="ml-1 text-violet-400 text-[10px]">MCP</span>}
                                   <p className="text-slate-500 truncate">{entry.description}</p>
                                 </div>
                               </div>
-                            );
-                          })}
+                          ))}
                         </div>
                       </div>
                     )}

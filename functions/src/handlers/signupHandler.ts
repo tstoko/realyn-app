@@ -31,7 +31,7 @@ function generateOrgId(hotelName: string): string {
 
 async function handleSignup(req: Request, res: Response): Promise<void> {
   const rateLimitOk = await applyRateLimit(
-    req, res, getClientIP(req), RATE_LIMIT_CONFIGS.general
+    req, res, getClientIP(req), RATE_LIMIT_CONFIGS.signup
   );
   if (!rateLimitOk) return;
 

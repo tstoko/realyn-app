@@ -1,15 +1,21 @@
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { sendDisputeAlert, sendDisputeOutcome } from "../services/emailService";
-
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_URL || "https://dashboard.realyn.app";
+import {
+  resendApiKeySecret,
+  getDashboardBaseUrl,
+} from "../config/emailAndDashboardParams";
 
 /**
  * Firestore trigger that sends email notifications when disputes are
  * created or their status changes. Fires on every write to disputes/{disputeId}.
  */
 export const disputeNotificationTrigger = onDocumentWritten(
-  "disputes/{disputeId}",
+  {
+    document: "disputes/{disputeId}",
+    secrets: [resendApiKeySecret],
+  },
   async (event) => {
+    const dashboardBaseUrl = getDashboardBaseUrl();
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
 
@@ -19,7 +25,7 @@ export const disputeNotificationTrigger = onDocumentWritten(
     if (!organizationId) return;
 
     const disputeId = event.params.disputeId;
-    const dashboardUrl = `${DASHBOARD_BASE_URL}/disputes/${disputeId}`;
+    const dashboardUrl = `${dashboardBaseUrl}/disputes/${disputeId}`;
 
     try {
       if (!before) {

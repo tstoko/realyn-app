@@ -119,7 +119,9 @@ export class ErrorReporter {
    *
    * This is a no-op when SENTRY_DSN is not configured. To enable:
    * 1. Install @sentry/node in the functions package
-   * 2. Set SENTRY_DSN environment variable (Firebase Functions config or .env)
+   * 2. Set SENTRY_DSN for Gen2: Google Cloud Console → Cloud Run → each function
+   *    service → Edit & deploy new revision → Variables & secrets (or .env locally).
+   *    Dashboard uses VITE_SENTRY_DSN separately (browser SDK).
    * 3. Errors will be sent automatically
    */
   protected sendToExternalService(error: ReportedError): void {

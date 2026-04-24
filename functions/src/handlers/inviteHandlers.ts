@@ -7,10 +7,14 @@ import { sendRawEmail } from "../services/emailService";
 import { inviteTemplate } from "../templates/inviteTemplate";
 import { assertTeamSeatQuota, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
 import { ALLOWED_ORIGINS } from "../config/environment";
+import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import {
+  resendApiKeySecret,
+  getDashboardBaseUrl,
+} from "../config/emailAndDashboardParams";
 
 const db = admin.firestore();
 const INVITE_EXPIRY_DAYS = 7;
-const DASHBOARD_BASE_URL = process.env.DASHBOARD_URL || "https://dashboard.realyn.app";
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -51,6 +55,14 @@ async function handleCreateInvite(req: Request, res: Response): Promise<void> {
     sendAuthError(res, authResult);
     return;
   }
+
+  const rateOk = await applyRateLimit(
+    req,
+    res,
+    authResult.uid,
+    RATE_LIMIT_CONFIGS.invite,
+  );
+  if (!rateOk) return;
 
   const { email, role } = req.body as { email?: string; role?: string };
   if (!email || !role) {
@@ -113,7 +125,7 @@ async function handleCreateInvite(req: Request, res: Response): Promise<void> {
   });
 
   const orgName = await getOrgName(user.organizationId);
-  const acceptUrl = `${DASHBOARD_BASE_URL}/accept-invite?token=${token}`;
+  const acceptUrl = `${getDashboardBaseUrl()}/accept-invite?token=${token}`;
   const { subject, html } = inviteTemplate({
     inviterName: user.name,
     organizationName: orgName,
@@ -126,6 +138,11 @@ async function handleCreateInvite(req: Request, res: Response): Promise<void> {
     await sendRawEmail(email, subject, html);
   } catch (err) {
     console.error("Failed to send invite email:", err);
+    await inviteRef.delete();
+    res.status(503).json({
+      error: "Could not send invitation email. The invite was not saved. Try again or contact support.",
+    });
+    return;
   }
 
   res.status(201).json({ id: inviteRef.id });
@@ -142,6 +159,14 @@ async function handleListInvites(req: Request, res: Response): Promise<void> {
     sendAuthError(res, authResult);
     return;
   }
+
+  const rateOk = await applyRateLimit(
+    req,
+    res,
+    authResult.uid,
+    RATE_LIMIT_CONFIGS.invite,
+  );
+  if (!rateOk) return;
 
   const user = await getUserOrgRole(authResult.uid);
   if (!user.organizationId) {
@@ -183,6 +208,14 @@ async function handleRevokeInvite(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  const rateOk = await applyRateLimit(
+    req,
+    res,
+    authResult.uid,
+    RATE_LIMIT_CONFIGS.invite,
+  );
+  if (!rateOk) return;
+
   const { inviteId } = req.body as { inviteId?: string };
   if (!inviteId) {
     res.status(400).json({ error: "inviteId is required" });
@@ -218,6 +251,9 @@ async function handleRevokeInvite(req: Request, res: Response): Promise<void> {
   res.json({ success: true });
 }
 
-export const createInvite = onRequest({ cors: ALLOWED_ORIGINS }, handleCreateInvite);
+export const createInvite = onRequest(
+  { cors: ALLOWED_ORIGINS, secrets: [resendApiKeySecret] },
+  handleCreateInvite,
+);
 export const listInvites = onRequest({ cors: ALLOWED_ORIGINS }, handleListInvites);
 export const revokeInvite = onRequest({ cors: ALLOWED_ORIGINS }, handleRevokeInvite);

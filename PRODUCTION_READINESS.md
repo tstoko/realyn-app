@@ -70,7 +70,7 @@ Broken functionality and correctness issues that will confuse or break things fo
 
 ### 10. Add security headers to Firebase Hosting ✅ DONE
 - **File:** `firebase.json`
-- **Issue:** No CSP, HSTS, X-Frame-Options, or X-Content-Type-Options. Security-conscious hotel IT teams will check for these.
+- **Issue:** No CSP, HSTS, X-Frame-Options, or X-Content-Type-Options. Security-conscious merchant IT teams will check for these.
 - **Fix:** Add a `headers` block to the hosting config with standard SaaS security headers.
 - **Verified:** Both `website` and `dashboard` hosting targets in `firebase.json` have full security headers: CSP, HSTS (63072000s with preload), X-Frame-Options (DENY), X-Content-Type-Options (nosniff), X-XSS-Protection, Referrer-Policy, and Permissions-Policy.
 
@@ -83,7 +83,7 @@ This is where the product goes from "working demo" to "thing someone can actuall
 ### 11. Set up a staging environment ✅ DONE
 - Create a second Firebase project (e.g. `realyn-app-staging`). All subsequent work should be testable without touching production.
 - Unblocks safe iteration on everything below.
-- **Implemented:** Added staging hosting targets to `.firebaserc`. Created `.github/workflows/deploy-staging.yml` (deploys dashboard, website, functions, and MCP server to staging on push to `staging` branch or manual dispatch). Created `packages/dashboard/.env.staging` template. Dashboard `environment.ts` already supports `VITE_ENVIRONMENT=staging`. **Remaining:** Create the `realyn-app-staging` Firebase project in the console and configure GitHub secrets.
+- **Implemented:** Added staging hosting targets to `.firebaserc`. Created `.github/workflows/deploy-staging.yml` (deploys dashboard, website, and functions to staging on push to `staging` branch or manual dispatch). Created `packages/dashboard/.env.staging` template. Dashboard `environment.ts` already supports `VITE_ENVIRONMENT=staging`. **Remaining:** Create the `realyn-app-staging` Firebase project in the console and configure GitHub secrets.
 
 ### 12. Automate dashboard CI/CD ✅ DONE
 - **File:** `.github/workflows/deploy-dashboard.yml`
@@ -100,13 +100,13 @@ This is where the product goes from "working demo" to "thing someone can actuall
 ### 14. Add CI test and lint gates ✅ DONE
 - **File:** New or updated `.github/workflows/` files
 - Wire tests from step 13 into GitHub Actions so PRs can't merge broken code. ~30-line workflow file.
-- **Implemented:** Added `core-test`, `mcp-server-test`, and `dashboard-test` jobs to `.github/workflows/ci.yml`. Core and MCP server jobs build `packages/core` first (dependency). All run on PR to `main`.
+- **Implemented:** Added `core-test` and `dashboard-test` jobs to `.github/workflows/ci.yml`. The `core-test` job builds `packages/core` first (dependency). All run on PR to `main`.
 
 ### 15. Build self-service signup and onboarding ✅ DONE
-- Registration page, email verification, org creation wizard ("What's your hotel name? Connect your Stripe/Adyen account.")
+- Registration page, email verification, org creation wizard ("Business / property name? Connect your Stripe/Adyen account.")
 - This is the biggest single piece of work but it's what makes the product usable without manually creating accounts via Cloud Functions.
 - Build *before* billing so there's a funnel to attach payments to.
-- **Implemented:** Created `signupHandler` Cloud Function (verifies ID token, creates org + user docs in a batch, `syncUserClaims` trigger propagates custom claims). Built `SignupPage.tsx` (name, email, password, hotel name form with client-side validation, calls `createUserWithEmailAndPassword` then POSTs to `/signup`). Built `OnboardingPage.tsx` (3-step wizard: welcome, PSP connection with Stripe/Adyen/skip, done). Added `/signup` and `/onboarding` routes to `App.tsx`. Added "Sign up" link to `LoginPage.tsx`.
+- **Implemented:** Created `signupHandler` Cloud Function (verifies ID token, creates org + user docs in a batch, `syncUserClaims` trigger propagates custom claims). Built `SignupPage.tsx` (name, email, password, business/property name field with client-side validation — UI may still label this “hotel” in places, calls `createUserWithEmailAndPassword` then POSTs to `/signup`). Built `OnboardingPage.tsx` (3-step wizard: welcome, PSP connection with Stripe/Adyen/skip, done). Added `/signup` and `/onboarding` routes to `App.tsx`. Added "Sign up" link to `LoginPage.tsx`.
 
 ### 16. Build billing (Stripe Checkout + subscriptions) ✅ DONE
 - Plan selection, checkout session, webhook for subscription status, customer portal for managing payment method/invoices.
@@ -123,27 +123,24 @@ This is where the product goes from "working demo" to "thing someone can actuall
 
 ## Tier 4 — Weeks 3-4 (Production Polish)
 
-### 18. Build transactional email
-- Dispute opened alerts, evidence deadline reminders, weekly digest.
-- Hotels expect to be notified, not to check a dashboard proactively.
-- Use Resend or SendGrid + Cloud Function triggers on dispute status changes.
+### 18. Transactional email — implemented (hardening done)
+- **Implemented:** Resend in [`functions/src/services/emailService.ts`](functions/src/services/emailService.ts); dispute create + outcome emails via [`functions/src/handlers/disputeNotificationTrigger.ts`](functions/src/handlers/disputeNotificationTrigger.ts); daily deadline reminders via [`functions/src/handlers/deadlineReminderScheduler.ts`](functions/src/handlers/deadlineReminderScheduler.ts) with **48h dedupe** using field `lastDeadlineReminderSentAt` on dispute docs; Gen2 **`RESEND_API_KEY` secret** bound to email-sending functions; invite email on [`createInvite`](functions/src/handlers/inviteHandlers.ts) rolls back the invite doc if send fails (503). **Dashboard base URL:** set runtime env `DASHBOARD_URL` on each affected Cloud Run service (triggers, scheduler, `createInvite`) so staging links match hosting — see checklist below and [`functions/.env.example`](functions/.env.example).
+- **Remaining (optional):** Weekly digest email (not built); legal review of notification copy.
 
-### 19. Build invite/team management
-- Let hotel admins invite their own staff.
-- Currently user creation is admin-only via Cloud Functions. Hotels need self-service team management.
+### 19. Invite / team management — implemented
+- **Implemented:** Invites (`createInvite`, `listInvites`, `revokeInvite`, `acceptInvite`) plus org team APIs [`listTeamMembers`, `removeTeamMember`, `updateTeamMemberRole`](functions/src/handlers/teamHandlers.ts); dashboard [`TeamManagementPage.tsx`](packages/dashboard/src/features/team/TeamManagementPage.tsx) lists members, roles, remove; rate limits on invite/accept/team HTTP handlers. Global-admin user CRUD remains in [`userManagementHandler.ts`](functions/src/handlers/userManagementHandler.ts) for platform operators.
 
-### 20. Complete legal pages
-- **File:** `packages/website/src/pages/legal/PrivacyPolicy.tsx`
-- **Issue:** `TODO_COMPANY_ADDRESS` placeholder. GDPR compliance claims without a complete privacy policy are a liability.
-- **Fix:** Fill address, have a lawyer review the DPA and terms.
+### 20. Legal pages — address filled; counsel external
+- **Implemented:** Registered-office style text in [`packages/website/src/config/companyInfo.ts`](packages/website/src/config/companyInfo.ts) (consumed by Privacy / Terms). **Remaining:** Replace with your entity’s real Companies House / formation details; have counsel review Privacy, Terms, and DPA before claiming full GDPR compliance in sales.
 
-### 21. Multi-environment gating
-- **Issue:** `shouldEnableTestHandlers()` exists in `functions/src/config/environment.ts` but is never called anywhere.
-- **Fix:** Gate all seed/test/reset endpoints behind it. Set up environment-specific Firebase config instead of hardcoded values in `packages/shared/src/services/firebase.ts`.
+### 21. Multi-environment — docs corrected
+- **`shouldEnableTestHandlers()`** is used across seed handlers and [`requireTestHandlerAdmin`](functions/src/utils/authMiddleware.ts); the earlier roadmap line was stale.
+- **Client Firebase config** is Vite-driven in [`packages/shared/src/services/firebase.ts`](packages/shared/src/services/firebase.ts) (no hardcoded production project).
+- **Remaining ops:** Per-environment `DASHBOARD_URL` and secrets on deployed Functions; staging Firebase project + GitHub secrets as in Tier 3 §11.
 
-### 22. Rate limit tuning
-- Review and tighten rate limits on webhooks, AI endpoints, and data export.
-- The Firestore-based limiter (`functions/src/utils/rateLimiter.ts`) fails open on transaction errors — decide if that's acceptable or if expensive operations (AI calls) should fail closed.
+### 22. Rate limit tuning — documented + presets extended
+- **Policy:** Webhooks stay **fail-open**; AI, signup, invites, CSV import, export, deletion stay **fail-closed** (see [`functions/docs/RATE_LIMITS.md`](functions/docs/RATE_LIMITS.md)).
+- **Changes:** Dedicated presets `signup`, `invite`, `inviteAccept`, `csvImport`; signup uses fail-closed IP limit; CSV import keyed per org (`org:{organizationId}`) instead of reusing `ai` limits.
 
 ---
 
@@ -153,13 +150,40 @@ This is where the product goes from "working demo" to "thing someone can actuall
 - Intercom, Crisp, or similar.
 
 ### 24. Usage analytics
-- Track what features hotels actually use.
+- Track what features customers actually use.
 
 ### 25. Help center / documentation
-- For hotel staff end users.
+- For merchant staff end users (hospitality, ticketing, and other verticals).
 
 ### 26. Abuse prevention
 - Anomaly detection on webhook volume, beyond basic rate limits.
+
+---
+
+## CI/CD and runtime secrets checklist
+
+Use this when wiring **staging** (`realyn-app-staging`) or **production** so hosted builds and Functions are not missing env.
+
+### GitHub Actions (dashboard Vite build)
+
+| Item | Production workflow | Staging workflow |
+|------|---------------------|------------------|
+| Firebase web app | Secrets `DASHBOARD_VITE_FIREBASE_API_KEY`, `DASHBOARD_VITE_FIREBASE_MESSAGING_SENDER_ID`, `DASHBOARD_VITE_FIREBASE_APP_ID` | `STAGING_VITE_FIREBASE_*` (same suffixes) |
+| Stripe price IDs (billing UI) | `DASHBOARD_VITE_STRIPE_PRICE_STARTER_MONTHLY` / `_YEARLY`, `DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY` / `_YEARLY` | `STAGING_VITE_STRIPE_PRICE_*` |
+| Sentry (optional) | `DASHBOARD_VITE_SENTRY_DSN` | `STAGING_VITE_SENTRY_DSN` |
+| Website URL (optional) | Variable `DASHBOARD_VITE_WEBSITE_URL` (defaults to `https://realyn.app`) | Variable `STAGING_VITE_WEBSITE_URL` (see workflow default) |
+| Hosting deploy SA | `FIREBASE_SERVICE_ACCOUNT_REALYN_APP` | `FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING` |
+
+Workflow files: [`.github/workflows/deploy-dashboard.yml`](.github/workflows/deploy-dashboard.yml), [`.github/workflows/deploy-staging.yml`](.github/workflows/deploy-staging.yml). Local templates: [`packages/dashboard/.env.example`](packages/dashboard/.env.example), [`packages/dashboard/.env.staging`](packages/dashboard/.env.staging).
+
+### Cloud Functions (runtime)
+
+| Item | Notes |
+|------|--------|
+| `SENTRY_DSN` | Read in [`functions/src/utils/errorReporting.ts`](functions/src/utils/errorReporting.ts). Set on the deployed Gen2 environment (Google Cloud Console → Cloud Run service for each function, or your usual Firebase/GCP env mechanism). Not injected by the hosting workflows above. |
+| `RESEND_API_KEY` | Secret for Resend; bound on [`disputeNotificationTrigger`](functions/src/handlers/disputeNotificationTrigger.ts), [`deadlineReminderScheduler`](functions/src/handlers/deadlineReminderScheduler.ts), and [`createInvite`](functions/src/handlers/inviteHandlers.ts). `firebase functions:secrets:set RESEND_API_KEY`. |
+| `DASHBOARD_URL` | Non-secret env: base URL for email and invite links. Set per Cloud Run service (production vs staging dashboard). See [`functions/src/config/emailAndDashboardParams.ts`](functions/src/config/emailAndDashboardParams.ts) and [`functions/.env.example`](functions/.env.example). |
+| Other secrets | `defineSecret` values in [`functions/src/index.ts`](functions/src/index.ts) (e.g. Stripe, Anthropic) — set via `firebase functions:secrets:set` as already documented for your project. |
 
 ---
 
