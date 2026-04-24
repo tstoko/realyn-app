@@ -21,7 +21,7 @@ const SettingsModal = lazy(() => import('./features/settings/SettingsModal').the
 const CommandPalette = lazy(() => import('./features/settings/CommandPalette').then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcutsModal = lazy(() => import('./features/settings/KeyboardShortcutsModal').then(m => ({ default: m.KeyboardShortcutsModal })));
 
-const WEBSITE_URL = import.meta.env.VITE_WEBSITE_URL || 'https://www.realyn.com';
+const WEBSITE_URL = import.meta.env.VITE_WEBSITE_URL || 'https://realyn.app';
 
 const LoginPageRoute: React.FC = () => {
   const { user, loading } = useAuthContext();
