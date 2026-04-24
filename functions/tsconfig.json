@@ -8,7 +8,12 @@
     "strict": false,
     "target": "es2017",
     "skipLibCheck": true,
-    "typeRoots": ["./node_modules/@types"]
+    "typeRoots": ["./node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@realyn/ai-core": ["node_modules/@realyn/ai-core/dist/index"],
+      "@realyn/ai-core/*": ["node_modules/@realyn/ai-core/dist/*"]
+    }
   },
   "compileOnSave": true,
   "include": [
@@ -20,4 +25,3 @@
     "src/**/__tests__/**"
   ]
 }
-

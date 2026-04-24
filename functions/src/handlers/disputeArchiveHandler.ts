@@ -1,7 +1,8 @@
 import * as functions from "firebase-functions/v2";
 import { Request, Response } from "express";
 import { autoArchiveDisputes, getArchivedDisputes } from "../services/disputeHistoryService";
-import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 /**
  * Manual trigger to archive disputes for an organization
@@ -9,17 +10,11 @@ import { verifyUser, sendAuthError } from "../utils/authMiddleware";
  */
 export const archiveOrganizationDisputes = functions.https.onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
-      return;
-    }
-
-    const authResult = await verifyUser(req);
-    if (!authResult.success) {
-      sendAuthError(res, authResult);
       return;
     }
 
@@ -28,6 +23,12 @@ export const archiveOrganizationDisputes = functions.https.onRequest(
 
       if (!organizationId) {
         res.status(400).json({ error: "Missing organizationId" });
+        return;
+      }
+
+      const authResult = await verifyUserInOrganization(req, organizationId);
+      if (!authResult.success) {
+        sendAuthError(res, authResult);
         return;
       }
 
@@ -54,17 +55,11 @@ export const archiveOrganizationDisputes = functions.https.onRequest(
  */
 export const getArchivedDisputesHandler = functions.https.onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     if (req.method !== "GET") {
       res.status(405).json({ error: "Method not allowed" });
-      return;
-    }
-
-    const authResult = await verifyUser(req);
-    if (!authResult.success) {
-      sendAuthError(res, authResult);
       return;
     }
 
@@ -76,6 +71,12 @@ export const getArchivedDisputesHandler = functions.https.onRequest(
 
       if (!organizationId) {
         res.status(400).json({ error: "Missing organizationId query parameter" });
+        return;
+      }
+
+      const authResult = await verifyUserInOrganization(req, organizationId);
+      if (!authResult.success) {
+        sendAuthError(res, authResult);
         return;
       }
 

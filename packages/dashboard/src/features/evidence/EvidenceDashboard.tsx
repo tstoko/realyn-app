@@ -3,7 +3,7 @@ import type { Dispute, Hotel, User, EvidencePlan, EvidenceItem, EvidenceRequirem
 import { Dropzone } from './Dropzone';
 import { useToast } from '@realyn/shared';
 import { useAuth } from '@realyn/shared';
-import { generateEvidencePlan, updateEvidenceItemStatus, initializeEvidenceItems } from '../../services/aiDisputeService';
+import { updateEvidenceItemStatus, initializeEvidenceItems, generateEvidencePlan } from '../../services/aiDisputeService';
 import { uploadEvidenceFileWithTracking, getEvidenceFiles, deleteEvidenceFile, type EvidenceFile } from '../../services/evidenceService';
 import ArgumentDraftModal from './ArgumentDraftModal';
 import { EvidencePlanSkeleton } from './EvidencePlanSkeleton';
@@ -571,8 +571,7 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
         setPlanGenerationError(errorMsg);
         addToast({ type: 'error', message: errorMsg });
       }
-    } else if (status === 'generating') {
-      // Plan is being generated - ensure spinner is showing
+    } else if (status === 'queued' || status === 'generating') {
       if (!isGeneratingPlan) {
         setIsGeneratingPlan(true);
       }
@@ -804,78 +803,40 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
   
   const progress = calculateProgress();
   
-  // Generate evidence plan (async - returns immediately, completion detected via Firestore listener)
+  // Generate evidence plan via Cloud Function
+  const handleGeneratePlanCF = useCallback(async (regenerate: boolean) => {
+    setIsGeneratingPlan(true);
+    setPlanGenerationError(null);
+
+    try {
+      addToast({ type: 'info', message: 'Generating evidence plan...' });
+
+      const result = await generateEvidencePlan(
+        dispute.id,
+        dispute.organizationId!,
+        regenerate
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Evidence plan generation failed');
+      }
+
+      // The CF is async — it sets evidencePlanStatus on the dispute document.
+      // The useEffect watching dispute.evidencePlanStatus will handle UI updates.
+    } catch (error: any) {
+      console.error('Plan generation error:', error);
+      setPlanGenerationError(error.message || 'Plan generation failed');
+      addToast({ type: 'error', message: error.message || 'Plan generation failed' });
+      setIsGeneratingPlan(false);
+    }
+  }, [dispute.id, dispute.organizationId, addToast]);
+
   const handleGeneratePlan = async () => {
-    setIsGeneratingPlan(true);
-    setPlanGenerationError(null);
-    
-    try {
-      const result = await generateEvidencePlan(
-        dispute.id,
-        dispute.organizationId!,
-        false // don't regenerate if exists
-      );
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to start evidence plan generation');
-      }
-      
-      // Show info toast - plan is generating in background
-      // isGeneratingPlan stays true until we detect completion via Firestore listener
-      addToast({ type: 'info', message: 'Generating evidence plan... This may take a minute.' });
-      
-      // Note: We don't set isGeneratingPlan to false here.
-      // The useEffect watching dispute.evidencePlanStatus will handle that.
-      
-    } catch (error: any) {
-      console.error('Error starting plan generation:', error);
-      let errorMessage = error.message || 'Failed to start evidence plan generation';
-      if (errorMessage.includes('OPENAI') || errorMessage.includes('model provider')) {
-        errorMessage = 'AI service temporarily unavailable. Please try again or use Manual Mode.';
-      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
-      setPlanGenerationError(errorMessage);
-      addToast({ type: 'error', message: errorMessage });
-      setIsGeneratingPlan(false);
-    }
+    return handleGeneratePlanCF(false);
   };
-  
-  // Regenerate evidence plan (async - returns immediately, completion detected via Firestore listener)
+
   const handleRegeneratePlan = async () => {
-    setIsGeneratingPlan(true);
-    setPlanGenerationError(null);
-    
-    try {
-      const result = await generateEvidencePlan(
-        dispute.id,
-        dispute.organizationId!,
-        true // regenerate existing plan
-      );
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to start evidence plan regeneration');
-      }
-      
-      // Show info toast - plan is generating in background
-      // isGeneratingPlan stays true until we detect completion via Firestore listener
-      addToast({ type: 'info', message: 'Regenerating evidence plan... This may take a minute.' });
-      
-      // Note: We don't set isGeneratingPlan to false here.
-      // The useEffect watching dispute.evidencePlanStatus will handle that.
-      
-    } catch (error: any) {
-      console.error('Error starting plan regeneration:', error);
-      let errorMessage = error.message || 'Failed to start evidence plan regeneration';
-      if (errorMessage.includes('OPENAI') || errorMessage.includes('model provider')) {
-        errorMessage = 'AI service temporarily unavailable. Please try again or use Manual Mode.';
-      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
-      setPlanGenerationError(errorMessage);
-      addToast({ type: 'error', message: errorMessage });
-      setIsGeneratingPlan(false);
-    }
+    return handleGeneratePlanCF(true);
   };
   
   // Submit evidence
@@ -1233,7 +1194,9 @@ export const EvidenceDashboard: React.FC<EvidenceDashboardProps> = ({
                 
                 {isGeneratingPlan && (
                   // Generating plan - show skeleton loading
-                  <EvidencePlanSkeleton />
+                  <div>
+                      <EvidencePlanSkeleton />
+                  </div>
                 )}
                 
                 {displayAIMode && plan && !isGeneratingPlan && (

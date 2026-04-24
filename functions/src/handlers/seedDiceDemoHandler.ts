@@ -27,12 +27,20 @@ import {
   DICE_DEMO_PASSWORD,
   DICE_ORG_ID,
 } from "../lib/diceDemoConstants";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
+import { DEMO_SEEDED_POLICY_VERSION } from "../config/demoSeededPolicyVersion";
+import { applyDemoUserClaims } from "../lib/demoSeedUserClaims";
 
 const db = admin.firestore();
 
 export const seedDiceDemoData = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Seed handlers are disabled in production." });
+      return;
+    }
+
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
       return;
@@ -111,9 +119,22 @@ export const seedDiceDemoData = onRequest(
         }
       }
       await db.collection("users").doc(uid).set(
-        { name: "DICE Demo", email: DICE_DEMO_EMAIL, role: "user", organizationId: DICE_ORG_ID, hotelName: "DICE", createdAt: now, updatedAt: now },
+        {
+          name: "DICE Demo",
+          email: DICE_DEMO_EMAIL,
+          role: "user",
+          organizationId: DICE_ORG_ID,
+          hotelName: "DICE",
+          createdAt: now,
+          updatedAt: now,
+          tosAcceptedAt: now,
+          tosVersion: DEMO_SEEDED_POLICY_VERSION,
+          privacyAcceptedAt: now,
+          privacyVersion: DEMO_SEEDED_POLICY_VERSION,
+        },
         { merge: true },
       );
+      await applyDemoUserClaims(uid, DICE_ORG_ID, "user");
 
       // 3. Optionally remove existing DICE disputes, then seed
       let disputesDeleted = 0;

@@ -5,15 +5,9 @@
 
 import { stripeWebhook } from "../../index";
 import { generateStripeWebhookEvent, generateStripeSignature } from "../../utils/webhookTestHelpers";
+import { upsertUnifiedDispute } from "../../services/disputeService";
 // @ts-ignore: import needed for jest module resolution
 import * as admin from "firebase-admin"; void admin;
-import { getOrganization } from "../../services/organizationService";
-
-// Mock organizationService
-jest.mock("../../services/organizationService", () => ({
-  getOrganization: jest.fn(),
-}));
-
 // Mock disputeService
 jest.mock("../../services/disputeService", () => ({
   upsertUnifiedDispute: jest.fn().mockResolvedValue("mock_dispute_id"),
@@ -35,13 +29,17 @@ jest.mock("../../utils/disputeNormalizer", () => ({
   mapStripeStatus: jest.fn((status: string) => status),
 }));
 
-// Mock stripeHelpers
-jest.mock("../../utils/stripeHelpers", () => ({
-  getPaymentMetadata: jest.fn().mockResolvedValue({
-    last4: "1234",
-    transactionDate: new Date(),
-  }),
-}));
+// Mock stripeHelpers — keep real getOrganizationIdFromStripeEvent; stub getPaymentMetadata for tests
+jest.mock("../../utils/stripeHelpers", () => {
+  const actual = jest.requireActual("../../utils/stripeHelpers") as typeof import("../../utils/stripeHelpers");
+  return {
+    ...actual,
+    getPaymentMetadata: jest.fn().mockResolvedValue({
+      last4: "1234",
+      transactionDate: new Date(),
+    }),
+  };
+});
 
 // Mock AI evidence planning (non-blocking, don't let it interfere)
 jest.mock("../../services/ai/evidencePlanningService", () => ({
@@ -51,6 +49,12 @@ jest.mock("../../services/ai/evidencePlanningService", () => ({
 // Mock Firebase Admin
 jest.mock("firebase-admin", () => {
   const mockFirestore = {
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
     collection: jest.fn(() => ({
       doc: jest.fn(() => ({
         get: jest.fn(),
@@ -117,19 +121,6 @@ describe("Stripe Manual Integration Tests", () => {
   let mockRes: any;
   const testOrganizationId = "test_org_123";
   const testWebhookSecret = "whsec_test_secret";
-  const testStripeKey = "sk_test_key";
-
-  const mockOrganization = {
-    id: testOrganizationId,
-    name: "Test Hotel",
-    pspIntegrations: {
-      stripe: {
-        secretKey: testStripeKey,
-        webhookSecret: testWebhookSecret,
-        status: "connected" as const,
-      },
-    },
-  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -151,11 +142,10 @@ describe("Stripe Manual Integration Tests", () => {
       getHeader: jest.fn(),
     };
 
-    (getOrganization as jest.Mock).mockResolvedValue(mockOrganization);
   });
 
-  describe("Organization Resolution (fast path with orgId)", () => {
-    it("should resolve organization from orgId query parameter", async () => {
+  describe("Organization resolution via Stripe metadata / PaymentIntent", () => {
+    it("should upsert dispute when organizationId is resolved from the event", async () => {
       const event = generateStripeWebhookEvent("dp_test", testOrganizationId);
       const payload = JSON.stringify(event);
       const signature = generateStripeSignature(payload, testWebhookSecret);
@@ -180,17 +170,18 @@ describe("Stripe Manual Integration Tests", () => {
 
       await stripeWebhook(mockReq, mockRes);
 
-      expect(getOrganization).toHaveBeenCalledWith(testOrganizationId);
+      expect(upsertUnifiedDispute).toHaveBeenCalled();
       expect(stripeInst.webhooks.constructEvent).toHaveBeenCalledWith(
-        Buffer.from(payload),
+        expect.any(Buffer),
         signature,
         testWebhookSecret
       );
       expect(mockRes.json).toHaveBeenCalledWith({ received: true });
     });
 
-    it("should handle organization with missing credentials gracefully", async () => {
-      const event = generateStripeWebhookEvent("dp_test", testOrganizationId);
+    it("should acknowledge webhook without upsert when organization cannot be resolved", async () => {
+      const event = generateStripeWebhookEvent("dp_unmatched", testOrganizationId);
+      (event.data.object as any).metadata = {};
       const payload = JSON.stringify(event);
       const signature = generateStripeSignature(payload, testWebhookSecret);
 
@@ -198,44 +189,19 @@ describe("Stripe Manual Integration Tests", () => {
         headers: { "stripe-signature": signature },
         body: Buffer.from(payload),
         rawBody: Buffer.from(payload),
-        query: { orgId: testOrganizationId },
       });
 
-      // Mock organization without credentials
-      (getOrganization as jest.Mock).mockResolvedValue({
-        id: testOrganizationId,
-        pspIntegrations: {
-          stripe: {
-            status: "connected",
-            // Missing secretKey and webhookSecret
-          },
-        },
+      const stripeInst = getStripeInstance();
+      stripeInst.webhooks.constructEvent = jest.fn().mockReturnValue(event);
+      stripeInst.paymentIntents.retrieve = jest.fn().mockResolvedValue({
+        id: "pi_test",
+        metadata: {},
       });
 
       await stripeWebhook(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-    });
-
-    it("should return error when orgId organization not found", async () => {
-      const payload = JSON.stringify({ test: true });
-      const signature = "t=123,v1=test";
-
-      mockReq = buildMockReq({
-        headers: { "stripe-signature": signature },
-        body: Buffer.from(payload),
-        rawBody: Buffer.from(payload),
-        query: { orgId: "nonexistent_org" },
-      });
-
-      (getOrganization as jest.Mock).mockResolvedValue(null);
-
-      await stripeWebhook(mockReq, mockRes);
-
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: "Organization 'nonexistent_org' not found",
-      });
+      expect(upsertUnifiedDispute).not.toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({ received: true });
     });
   });
 
@@ -251,7 +217,7 @@ describe("Stripe Manual Integration Tests", () => {
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith({
-        error: "Raw body required for signature verification",
+        error: "Unable to verify webhook signature",
       });
     });
 

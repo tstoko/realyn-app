@@ -1,7 +1,9 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
 
 const db = admin.firestore();
 
@@ -81,8 +83,8 @@ function buildOrganization() {
       autoSubmissionMinAmount: 0,
       autoMarkNotContested: false,
     },
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   };
 }
 
@@ -821,8 +823,13 @@ async function cleanupExistingDemo() {
 // ============================================================================
 
 export const seedPitchDemo = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
+    if (!shouldEnableTestHandlers()) {
+      res.status(403).json({ error: "Seed handlers are disabled in production." });
+      return;
+    }
+
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
       return;
@@ -925,8 +932,8 @@ export const seedPitchDemo = onRequest(
         role: "user",
         organizationId: orgId,
         hotelName: ORG_NAME,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
       console.log("Created demo user");
 

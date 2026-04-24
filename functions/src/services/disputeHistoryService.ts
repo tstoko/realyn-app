@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 /**
  * Dispute History Service
@@ -31,7 +32,7 @@ export async function archiveDispute(disputeId: string): Promise<boolean> {
     const archiveData = {
       ...disputeData,
       originalDisputeId: disputeId,
-      archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      archivedAt: FieldValue.serverTimestamp(),
       archivedDate: new Date().toISOString(),
     };
 

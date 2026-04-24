@@ -3,6 +3,7 @@ import React from 'react';
 import type { Dispute, User, Hotel } from '@realyn/shared';
 import { StatusBadge } from './StatusBadge';
 import { AutomationStatusBadge } from './AutomationStatusBadge';
+import { useDisputeTasks } from '../../hooks/useDisputeTasks';
 
 interface DisputeDetailModalProps {
   dispute: Dispute;
@@ -15,6 +16,7 @@ interface DisputeDetailModalProps {
 
 
 export const DisputeDetailModal: React.FC<DisputeDetailModalProps> = ({ dispute, onClose, updateDispute, user, hotel }) => {
+  const { tasks } = useDisputeTasks(dispute.id);
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -67,6 +69,118 @@ export const DisputeDetailModal: React.FC<DisputeDetailModalProps> = ({ dispute,
                           "{dispute.customerExplanation}"
                       </blockquote>
                     </div>
+
+                    {dispute.readinessAssessment && (
+                      <div>
+                        <h4 className="text-md font-semibold text-slate-50 font-heading">Readiness Assessment</h4>
+                        <div className="mt-2 grid grid-cols-2 gap-3">
+                          <div className="p-3 bg-slate-800/50 rounded-lg">
+                            <p className="text-xs text-slate-400">Evidence</p>
+                            <p className="text-lg font-bold text-cyan-400">{dispute.readinessAssessment.evidenceCompleteness.percentComplete}%</p>
+                            <p className="text-xs text-slate-500">{dispute.readinessAssessment.evidenceCompleteness.requiredFulfilled}/{dispute.readinessAssessment.evidenceCompleteness.requiredTotal} required</p>
+                          </div>
+                          <div className="p-3 bg-slate-800/50 rounded-lg">
+                            <p className="text-xs text-slate-400">Winnability</p>
+                            <p className={`text-lg font-bold ${dispute.readinessAssessment.winnability === 'high' ? 'text-emerald-400' : dispute.readinessAssessment.winnability === 'medium' ? 'text-amber-400' : 'text-red-400'}`}>
+                              {dispute.readinessAssessment.winnability}
+                            </p>
+                            <p className="text-xs text-slate-500">Rec: {dispute.readinessAssessment.recommendation}</p>
+                          </div>
+                          <div className="p-3 bg-slate-800/50 rounded-lg">
+                            <p className="text-xs text-slate-400">Deadline</p>
+                            <p className={`text-lg font-bold ${dispute.readinessAssessment.deadlineRisk === 'critical' ? 'text-red-400' : dispute.readinessAssessment.deadlineRisk === 'urgent' ? 'text-amber-400' : 'text-slate-300'}`}>
+                              {dispute.readinessAssessment.daysRemaining !== null ? `${dispute.readinessAssessment.daysRemaining}d` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-slate-500">{dispute.readinessAssessment.deadlineRisk}</p>
+                          </div>
+                          <div className="p-3 bg-slate-800/50 rounded-lg">
+                            <p className="text-xs text-slate-400">Status</p>
+                            <p className="text-sm font-semibold text-slate-200">{dispute.readinessAssessment.overallReadiness.replace(/_/g, ' ')}</p>
+                            <p className="text-xs text-slate-500">Draft: {dispute.readinessAssessment.draftStatus}</p>
+                          </div>
+                        </div>
+                        {dispute.readinessAssessment.blockingIssues.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {dispute.readinessAssessment.blockingIssues.map((issue, i) => (
+                              <div key={i} className={`text-xs px-2 py-1 rounded ${issue.severity === 'critical' ? 'bg-red-900/30 text-red-300' : issue.severity === 'major' ? 'bg-amber-900/30 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
+                                {issue.issue}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {dispute.draftValidation && (
+                      <div>
+                        <h4 className="text-md font-semibold text-slate-50 font-heading">Draft Validation</h4>
+                        <div className="mt-2 p-3 bg-slate-800/50 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`inline-block w-2 h-2 rounded-full ${dispute.draftValidation.overallSupport === 'strong' ? 'bg-emerald-400' : dispute.draftValidation.overallSupport === 'adequate' ? 'bg-cyan-400' : dispute.draftValidation.overallSupport === 'weak' ? 'bg-amber-400' : 'bg-red-400'}`} />
+                            <span className="text-sm font-medium text-slate-200">Support: {dispute.draftValidation.overallSupport}</span>
+                            <span className="text-xs text-slate-500 ml-auto">Risk: {dispute.draftValidation.submissionRisk}</span>
+                          </div>
+                          {dispute.draftValidation.weakClaims.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs text-amber-400 font-medium">Weak claims:</p>
+                              {dispute.draftValidation.weakClaims.map((c, i) => (
+                                <p key={i} className="text-xs text-slate-400 pl-2">• {c.claim}: {c.reason}</p>
+                              ))}
+                            </div>
+                          )}
+                          {dispute.draftValidation.unsupportedClaims.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <p className="text-xs text-red-400 font-medium">Unsupported claims:</p>
+                              {dispute.draftValidation.unsupportedClaims.map((c, i) => (
+                                <p key={i} className="text-xs text-slate-400 pl-2">• {c.claim}: {c.reason}</p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {tasks.length > 0 && (
+                      <div>
+                        <h4 className="text-md font-semibold text-slate-50 font-heading">Tasks</h4>
+                        <div className="mt-2 space-y-2 max-h-[200px] overflow-y-auto">
+                          {tasks.map((task) => (
+                            <div key={task.id} className="p-2 bg-slate-800/50 rounded-lg flex items-start gap-2">
+                              <span className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${task.status === 'open' ? 'bg-amber-400' : task.status === 'in_progress' ? 'bg-cyan-400' : task.status === 'completed' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-slate-200 font-medium">{task.title}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${task.priority === 'critical' ? 'bg-red-900/50 text-red-300' : task.priority === 'high' ? 'bg-amber-900/50 text-amber-300' : 'bg-slate-700 text-slate-400'}`}>
+                                    {task.priority}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500 truncate">{task.description}</p>
+                              </div>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap ${task.status === 'open' ? 'bg-amber-900/30 text-amber-300' : task.status === 'completed' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-slate-700 text-slate-400'}`}>
+                                {task.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {dispute.auditTrail && dispute.auditTrail.length > 0 && (
+                      <div>
+                        <h4 className="text-md font-semibold text-slate-50 font-heading">Activity Timeline</h4>
+                        <div className="mt-2 space-y-2 max-h-[200px] overflow-y-auto">
+                          {dispute.auditTrail.slice().reverse().slice(0, 20).map((entry, i) => (
+                              <div key={i} className="flex items-start gap-2 text-xs">
+                                <span className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${entry.actor?.type === 'system' ? 'bg-cyan-400' : entry.actor?.type === 'automation' ? 'bg-amber-400' : 'bg-slate-500'}`} />
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-slate-300">{entry.title}</span>
+                                  <p className="text-slate-500 truncate">{entry.description}</p>
+                                </div>
+                              </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                 </div>
               </div>

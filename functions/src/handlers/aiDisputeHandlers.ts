@@ -11,13 +11,19 @@ import {
 import { buildDisputeCase } from "../services/ai/disputeCaseBuilder";
 import { generateDisputeArgument } from "../services/ai/argumentGenerator";
 import { getEvidenceFiles } from "../services/evidenceService";
+import { getPSPFormats, getWinPatterns } from "../services/knowledgeBaseService";
+import { detectNetworkFromCode, mapStripeReasonToCode } from "../config/disputeCodeMapping";
 import { EvidencePlan, EvidenceItem, ArgumentVersion } from "../types/aiDispute";
 import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { assertFeatureEnabled, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
+import { ALLOWED_ORIGINS } from "../config/environment";
+import { addAuditTrailEntry, createSystemAuditEntry, createErrorAuditEntry } from "../utils/auditTrailHelper";
+import { sendInternalError } from "../utils/httpErrorResponse";
 
 // ============================================================
 // AI Dispute Handlers
-// HTTP endpoints for AI evidence planning
+// HTTP endpoints for AI evidence planning and argument generation.
 // ============================================================
 
 /**
@@ -40,19 +46,21 @@ function removeUndefinedFields<T extends Record<string, any>>(obj: T): T {
 }
 
 /**
- * Generate evidence plan for a dispute (async pattern)
+ * Generate evidence plan for a dispute.
  * POST /ai/disputes/:id/plan-evidence
- * 
- * Returns immediately with status: "generating" while processing continues
- * in background. Frontend uses Firestore real-time listener to detect completion.
+ *
+ * This HTTP handler only validates auth, rate-limits, and writes a
+ * `{ evidencePlanStatus: "queued" }` marker to the dispute document.
+ * The actual pipeline work is picked up by the Firestore-triggered
+ * `onEvidencePlanQueued` function, which has full Cloud Functions
+ * lifecycle guarantees (no detached promises after response).
  */
 export const planEvidence = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
-    secrets: ["ANTHROPIC_API_KEY"],
-    timeoutSeconds: 300, // 5 min – pipeline is sequential (6 LLM calls + revision loop)
+    cors: ALLOWED_ORIGINS,
     memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -73,6 +81,13 @@ export const planEvidence = functions.https.onRequest(
       return;
     }
 
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
+    }
+
     const rateLimitKey = authResult.uid!;
     const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
     if (!allowed) return;
@@ -88,79 +103,54 @@ export const planEvidence = functions.https.onRequest(
         return;
       }
 
-      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+      const disputeRef = db.collection("disputes").doc(disputeId);
 
-      if (!disputeDoc.exists) {
-        res.status(404).json({ error: "Dispute not found" });
-        return;
-      }
-
-      const dispute = disputeDoc.data();
-      if (dispute?.organizationId !== organizationId) {
-        res.status(403).json({ error: "Dispute does not belong to organization" });
-        return;
-      }
-
-      // Mark as "generating" immediately
-      await db.collection("disputes").doc(disputeId).update({
-        evidencePlanStatus: "generating",
-        evidencePlanError: null,
-        updatedAt: FieldValue.serverTimestamp(),
+      // Atomically check status and queue — prevents double-queuing on rapid clicks
+      const alreadyInProgress = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(disputeRef);
+        if (!snap.exists) {
+          res.status(404).json({ error: "Dispute not found" });
+          return "abort" as const;
+        }
+        const data = snap.data()!;
+        if (data.organizationId !== organizationId) {
+          res.status(403).json({ error: "Dispute does not belong to organization" });
+          return "abort" as const;
+        }
+        const currentStatus = data.evidencePlanStatus;
+        if (currentStatus === "queued" || currentStatus === "generating") {
+          return true;
+        }
+        tx.update(disputeRef, {
+          evidencePlanStatus: "queued",
+          evidencePlanRegenerate: !!regenerate,
+          evidencePlanError: null,
+          evidencePlanQueuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
       });
 
-      // Return immediately - don't wait for generation
+      if (alreadyInProgress === "abort") return;
+
+      if (alreadyInProgress) {
+        res.json({
+          success: true,
+          status: "queued",
+          message: "Evidence plan generation is already in progress.",
+        });
+        return;
+      }
+
       res.json({
         success: true,
-        status: "generating",
-        message: "Evidence plan generation started. You will be notified when complete.",
+        status: "queued",
+        message: "Evidence plan generation queued. You will be notified when complete.",
       });
-
-      // Continue processing in background (after response is sent)
-      const planningPromise = regenerate
-        ? regenerateEvidencePlan(disputeId, organizationId)
-        : triggerEvidencePlanning(disputeId, organizationId);
-
-      planningPromise
-        .then(async (result) => {
-          if (result.success) {
-            // Update status to complete (plan data is already saved by triggerEvidencePlanning)
-            await db.collection("disputes").doc(disputeId!).update({
-              evidencePlanStatus: "complete",
-              evidencePlanError: null,
-              updatedAt: FieldValue.serverTimestamp(),
-            });
-            console.log(`Evidence plan generation completed for dispute ${disputeId}`);
-          } else {
-            // Update status to error
-            await db.collection("disputes").doc(disputeId!).update({
-              evidencePlanStatus: "error",
-              evidencePlanError: result.error || "Unknown error during plan generation",
-              updatedAt: FieldValue.serverTimestamp(),
-            });
-            console.error(`Evidence plan generation failed for dispute ${disputeId}: ${result.error}`);
-          }
-        })
-        .catch(async (error) => {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
-          console.error(`Error in background evidence planning for ${disputeId}:`, errorMessage);
-          
-          // Update status to error
-          try {
-            await db.collection("disputes").doc(disputeId!).update({
-              evidencePlanStatus: "error",
-              evidencePlanError: errorMessage,
-              updatedAt: FieldValue.serverTimestamp(),
-            });
-          } catch (updateError) {
-            console.error(`Failed to update error status for ${disputeId}:`, updateError);
-          }
-        });
-
     } catch (error) {
       console.error("Error in planEvidence:", error);
       const message = error instanceof Error ? error.message : "Unknown error";
-      
-      // If we have a disputeId, try to update the status to error
+
       if (disputeId) {
         try {
           await db.collection("disputes").doc(disputeId).update({
@@ -172,10 +162,136 @@ export const planEvidence = functions.https.onRequest(
           console.error("Failed to update error status:", updateError);
         }
       }
-      
-      res.status(500).json({ error: message });
+
+      sendInternalError(res, error, "planEvidence");
     }
   }
+);
+
+/**
+ * Firestore-triggered function that runs the evidence planning pipeline
+ * when a dispute's `evidencePlanStatus` changes to "queued".
+ *
+ * This replaces the old detached-promise pattern: the pipeline now runs
+ * within a proper Cloud Functions invocation with its own timeout/retry
+ * lifecycle guarantees.
+ */
+export const onEvidencePlanQueued = functions.firestore.onDocumentUpdated(
+  {
+    document: "disputes/{disputeId}",
+    region: "us-central1",
+    secrets: ["ANTHROPIC_API_KEY"],
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after) return;
+
+    // Only trigger when status transitions to "queued"
+    if (before.evidencePlanStatus === "queued" || after.evidencePlanStatus !== "queued") {
+      return;
+    }
+
+    const disputeId = event.params.disputeId;
+    const organizationId = after.organizationId as string;
+    const regenerate = !!after.evidencePlanRegenerate;
+    const db = admin.firestore();
+    const planStart = Date.now();
+    const disputeRef = db.collection("disputes").doc(disputeId);
+
+    // Atomically transition queued → generating so duplicate trigger
+    // deliveries are harmless (second invocation sees "generating" and bails).
+    const claimed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(disputeRef);
+      if (!snap.exists) return false;
+      if (snap.data()!.evidencePlanStatus !== "queued") return false;
+      tx.update(disputeRef, {
+        evidencePlanStatus: "generating",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+
+    if (!claimed) {
+      console.log(`[onEvidencePlanQueued] Dispute ${disputeId} no longer queued — skipping`);
+      return;
+    }
+
+    await addAuditTrailEntry(
+      disputeId,
+      regenerate ? "Evidence Plan Regeneration Started" : "Evidence Plan Generation Started",
+      `AI evidence planning pipeline initiated (${regenerate ? "regeneration" : "first run"}).`,
+      "in_progress",
+      { type: "automation" },
+      "evidence_planning",
+    );
+
+    try {
+      const result = regenerate
+        ? await regenerateEvidencePlan(disputeId, organizationId)
+        : await triggerEvidencePlanning(disputeId, organizationId);
+
+      const durationMs = Date.now() - planStart;
+
+      if (result.success) {
+        await db.collection("disputes").doc(disputeId).update({
+          evidencePlanStatus: "complete",
+          evidencePlanError: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        await createSystemAuditEntry(
+          disputeId,
+          "Evidence Plan Generated",
+          `AI evidence planning completed successfully in ${(durationMs / 1000).toFixed(1)}s.`,
+          "evidence_planning",
+          { duration: durationMs },
+        );
+        console.log(`Evidence plan generation completed for dispute ${disputeId}`);
+      } else {
+        await db.collection("disputes").doc(disputeId).update({
+          evidencePlanStatus: "error",
+          evidencePlanError: result.error || "Unknown error during plan generation",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        await createErrorAuditEntry(
+          disputeId,
+          "Evidence Plan Failed",
+          `AI evidence planning failed after ${(durationMs / 1000).toFixed(1)}s.`,
+          undefined,
+          result.error || "Unknown error",
+          undefined,
+          "evidence_planning",
+          { duration: durationMs },
+        );
+        console.error(`Evidence plan generation failed for dispute ${disputeId}: ${result.error}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error(`Error in evidence planning for ${disputeId}:`, errorMessage);
+
+      try {
+        await db.collection("disputes").doc(disputeId).update({
+          evidencePlanStatus: "error",
+          evidencePlanError: errorMessage,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        await createErrorAuditEntry(
+          disputeId,
+          "Evidence Plan Error",
+          `Unexpected error during evidence planning.`,
+          undefined,
+          errorMessage,
+          undefined,
+          "evidence_planning",
+          { duration: Date.now() - planStart },
+        );
+      } catch (updateError) {
+        console.error(`Failed to update error status for ${disputeId}:`, updateError);
+      }
+    }
+  },
 );
 
 /**
@@ -185,7 +301,9 @@ export const planEvidence = functions.https.onRequest(
 export const updateEvidenceItem = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -202,7 +320,6 @@ export const updateEvidenceItem = functions.https.onRequest(
     try {
       const disputeId = req.query.disputeId as string;
       const {
-        organizationId,
         requirementId,
         status,
         fileId,
@@ -237,8 +354,7 @@ export const updateEvidenceItem = functions.https.onRequest(
       }
 
       const dispute = disputeDoc.data();
-      const effectiveOrgId = organizationId || authResult.organizationId;
-      if (effectiveOrgId && dispute?.organizationId !== effectiveOrgId) {
+      if (authResult.role !== "admin" && dispute?.organizationId !== authResult.organizationId) {
         res.status(403).json({ error: "Dispute does not belong to organization" });
         return;
       }
@@ -255,7 +371,11 @@ export const updateEvidenceItem = functions.https.onRequest(
       );
 
       if (!success) {
-        res.status(500).json({ error: "Failed to update evidence item" });
+        sendInternalError(
+          res,
+          new Error("updateEvidenceItemStatus returned false"),
+          "updateEvidenceItem",
+        );
         return;
       }
 
@@ -267,9 +387,7 @@ export const updateEvidenceItem = functions.https.onRequest(
         progress,
       });
     } catch (error) {
-      console.error("Error in updateEvidenceItem:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "updateEvidenceItem");
     }
   }
 );
@@ -281,7 +399,9 @@ export const updateEvidenceItem = functions.https.onRequest(
 export const getProgress = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "GET") {
@@ -328,9 +448,7 @@ export const getProgress = functions.https.onRequest(
         progress,
       });
     } catch (error) {
-      console.error("Error in getProgress:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "getProgress");
     }
   }
 );
@@ -342,7 +460,9 @@ export const getProgress = functions.https.onRequest(
 export const toggleAIPlan = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -361,6 +481,13 @@ export const toggleAIPlan = functions.https.onRequest(
     if (!authResult.success) {
       sendAuthError(res, authResult);
       return;
+    }
+
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
     }
 
     try {
@@ -390,7 +517,11 @@ export const toggleAIPlan = functions.https.onRequest(
       const success = await toggleAIPlanMode(disputeId, useAIPlan);
 
       if (!success) {
-        res.status(500).json({ error: "Failed to toggle AI plan mode" });
+        sendInternalError(
+          res,
+          new Error("toggleAIPlanMode returned false"),
+          "toggleAIPlan",
+        );
         return;
       }
 
@@ -399,9 +530,7 @@ export const toggleAIPlan = functions.https.onRequest(
         useAIPlan,
       });
     } catch (error) {
-      console.error("Error in toggleAIPlan:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "toggleAIPlan");
     }
   }
 );
@@ -413,7 +542,7 @@ export const toggleAIPlan = functions.https.onRequest(
 export const draftArgument = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     secrets: ["ANTHROPIC_API_KEY"],
     timeoutSeconds: 180,
     memory: "512MiB",
@@ -437,9 +566,18 @@ export const draftArgument = functions.https.onRequest(
       return;
     }
 
+    try {
+      await assertFeatureEnabled(organizationId, "aiDraftsEnabled");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
+    }
+
     const rateLimitKey = authResult.uid!;
     const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
     if (!allowed) return;
+
+    const db = admin.firestore();
 
     try {
       const disputeId = req.query.disputeId as string;
@@ -449,44 +587,79 @@ export const draftArgument = functions.https.onRequest(
         return;
       }
 
-      const db = admin.firestore();
-      const disputeDoc = await db.collection("disputes").doc(disputeId).get();
+      const disputeRef = db.collection("disputes").doc(disputeId);
 
-      if (!disputeDoc.exists) {
+      // Atomic check-and-claim to prevent concurrent argument generation
+      const txResult = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(disputeRef);
+        if (!snap.exists) return { status: "not_found" as const };
+        const data = snap.data()!;
+
+        if (data.organizationId !== organizationId) {
+          return { status: "forbidden" as const };
+        }
+        if (!data.evidencePlan) {
+          return { status: "no_plan" as const };
+        }
+        if (data.argumentDraft && !regenerate) {
+          return { status: "cached" as const, draft: data.argumentDraft };
+        }
+        if (data.argumentDraftStatus === "generating") {
+          return { status: "already_generating" as const };
+        }
+
+        tx.update(disputeRef, {
+          argumentDraftStatus: "generating",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return { status: "claimed" as const, dispute: data };
+      });
+
+      if (txResult.status === "not_found") {
         res.status(404).json({ error: "Dispute not found" });
         return;
       }
-
-      const dispute = disputeDoc.data();
-      if (dispute?.organizationId !== organizationId) {
+      if (txResult.status === "forbidden") {
         res.status(403).json({ error: "Dispute does not belong to organization" });
         return;
       }
-
-      // Check if evidence plan exists
-      const evidencePlan = dispute.evidencePlan as EvidencePlan | undefined;
-      if (!evidencePlan) {
-        res.status(400).json({ 
+      if (txResult.status === "no_plan") {
+        res.status(400).json({
           error: "Evidence plan not generated yet",
           message: "Please generate an evidence plan before drafting an argument",
         });
         return;
       }
-
-      // Check if we already have a draft and not regenerating
-      if (dispute.argumentDraft && !regenerate) {
+      if (txResult.status === "cached") {
         res.json({
           success: true,
-          argument: dispute.argumentDraft,
+          argument: txResult.draft,
           cached: true,
         });
         return;
       }
+      if (txResult.status === "already_generating") {
+        res.json({
+          success: true,
+          argument: null,
+          cached: false,
+          message: "Argument generation is already in progress.",
+        });
+        return;
+      }
+
+      const dispute = txResult.dispute!;
+      const evidencePlan = dispute.evidencePlan as EvidencePlan;
 
       // Build the DisputeCase
       const disputeCase = await buildDisputeCase(disputeId, organizationId);
       if (!disputeCase) {
-        res.status(500).json({ error: "Failed to build dispute case" });
+        sendInternalError(
+          res,
+          new Error("buildDisputeCase returned null"),
+          "draftArgument",
+        );
         return;
       }
 
@@ -500,17 +673,61 @@ export const draftArgument = functions.https.onRequest(
         Promise.resolve(dispute.pmsMatch || undefined),
       ]);
 
+      // Read cached specialist outputs persisted by evidence planning
+      const cachedClaimAnalysis = dispute.cachedClaimAnalysis || undefined;
+      const cachedStrategy = dispute.cachedStrategy || undefined;
+      const cachedSchemeRule = dispute.cachedSchemeRule || undefined;
+      const previousValidation = dispute.draftValidation || undefined;
+
+      // Fetch KB context for the argument generator
+      const pspProvider = (dispute.pspProvider || "stripe") as "stripe" | "adyen" | "other";
+      const reasonCode = dispute.reason
+        ? (mapStripeReasonToCode(dispute.reason) || dispute.reason)
+        : "";
+      const network = reasonCode ? detectNetworkFromCode(reasonCode) : "unknown";
+      const verticalId = disputeCase.merchantVertical || "general";
+
+      const [pspFormats, winPatterns] = await Promise.all([
+        getPSPFormats(pspProvider),
+        reasonCode && network !== "unknown"
+          ? getWinPatterns(network as any, reasonCode, verticalId)
+          : Promise.resolve([]),
+      ]);
+
+      const argStart = Date.now();
+      await addAuditTrailEntry(
+        disputeId,
+        regenerate ? "Argument Regeneration Started" : "Argument Draft Started",
+        `AI argument generation pipeline initiated.`,
+        "in_progress",
+        { type: "automation" },
+        "argument_generation",
+      );
+
       console.log(`Generating argument for dispute ${disputeId} using Claude vision`);
       const argument = await generateDisputeArgument(
         disputeCase,
         evidencePlan,
         evidenceItems,
         disputeId,
-        { preloadedFiles, pmsMatch }
+        {
+          preloadedFiles,
+          pmsMatch,
+          claimAnalysis: cachedClaimAnalysis,
+          strategy: cachedStrategy,
+          schemeRule: cachedSchemeRule,
+          pspFormats: pspFormats.length > 0 ? pspFormats : undefined,
+          winPatterns: winPatterns.length > 0 ? winPatterns : undefined,
+          previousValidation: regenerate ? previousValidation : undefined,
+        }
       );
 
       if (!argument) {
-        res.status(500).json({ error: "Failed to generate argument" });
+        sendInternalError(
+          res,
+          new Error("generateDisputeArgument returned null"),
+          "draftArgument",
+        );
         return;
       }
 
@@ -544,14 +761,24 @@ export const draftArgument = functions.https.onRequest(
       // Add to versions array
       updatedVersions.push(newVersion);
 
-      // Save the draft to Firestore - update both current fields and versions array
-      await db.collection("disputes").doc(disputeId).update({
-        argumentDraft: cleanedArgument, // Keep current draft for backward compatibility
+      // Save the draft to Firestore — clear the generation lock
+      await disputeRef.update({
+        argumentDraft: cleanedArgument,
         argumentDraftGeneratedAt: FieldValue.serverTimestamp(),
-        argumentVersions: updatedVersions, // Store all versions
+        argumentDraftStatus: "complete",
+        argumentVersions: updatedVersions,
         lifecycleStatus: "draft_ready",
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+      const argDurationMs = Date.now() - argStart;
+      await createSystemAuditEntry(
+        disputeId,
+        "Argument Draft Generated",
+        `AI argument v${nextVersion} generated in ${(argDurationMs / 1000).toFixed(1)}s.`,
+        "argument_generation",
+        { duration: argDurationMs, argumentVersion: nextVersion },
+      );
 
       console.log(`Argument version ${nextVersion} generated and saved for dispute ${disputeId}`);
 
@@ -564,7 +791,29 @@ export const draftArgument = functions.https.onRequest(
     } catch (error) {
       console.error("Error in draftArgument:", error);
       const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+
+      const draftDisputeId = req.query.disputeId as string | undefined;
+      if (draftDisputeId) {
+        try {
+          await db.collection("disputes").doc(draftDisputeId).update({
+            argumentDraftStatus: "error",
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          await createErrorAuditEntry(
+            draftDisputeId,
+            "Argument Draft Failed",
+            `AI argument generation failed.`,
+            undefined,
+            message,
+            undefined,
+            "argument_generation",
+          );
+        } catch {
+          // Cleanup must not mask the original error.
+        }
+      }
+
+      sendInternalError(res, error, "draftArgument");
     }
   }
 );

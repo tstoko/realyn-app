@@ -6,6 +6,7 @@ import { updateOrganizationDocuments, updateOrganizationIntegrations, getOrganiz
 import { mergePspCredentials } from '../services/pspCredentialMerger';
 import { saveOperaCloudConfig } from '../services/operaCloudService';
 import type { PspCredentials, OperaCloudCredentials } from '../features/hotels/IntegrationsTab';
+import { organizationToHotel } from '../features/hotels/HotelSelectionPage';
 
 interface HotelContextValue {
   /** The currently selected hotel / organization context. null when admin is at portfolio level. */
@@ -31,31 +32,51 @@ export const HotelProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [hotel, setHotel] = useState<Hotel | null>(null);
   const [noOrganization, setNoOrganization] = useState(false);
 
-  // For regular users, auto-set their organization as the hotel context
+  // Regular users: load full organization from Firestore (isDemo, integrations, teams, etc.)
   useEffect(() => {
-    if (user && user.role === 'user') {
-      if (user.organizationId && !hotel) {
-        setNoOrganization(false);
-        setHotel({
-          id: user.organizationId,
-          name: user.hotelName || 'My Account',
-          location: '',
-          teams: [],
-          documents: [],
-          integrations: { psp: { type: 'none', status: 'not_connected' } },
-          automationSettings: { autoSubmissionEnabled: false, autoSubmissionMinAmount: 0, autoMarkNotContested: false },
-          users: [],
-        });
-      } else if (!user.organizationId) {
-        setNoOrganization(true);
-      }
-    }
     if (!user) {
       setHotel(null);
       setNoOrganization(false);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    if (user.role !== 'user') {
+      return;
+    }
+    if (!user.organizationId) {
+      setNoOrganization(true);
+      setHotel(null);
+      return;
+    }
+    setNoOrganization(false);
+    const orgId = user.organizationId;
+    const fallbackName = user.hotelName || 'My Account';
+    const stubHotel: Hotel = {
+      id: orgId,
+      name: fallbackName,
+      location: '',
+      teams: [],
+      documents: [],
+      integrations: { psp: { type: 'none', status: 'not_connected' } },
+      automationSettings: { autoSubmissionEnabled: false, autoSubmissionMinAmount: 0, autoMarkNotContested: false },
+      users: [],
+    };
+    setHotel(stubHotel);
+
+    let cancelled = false;
+    getOrganization(orgId)
+      .then((org) => {
+        if (cancelled) return;
+        if (org) {
+          setHotel(organizationToHotel(org));
+        }
+      })
+      .catch(() => {
+        /* keep stub */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role, user?.organizationId, user?.hotelName]);
 
   const { disputes, loading: isLoading } = useDisputes(hotel?.id);
 

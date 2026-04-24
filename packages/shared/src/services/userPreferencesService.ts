@@ -1,8 +1,6 @@
 import { doc, getDoc } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, getFunctionsBaseUrl } from './firebase';
 import type { UserPreferences } from '../types';
-
-const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
 
 /**
  * Default user preferences
@@ -68,7 +66,7 @@ export async function updateUserPreferences(
   if (!currentUser) throw new Error('Not authenticated');
   const idToken = await currentUser.getIdToken();
 
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+  const response = await fetch(`${getFunctionsBaseUrl()}/userWriteHandler`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
     body: JSON.stringify({

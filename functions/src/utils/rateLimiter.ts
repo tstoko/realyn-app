@@ -23,7 +23,7 @@ export interface RateLimitConfig {
    * Behavior when the rate limiter encounters an internal error (e.g. Firestore failure).
    * - 'open': allow the request through (safe for webhooks that must not lose events)
    * - 'closed': deny the request (safe for expensive operations like AI calls, PSP submissions)
-   * Defaults to 'open' for backward compatibility.
+   * Defaults to 'closed' -- explicitly set 'open' for webhooks.
    */
   failMode?: "open" | "closed";
 }
@@ -74,6 +74,34 @@ export const RATE_LIMIT_CONFIGS = {
     windowSeconds: 60,
     keyType: "ip" as const,
     failMode: "open" as const,
+  },
+  /** Signup - fail-closed to reduce throwaway accounts behind shared NAT */
+  signup: {
+    maxRequests: 15,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  /** Authenticated invite/revoke/list team HTTP handlers */
+  invite: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "user" as const,
+    failMode: "closed" as const,
+  },
+  /** Accept invite (pre-auth body); keyed by IP */
+  inviteAccept: {
+    maxRequests: 40,
+    windowSeconds: 3600,
+    keyType: "ip" as const,
+    failMode: "closed" as const,
+  },
+  /** Heavy CSV import; key with organization:{id} */
+  csvImport: {
+    maxRequests: 25,
+    windowSeconds: 3600,
+    keyType: "custom" as const,
+    failMode: "closed" as const,
   },
 } as const;
 
@@ -139,24 +167,20 @@ export class RateLimiter {
       return result;
     } catch (error) {
       console.error("Rate limiter error:", error);
-      const failMode = config.failMode || "open";
-      if (failMode === "closed") {
-        // Fail-closed: deny the request when the limiter can't verify the count.
-        // Use this for expensive operations (AI calls, PSP submissions) to prevent
-        // abuse when Firestore is unavailable.
-        console.warn(`Rate limiter fail-CLOSED for key ${docId} — denying request`);
+      const failMode = config.failMode || "closed";
+      if (failMode === "open") {
         return {
-          allowed: false,
-          remaining: 0,
+          allowed: true,
+          remaining: config.maxRequests,
           resetAt: new Date(now + config.windowSeconds * 1000),
-          retryAfter: config.windowSeconds,
         };
       }
-      // Fail-open: allow the request through (default for webhooks, general API).
+      console.warn(`Rate limiter fail-CLOSED for key ${docId} — denying request`);
       return {
-        allowed: true,
-        remaining: config.maxRequests,
+        allowed: false,
+        remaining: 0,
         resetAt: new Date(now + config.windowSeconds * 1000),
+        retryAfter: config.windowSeconds,
       };
     }
   }
@@ -194,7 +218,7 @@ export class RateLimiter {
       };
     } catch (error) {
       console.error("Rate limiter status error:", error);
-      const failMode = config.failMode || "open";
+      const failMode = config.failMode || "closed";
       return {
         allowed: failMode === "open",
         remaining: failMode === "open" ? config.maxRequests : 0,

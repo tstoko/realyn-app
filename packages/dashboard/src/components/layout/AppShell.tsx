@@ -16,6 +16,7 @@ interface AppShellProps {
   onNavigateToActivityLog?: () => void;
   onNavigateToUserManagement?: () => void;
   onNavigateToContactSales?: () => void;
+  onNavigateToTeam?: () => void;
   onOpenSettings: () => void;
   hotelView?: HotelView;
   onNavigateToHotelDisputes?: () => void;
@@ -48,7 +49,7 @@ const ActivityIcon: React.FC<{ className?: string}> = ({className}) => (
 
 export const AppShell: React.FC<AppShellProps> = ({ 
     user, onLogout, pageTitle, children, hotelContextName, onBackToSelection,
-    onNavigateToProperties, onNavigateToPortfolioAnalytics, onNavigateToActivityLog, onNavigateToUserManagement, onNavigateToContactSales, onOpenSettings,
+    onNavigateToProperties, onNavigateToPortfolioAnalytics, onNavigateToActivityLog, onNavigateToUserManagement, onNavigateToContactSales, onNavigateToTeam, onOpenSettings,
     hotelView, onNavigateToHotelDisputes, onNavigateToHotelAnalytics,
     disablePageScroll = false
 }) => {
@@ -107,6 +108,14 @@ export const AppShell: React.FC<AppShellProps> = ({
                             active={!isInHotelContext && pageTitle.includes("Contact Sales")} 
                             onClick={onNavigateToContactSales ? () => { onNavigateToContactSales(); closeSidebar(); } : undefined} 
                         />
+                        {onNavigateToTeam && (
+                            <NavItem 
+                                icon={<UsersIcon className="h-5 w-5" />} 
+                                label="Team" 
+                                active={!isInHotelContext && pageTitle.includes("Team")} 
+                                onClick={() => { onNavigateToTeam(); closeSidebar(); }} 
+                            />
+                        )}
                         
                         {isInHotelContext && (
                             <>
@@ -141,6 +150,14 @@ export const AppShell: React.FC<AppShellProps> = ({
                             active={hotelView === 'analytics'}
                             onClick={onNavigateToHotelAnalytics ? () => { onNavigateToHotelAnalytics(); closeSidebar(); } : undefined}
                         />
+                        {onNavigateToTeam && (
+                            <NavItem 
+                                icon={<UsersIcon className="h-5 w-5" />} 
+                                label="Team" 
+                                active={pageTitle.includes("Team")} 
+                                onClick={() => { onNavigateToTeam(); closeSidebar(); }} 
+                            />
+                        )}
                     </>
                 )}
             </nav>

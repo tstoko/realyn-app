@@ -12,6 +12,23 @@ jest.mock("../../utils/adyenHelpers");
 jest.mock("../../utils/disputeNormalizer");
 jest.mock("../../services/disputeService");
 
+jest.mock("firebase-admin", () => ({
+  initializeApp: jest.fn(),
+  apps: [],
+  firestore: jest.fn(() => ({
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({ get: jest.fn() })),
+    })),
+  })),
+  FieldValue: { serverTimestamp: jest.fn(() => "SERVER_TS") },
+}));
+
 describe("adyenWebhook", () => {
   let mockRequest: any;
   let mockResponse: any;
@@ -159,7 +176,12 @@ describe("adyenWebhook", () => {
     await adyenWebhook(mockRequest, mockResponse);
 
     expect(mockResponse.status).toHaveBeenCalledWith(500);
-    expect(mockResponse.json).toHaveBeenCalledWith({ error: error.message });
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "Internal server error",
+        errorId: expect.stringMatching(/^[0-9a-f]{8}$/),
+      }),
+    );
   });
 });
 

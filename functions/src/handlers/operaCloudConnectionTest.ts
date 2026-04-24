@@ -9,6 +9,7 @@ import {
   OHIPHotelDetailsResponse,
 } from "../services/pms/providers/operaCloud/types";
 import {logOrgAuditEvent} from "../utils/orgAuditLogger";
+import {ALLOWED_ORIGINS} from "../config/environment";
 
 /**
  * Test OPERA Cloud connection.
@@ -19,7 +20,7 @@ import {logOrgAuditEvent} from "../utils/orgAuditLogger";
  * decrypt() calls inside those modules work correctly.
  */
 export const testOperaCloudConnection = onRequest(
-    {cors: true},
+    {cors: ALLOWED_ORIGINS},
     async (req: Request, res: Response): Promise<void> => {
       if (req.method !== "POST") {
         res.status(405).send("Method Not Allowed");

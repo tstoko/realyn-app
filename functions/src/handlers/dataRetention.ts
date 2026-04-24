@@ -21,6 +21,7 @@ import {
   exportUserData,
 } from "../services/dataRetentionService";
 import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 // ============================================================
 // Authentication Helper
@@ -87,7 +88,7 @@ async function userHasOrgAccess(
 export const deleteOrganization = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 300, // 5 minutes for large deletions
     memory: "1GiB",
   },
@@ -168,7 +169,7 @@ export const deleteOrganization = functions.https.onRequest(
 export const deleteDispute = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 60,
     memory: "512MiB",
   },
@@ -234,7 +235,7 @@ export const deleteDispute = functions.https.onRequest(
 export const deleteUser = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 60,
     memory: "512MiB",
   },
@@ -300,7 +301,7 @@ export const deleteUser = functions.https.onRequest(
 export const anonymizeDisputeHandler = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 60,
     memory: "512MiB",
   },
@@ -363,7 +364,7 @@ export const anonymizeDisputeHandler = functions.https.onRequest(
 export const exportOrganization = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 120,
     memory: "1GiB",
   },
@@ -423,7 +424,7 @@ export const exportOrganization = functions.https.onRequest(
 export const exportUser = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 60,
     memory: "512MiB",
   },

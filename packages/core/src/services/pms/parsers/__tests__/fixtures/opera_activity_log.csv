@@ -1,0 +1,6 @@
+TIMESTAMP,ACTION,DETAILS,PERFORMED_BY,CONFIRMATION_NO
+2026-01-15T14:32:00,CHECK_IN,Guest checked in to Room 405,Front Desk Agent J. Wilson,100001
+2026-01-15T14:35:00,KEY_ENCODED,Key card encoded for Room 405,Front Desk Agent J. Wilson,100001
+2026-01-16T09:15:00,HOUSEKEEPING,Room 405 cleaned and inspected,HK Staff M. Rodriguez,100001
+2026-01-17T10:00:00,HOUSEKEEPING,Room 405 cleaned and inspected,HK Staff M. Rodriguez,100001
+2026-01-18T11:02:00,CHECK_OUT,Guest checked out from Room 405,Front Desk Agent S. Park,100001

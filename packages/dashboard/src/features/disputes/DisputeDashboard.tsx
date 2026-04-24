@@ -8,6 +8,7 @@ import { useDisputes } from '../../hooks/useDisputes';
 import { ManagePoliciesModal } from '../hotels/ManagePoliciesModal';
 import { ManageIntegrationsModal } from '../hotels/ManageIntegrationsModal';
 import type { PspCredentials } from '../hotels/IntegrationsTab';
+import { syncDisputes } from '../../services/disputeSyncService';
 
 interface DisputeDashboardProps {
   user: User;
@@ -61,6 +62,35 @@ export const DisputeDashboard: React.FC<DisputeDashboardProps> = ({ user, hotel,
   const [rowDensity, setRowDensity] = useState<'comfortable' | 'compact'>('comfortable');
   
   const { updateDispute, updateMultipleDisputes } = useDisputes(hotel.id);
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncCooldown, setSyncCooldown] = useState(false);
+
+  const handleSyncDisputes = useCallback(async () => {
+    if (isSyncing || syncCooldown) return;
+    setIsSyncing(true);
+    try {
+      const result = await syncDisputes(hotel.id);
+      if (result.success) {
+        const msg = result.disputesSynced > 0
+          ? `Synced ${result.disputesSynced} disputes (${result.disputesCreated} new, ${result.disputesUpdated} updated)`
+          : 'No new disputes found';
+        addToast({ type: 'success', message: msg });
+      } else {
+        addToast({ type: 'error', message: result.error || 'Sync failed' });
+      }
+    } catch (error: any) {
+      if (error?.retryAfter) {
+        addToast({ type: 'error', message: `Rate limited. Try again in ${Math.ceil(error.retryAfter / 60)} minutes.` });
+        setSyncCooldown(true);
+        setTimeout(() => setSyncCooldown(false), error.retryAfter * 1000);
+      } else {
+        addToast({ type: 'error', message: error.message || 'Failed to sync disputes' });
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [hotel.id, isSyncing, syncCooldown, addToast]);
 
   const handleSavePolicies = async (documents: HotelDocument[]) => {
     if (onUpdateHotel) {
@@ -155,6 +185,17 @@ export const DisputeDashboard: React.FC<DisputeDashboardProps> = ({ user, hotel,
     <div className="flex flex-col flex-1 min-h-0 gap-4 w-full">
         <div className="flex-1 flex flex-col min-h-0">
             <div className="flex-shrink-0 flex flex-wrap items-center justify-end mb-4 gap-2">
+               <button
+                 onClick={handleSyncDisputes}
+                 disabled={isSyncing || syncCooldown}
+                 className="inline-flex items-center px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+                 title={syncCooldown ? 'Rate limited — please wait' : 'Sync latest disputes from PSP'}
+               >
+                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-2 flex-shrink-0 ${isSyncing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                 </svg>
+                 {isSyncing ? 'Syncing...' : syncCooldown ? 'Cooldown' : 'Refresh Disputes'}
+               </button>
                <button
                  onClick={() => setShowIntegrationsModal(true)}
                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 hover:text-white transition-colors w-full sm:w-auto"
