@@ -1,13 +1,24 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
-const FieldValue = admin.firestore.FieldValue;
+function verifyOrgAccessForAuth(authResult: { role?: string; organizationId?: string }, disputeOrgId: string): boolean {
+  if (authResult.role === "admin") return true;
+  return disputeOrgId === authResult.organizationId;
+}
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 
 export const disputeWriteHandler = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.general
+    );
+    if (!rateLimitOk) return;
+
     if (req.method !== "POST") {
       res.status(405).json({ success: false, error: "Method not allowed" });
       return;
@@ -40,7 +51,7 @@ export const disputeWriteHandler = onRequest(
           }
 
           const dispute = disputeDoc.data()!;
-          if (dispute.organizationId !== organizationId && authResult.role !== "admin") {
+          if (!verifyOrgAccessForAuth(authResult, dispute.organizationId)) {
             res.status(403).json({ success: false, error: "Access denied: organization mismatch" });
             return;
           }
@@ -76,7 +87,7 @@ export const disputeWriteHandler = onRequest(
             if (!disputeDoc.exists) continue;
 
             const dispute = disputeDoc.data()!;
-            if (dispute.organizationId !== organizationId && authResult.role !== "admin") {
+            if (!verifyOrgAccessForAuth(authResult, dispute.organizationId)) {
               continue;
             }
 

@@ -59,3 +59,7 @@ export { submitContactSalesForm, getAllContactSalesSubmissions, deleteContactSal
 export type { ContactSalesSubmission } from './services/contactSalesService';
 export { createOrUpdateUser, getUserData, updateUserProfile, getUserPreferences, updateUserPreferences } from './services/userService';
 export { DEFAULT_PREFERENCES } from './services/userPreferencesService';
+
+// Billing
+export { PLANS, getPlanById, isSubscriptionActive } from './billing';
+export type { Plan, PlanFeatures, Subscription, SubscriptionStatus } from './billing';

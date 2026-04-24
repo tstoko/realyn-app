@@ -1,8 +1,13 @@
 import { onRequest } from "firebase-functions/v2/https";
+import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyAdyenSignature, getOrganizationFromAdyenNotification } from "../utils/adyenHelpers";
 import { normalizeAdyenDispute } from "../utils/disputeNormalizer";
 import { upsertUnifiedDispute } from "../services/disputeService";
+import { recordDisputeOutcome } from "../services/winPatternService";
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { sendInternalError } from "../utils/httpErrorResponse";
 
 /**
  * Adyen webhook handler for dispute events
@@ -12,6 +17,11 @@ export const adyenWebhook = onRequest(
     cors: false,
   },
   async (req: Request, res: Response) => {
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.webhook
+    );
+    if (!rateLimitOk) return;
+
     try {
       const notification = req.body;
 
@@ -64,8 +74,30 @@ export const adyenWebhook = onRequest(
 
       // Process dispute-related events
       const eventCode = notificationItem.eventCode;
+      const pspReference = notificationItem.pspReference || "";
+      const adyenEventId = `adyen_${pspReference}_${eventCode}`;
       console.log(`Adyen webhook: Processing event: ${eventCode} for organization: ${orgData.organizationId}`);
-      
+
+      // Idempotency: skip if this notification was already processed
+      const db = admin.firestore();
+      const eventRef = db.collection("_processedWebhookEvents").doc(adyenEventId);
+      const alreadyProcessed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(eventRef);
+        if (snap.exists) return true;
+        tx.set(eventRef, {
+          provider: "adyen",
+          eventType: eventCode,
+          processedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
+      });
+
+      if (alreadyProcessed) {
+        console.log(`[AdyenWebhook] Duplicate event ${adyenEventId} — skipping`);
+        res.status(200).send("[accepted]");
+        return;
+      }
+
       const disputeEvents = [
         "CHARGEBACK",
         "SECOND_CHARGEBACK",
@@ -77,17 +109,27 @@ export const adyenWebhook = onRequest(
       if (disputeEvents.includes(eventCode)) {
         // Normalize and store dispute using unified service
         const normalized = normalizeAdyenDispute(notification, orgData.organizationId);
-        await upsertUnifiedDispute(normalized);
+        const disputeDocId = await upsertUnifiedDispute(normalized);
         console.log(`Adyen webhook: ✅ Created/updated dispute ${normalized.pspDisputeId} for organization: ${orgData.organizationId}`);
+
+        const outcomeMap: Record<string, "won" | "lost"> = {
+          CHARGEBACK_REVERSED: "won",
+          DEFENSE_DEBIT: "lost",
+        };
+        const outcome = outcomeMap[eventCode];
+        if (outcome) {
+          recordDisputeOutcome(disputeDocId, outcome).catch((err) => {
+            console.error(`[WinPattern] Failed to record Adyen outcome for ${disputeDocId}:`, err);
+          });
+        }
       } else {
         console.log(`Adyen webhook: Event ${eventCode} is not a dispute event, skipping`);
       }
 
       // Always return [accepted] for Adyen
       res.status(200).send("[accepted]");
-    } catch (error: any) {
-      console.error("Error processing Adyen webhook:", error);
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      sendInternalError(res, error, "AdyenWebhook");
     }
   }
 );

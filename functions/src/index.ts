@@ -1,13 +1,21 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import Stripe from "stripe";
 import { Request, Response } from "express";
 import { getOrganizationIdFromStripeEvent, getPaymentMetadata } from "./utils/stripeHelpers";
 import { normalizeStripeDispute } from "./utils/disputeNormalizer";
 import { upsertUnifiedDispute, updateDisputeStatus as updateUnifiedDisputeStatus } from "./services/disputeService";
+import { recordDisputeOutcome } from "./services/winPatternService";
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "./utils/rateLimiter";
+import { sendInternalError } from "./utils/httpErrorResponse";
+
+import { configureTelemetry } from "@realyn/ai-core/telemetry";
+import { cloudLoggingEmitter } from "./lib/cloudLoggingTelemetry";
 
 admin.initializeApp();
+configureTelemetry(cloudLoggingEmitter);
 
 // Define secrets
 const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
@@ -51,8 +59,8 @@ export const stripeWebhook = onRequest(
     if (rawBody) {
       try {
         event = stripe.webhooks.constructEvent(rawBody, signature, webhookKey) as Stripe.Event;
-      } catch (error: any) {
-        console.error("Signature verification failed:", error.message);
+      } catch (error: unknown) {
+        console.error("Signature verification failed:", error);
         res.status(400).json({ error: "Invalid signature" });
         return;
       }
@@ -62,13 +70,36 @@ export const stripeWebhook = onRequest(
       return;
     }
 
-    // Process event
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.webhook
+    );
+    if (!rateLimitOk) return;
+
     try {
+      // Idempotency: skip if this event was already processed
+      const db = admin.firestore();
+      const eventRef = db.collection("_processedWebhookEvents").doc(event.id);
+      const alreadyProcessed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(eventRef);
+        if (snap.exists) return true;
+        tx.set(eventRef, {
+          provider: "stripe",
+          eventType: event.type,
+          processedAt: FieldValue.serverTimestamp(),
+        });
+        return false;
+      });
+
+      if (alreadyProcessed) {
+        console.log(`[StripeWebhook] Duplicate event ${event.id} — skipping`);
+        res.json({ received: true, duplicate: true });
+        return;
+      }
+
       await processStripeEvent(event, stripe);
       res.json({ received: true });
-    } catch (error: any) {
-      console.error("Error processing webhook:", error);
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      sendInternalError(res, error, "StripeWebhook");
     }
   }
 );
@@ -109,7 +140,7 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
           paymentIntentId: dispute.payment_intent || null,
           amount: dispute.amount,
           currency: dispute.currency,
-          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+          receivedAt: FieldValue.serverTimestamp(),
           reason: "Could not resolve organizationId from event metadata",
         });
         console.warn(
@@ -134,8 +165,16 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
     }
     case "charge.dispute.closed": {
       const { mapStripeStatus } = await import("./utils/disputeNormalizer");
-      await updateUnifiedDisputeStatus("stripe", dispute.id, mapStripeStatus(dispute.status));
+      const mappedStatus = mapStripeStatus(dispute.status);
+      await updateUnifiedDisputeStatus("stripe", dispute.id, mappedStatus);
       console.log(`Closed Stripe dispute: ${dispute.id}`);
+
+      if (mappedStatus === "won" || mappedStatus === "lost") {
+        const disputeDocId = `stripe_${dispute.id}`;
+        recordDisputeOutcome(disputeDocId, mappedStatus).catch((err) => {
+          console.error(`[WinPattern] Failed to record outcome for ${disputeDocId}:`, err);
+        });
+      }
       break;
     }
     default:
@@ -146,6 +185,7 @@ async function processStripeEvent(event: Stripe.Event, stripe: Stripe): Promise<
 // --- HTTP / scheduled handlers (re-exported for deployment) ---
 export {
   planEvidence,
+  onEvidencePlanQueued,
   updateEvidenceItem,
   getProgress,
   toggleAIPlan,
@@ -155,6 +195,7 @@ export { testStripeConnection, testAdyenConnection } from "./handlers/pspConnect
 export {
   submitStripeDisputeResponse,
   submitAdyenDisputeResponse,
+  submitDisputeResponse,
 } from "./handlers/submitDisputeResponse";
 export { adyenWebhook } from "./handlers/adyenWebhook";
 export { adyenManualSync } from "./handlers/adyenManualSync";
@@ -184,6 +225,12 @@ export { seedTestDisputes } from "./handlers/seedTestDisputes";
 export { seedCustomDispute } from "./handlers/seedCustomDispute";
 export { seedDemoData } from "./handlers/seedDemoData";
 export { seedDiceDemoData } from "./handlers/seedDiceDemoHandler";
+export { seedNimaxDemoData } from "./handlers/seedNimaxDemoHandler";
+export { seedZipworldDemoData } from "./handlers/seedZipworldDemoHandler";
+export { seedSkiddleDemoData } from "./handlers/seedSkiddleDemoHandler";
+export { seedSadlersWellsDemoData } from "./handlers/seedSadlersWellsDemoHandler";
+export { seedAttractionworldDemoData } from "./handlers/seedAttractionworldDemoHandler";
+export { seedKnowledgeBase } from "./handlers/seedKnowledgeBase";
 export { resetTestEnvironmentHandler } from "./handlers/resetTestEnvironment";
 export { clearDisputesHandler } from "./handlers/clearDisputes";
 export { adminUpdateDispute } from "./handlers/adminUpdateDispute";
@@ -196,3 +243,16 @@ export { organizationWriteHandler } from "./handlers/organizationWriteHandler";
 export { disputeWriteHandler } from "./handlers/disputeWriteHandler";
 export { userWriteHandler } from "./handlers/userWriteHandler";
 export { syncUserClaims, migrateCustomClaims } from "./handlers/setCustomClaims";
+export { signup } from "./handlers/signupHandler";
+export { createCheckoutSession, billingWebhook, createBillingPortalSession } from "./handlers/billingHandlers";
+export { disputeNotificationTrigger } from "./handlers/disputeNotificationTrigger";
+export { deadlineReminderScheduler } from "./handlers/deadlineReminderScheduler";
+export { disputeSyncScheduler } from "./handlers/disputeSyncScheduler";
+export { disputeManualSync } from "./handlers/disputeManualSync";
+export { createInvite, listInvites, revokeInvite } from "./handlers/inviteHandlers";
+export { acceptInvite } from "./handlers/acceptInviteHandler";
+export {
+  listTeamMembers,
+  removeTeamMember,
+  updateTeamMemberRole,
+} from "./handlers/teamHandlers";

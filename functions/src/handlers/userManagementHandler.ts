@@ -1,6 +1,7 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 // Ensure admin is initialized
 if (!admin.apps.length) {
@@ -78,7 +79,7 @@ async function verifyUser(req: Request): Promise<{ success: boolean; error?: str
  */
 export const createUserHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     try {
@@ -149,7 +150,7 @@ export const createUserHandler = onRequest(
  */
 export const updateUserHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     try {
@@ -228,7 +229,7 @@ export const updateUserHandler = onRequest(
  */
 export const deleteUserHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     try {
@@ -290,7 +291,7 @@ export const deleteUserHandler = onRequest(
  */
 export const updateSelfProfileHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     try {

@@ -4,16 +4,10 @@
  */
 
 import { stripeWebhook } from "../../index";
+import { upsertUnifiedDispute } from "../../services/disputeService";
 import { generateStripeWebhookEvent, generateStripeSignature } from "../../utils/webhookTestHelpers";
 // @ts-ignore: import needed for jest module resolution
 import * as admin from "firebase-admin"; void admin;
-import { getOrganization } from "../../services/organizationService";
-
-// Mock organizationService
-jest.mock("../../services/organizationService", () => ({
-  getOrganization: jest.fn(),
-}));
-
 // Mock disputeService
 jest.mock("../../services/disputeService", () => ({
   upsertUnifiedDispute: jest.fn().mockResolvedValue("mock_dispute_id"),
@@ -41,13 +35,16 @@ jest.mock("../../utils/disputeNormalizer", () => ({
   mapStripeStatus: jest.fn((status: string) => status),
 }));
 
-// Mock stripeHelpers
-jest.mock("../../utils/stripeHelpers", () => ({
-  getPaymentMetadata: jest.fn().mockResolvedValue({
-    last4: "1234",
-    transactionDate: new Date(),
-  }),
-}));
+jest.mock("../../utils/stripeHelpers", () => {
+  const actual = jest.requireActual("../../utils/stripeHelpers") as typeof import("../../utils/stripeHelpers");
+  return {
+    ...actual,
+    getPaymentMetadata: jest.fn().mockResolvedValue({
+      last4: "1234",
+      transactionDate: new Date(),
+    }),
+  };
+});
 
 // Mock AI evidence planning (non-blocking)
 jest.mock("../../services/ai/evidencePlanningService", () => ({
@@ -57,6 +54,12 @@ jest.mock("../../services/ai/evidencePlanningService", () => ({
 // Mock Firebase Admin
 jest.mock("firebase-admin", () => {
   const mockFirestore = {
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
     collection: jest.fn(() => ({
       doc: jest.fn(() => ({
         get: jest.fn(),
@@ -116,19 +119,6 @@ describe("Stripe Webhook Integration Tests", () => {
   let mockRes: any;
   const testOrganizationId = "test_org_123";
   const testWebhookSecret = "whsec_test_secret";
-  const testStripeKey = "sk_test_key";
-
-  const mockOrganization = {
-    id: testOrganizationId,
-    name: "Test Hotel",
-    pspIntegrations: {
-      stripe: {
-        secretKey: testStripeKey,
-        webhookSecret: testWebhookSecret,
-        status: "connected" as const,
-      },
-    },
-  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -150,7 +140,6 @@ describe("Stripe Webhook Integration Tests", () => {
       getHeader: jest.fn(),
     };
 
-    (getOrganization as jest.Mock).mockResolvedValue(mockOrganization);
   });
 
   describe("charge.dispute.created event", () => {
@@ -185,9 +174,9 @@ describe("Stripe Webhook Integration Tests", () => {
 
       await stripeWebhook(mockReq, mockRes);
 
-      expect(getOrganization).toHaveBeenCalledWith(testOrganizationId);
+      expect(upsertUnifiedDispute).toHaveBeenCalled();
       expect(stripeInst.webhooks.constructEvent).toHaveBeenCalledWith(
-        Buffer.from(payload),
+        expect.any(Buffer),
         signature,
         testWebhookSecret
       );
@@ -224,25 +213,29 @@ describe("Stripe Webhook Integration Tests", () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
     });
 
-    it("should reject request when organization not found", async () => {
-      const payload = JSON.stringify({});
-      const signature = "t=123,v1=test";
+    it("should acknowledge without upsert when organization cannot be resolved", async () => {
+      const event = generateStripeWebhookEvent("dp_unmatched", testOrganizationId);
+      (event.data.object as any).metadata = {};
+      const payload = JSON.stringify(event);
+      const signature = generateStripeSignature(payload, testWebhookSecret);
 
       mockReq = buildMockReq({
         headers: { "stripe-signature": signature },
         body: Buffer.from(payload),
         rawBody: Buffer.from(payload),
-        query: { orgId: "missing_org" },
       });
 
-      (getOrganization as jest.Mock).mockResolvedValue(null);
+      const stripeInst = getStripeInstance();
+      stripeInst.webhooks.constructEvent = jest.fn().mockReturnValue(event);
+      stripeInst.paymentIntents.retrieve = jest.fn().mockResolvedValue({
+        id: "pi_test",
+        metadata: {},
+      });
 
       await stripeWebhook(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: "Organization 'missing_org' not found",
-      });
+      expect(upsertUnifiedDispute).not.toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({ received: true });
     });
   });
 

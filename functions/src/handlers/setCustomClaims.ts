@@ -3,6 +3,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 /**
  * Firestore trigger that syncs user document fields to Firebase Auth custom claims.
@@ -22,9 +23,12 @@ export const syncUserClaims = onDocumentWritten(
       return;
     }
 
+    const claimsVersion = (after.claimsVersion ?? 0) + 1;
+
     const newClaims = {
       orgId: after.organizationId || null,
       role: after.role || "user",
+      claimsVersion,
     };
 
     // Only update if claims actually changed to avoid unnecessary writes
@@ -32,7 +36,11 @@ export const syncUserClaims = onDocumentWritten(
       const userRecord = await admin.auth().getUser(uid);
       const currentClaims = userRecord.customClaims || {};
 
-      if (currentClaims.orgId === newClaims.orgId && currentClaims.role === newClaims.role) {
+      if (
+        currentClaims.orgId === newClaims.orgId &&
+        currentClaims.role === newClaims.role &&
+        currentClaims.claimsVersion === newClaims.claimsVersion
+      ) {
         return;
       }
     } catch (error: any) {
@@ -44,7 +52,11 @@ export const syncUserClaims = onDocumentWritten(
     }
 
     await admin.auth().setCustomUserClaims(uid, newClaims);
-    console.log(`Synced custom claims for ${uid}: orgId=${newClaims.orgId}, role=${newClaims.role}`);
+
+    // Write the claimsVersion back to the user doc for staleness detection
+    await admin.firestore().collection("users").doc(uid).update({ claimsVersion });
+
+    console.log(`Synced custom claims for ${uid}: orgId=${newClaims.orgId}, role=${newClaims.role}, v=${claimsVersion}`);
   }
 );
 
@@ -54,7 +66,7 @@ export const syncUserClaims = onDocumentWritten(
  * Requires admin authentication.
  */
 export const migrateCustomClaims = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
@@ -80,10 +92,13 @@ export const migrateCustomClaims = onRequest(
         const uid = doc.id;
 
         try {
+          const claimsVersion = (data.claimsVersion ?? 0) + 1;
           await admin.auth().setCustomUserClaims(uid, {
             orgId: data.organizationId || null,
             role: data.role || "user",
+            claimsVersion,
           });
+          await admin.firestore().collection("users").doc(uid).update({ claimsVersion });
           updated++;
         } catch (error: any) {
           if (error.code === "auth/user-not-found") {

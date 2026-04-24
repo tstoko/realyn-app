@@ -15,7 +15,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { Dispute, DisputeArgument, TimelineEvent, ArgumentParagraph } from '@realyn/shared';
-import { generateArgument, saveArgumentDraft, submitArgumentToPsp } from '../../services/argumentService';
+import { saveArgumentDraft, submitArgumentToPsp, generateArgument } from '../../services/argumentService';
 import { ArgumentDraftSkeleton } from './ArgumentDraftSkeleton';
 
 interface SubmissionResult {
@@ -78,15 +78,18 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
         regenerate
       );
 
-      if (result.success && result.argument) {
-        setArgument(result.argument);
-        setHasUnsavedChanges(false);
-      } else {
-        setError(result.error || 'Failed to generate argument');
+      if (!result.success) {
+        throw new Error(result.error || 'Argument generation failed');
       }
+
+      if (result.argument) {
+        setArgument(result.argument);
+      }
+
+      setIsGenerating(false);
+      setHasUnsavedChanges(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
+      setError(err instanceof Error ? err.message : String(err));
       setIsGenerating(false);
     }
   };
@@ -468,6 +471,7 @@ export const ArgumentDraftModal: React.FC<ArgumentDraftModalProps> = ({
                       ` • Model: ${argument.model}`}
                   </div>
                 )}
+
               </div>
             )}
           </div>

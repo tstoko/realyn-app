@@ -1,12 +1,17 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
-const FieldValue = admin.firestore.FieldValue;
+function verifyOrgAccessForAuth(authResult: { role?: string; organizationId?: string }, disputeOrgId: string): boolean {
+  if (authResult.role === "admin") return true;
+  return disputeOrgId === authResult.organizationId;
+}
 
 export const argumentWriteHandler = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ success: false, error: "Method not allowed" });
@@ -40,7 +45,7 @@ export const argumentWriteHandler = onRequest(
           }
 
           const dispute = disputeDoc.data()!;
-          if (dispute.organizationId !== organizationId && authResult.role !== "admin") {
+          if (!verifyOrgAccessForAuth(authResult, dispute.organizationId)) {
             res.status(403).json({ success: false, error: "Access denied: organization mismatch" });
             return;
           }
@@ -88,7 +93,7 @@ export const argumentWriteHandler = onRequest(
           }
 
           const dispute = disputeDoc.data()!;
-          if (dispute.organizationId !== organizationId && authResult.role !== "admin") {
+          if (!verifyOrgAccessForAuth(authResult, dispute.organizationId)) {
             res.status(403).json({ success: false, error: "Access denied: organization mismatch" });
             return;
           }
@@ -118,7 +123,7 @@ export const argumentWriteHandler = onRequest(
           }
 
           const dispute = disputeDoc.data()!;
-          if (dispute.organizationId !== organizationId && authResult.role !== "admin") {
+          if (!verifyOrgAccessForAuth(authResult, dispute.organizationId)) {
             res.status(403).json({ success: false, error: "Access denied: organization mismatch" });
             return;
           }

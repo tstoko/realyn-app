@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OperaExport>
+  <Reservations>
+    <Reservation>
+      <ConfirmationNumber>500001</ConfirmationNumber>
+      <GuestName>Smith, John</GuestName>
+      <ArrivalDate>2026-01-15</ArrivalDate>
+      <DepartureDate>2026-01-18</DepartureDate>
+      <RoomNumber>405</RoomNumber>
+      <RoomType>DLX</RoomType>
+      <RateCode>BAR</RateCode>
+      <TotalRevenue>450.00</TotalRevenue>
+      <Currency>USD</Currency>
+      <ReservationStatus>CHECKED_OUT</ReservationStatus>
+      <BookingSource>WEB</BookingSource>
+      <CardLast4>4242</CardLast4>
+      <Adults>2</Adults>
+      <Children>1</Children>
+    </Reservation>
+    <Reservation>
+      <ConfirmationNumber>500002</ConfirmationNumber>
+      <GuestName>Garcia, Maria</GuestName>
+      <ArrivalDate>2026-02-01</ArrivalDate>
+      <DepartureDate>2026-02-05</DepartureDate>
+      <RoomNumber>712</RoomNumber>
+      <RoomType>STE</RoomType>
+      <RateCode>CORP</RateCode>
+      <TotalRevenue>1200.00</TotalRevenue>
+      <Currency>EUR</Currency>
+      <ReservationStatus>CONFIRMED</ReservationStatus>
+      <BookingSource>GDS</BookingSource>
+      <Adults>1</Adults>
+    </Reservation>
+    <Reservation>
+      <ConfirmationNumber>500003</ConfirmationNumber>
+      <FirstName>James</FirstName>
+      <LastName>Brown</LastName>
+      <ArrivalDate>15-JAN-26</ArrivalDate>
+      <DepartureDate>20-JAN-26</DepartureDate>
+      <RoomNumber>301</RoomNumber>
+      <RoomType>STD</RoomType>
+      <TotalRevenue>75000</TotalRevenue>
+      <Currency>USD</Currency>
+      <ReservationStatus>NO_SHOW</ReservationStatus>
+    </Reservation>
+  </Reservations>
+  <FolioTransactions>
+    <Transaction>
+      <ConfirmationNumber>500001</ConfirmationNumber>
+      <TransactionDate>2026-01-15</TransactionDate>
+      <Description>Room Charge - Deluxe</Description>
+      <Amount>150.00</Amount>
+      <TransactionType>CHARGE</TransactionType>
+      <Currency>USD</Currency>
+      <Reference>RC001</Reference>
+    </Transaction>
+    <Transaction>
+      <ConfirmationNumber>500001</ConfirmationNumber>
+      <TransactionDate>2026-01-16</TransactionDate>
+      <Description>Room Charge - Deluxe</Description>
+      <Amount>150.00</Amount>
+      <TransactionType>CHARGE</TransactionType>
+      <Currency>USD</Currency>
+      <Reference>RC002</Reference>
+    </Transaction>
+    <Transaction>
+      <ConfirmationNumber>500001</ConfirmationNumber>
+      <TransactionDate>2026-01-17</TransactionDate>
+      <Description>Room Charge - Deluxe</Description>
+      <Amount>150.00</Amount>
+      <TransactionType>CHARGE</TransactionType>
+      <Currency>USD</Currency>
+      <Reference>RC003</Reference>
+    </Transaction>
+    <Transaction>
+      <ConfirmationNumber>500001</ConfirmationNumber>
+      <TransactionDate>2026-01-18</TransactionDate>
+      <Description>Visa Payment</Description>
+      <Amount>-450.00</Amount>
+      <TransactionType>PAYMENT</TransactionType>
+      <Currency>USD</Currency>
+      <Reference>PAY001</Reference>
+    </Transaction>
+  </FolioTransactions>
+  <ActivityLogs>
+    <Activity>
+      <Timestamp>2026-01-15T14:30:00</Timestamp>
+      <Action>Check In</Action>
+      <Details>Guest checked in to room 405</Details>
+      <PerformedBy>front_desk_01</PerformedBy>
+    </Activity>
+    <Activity>
+      <Timestamp>2026-01-18T11:00:00</Timestamp>
+      <Action>Check Out</Action>
+      <Details>Guest checked out</Details>
+      <PerformedBy>front_desk_02</PerformedBy>
+    </Activity>
+  </ActivityLogs>
+</OperaExport>

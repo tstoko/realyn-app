@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export type AuditTrailCategory = 
   | 'dispute_received' 
@@ -13,11 +14,10 @@ export type AuditTrailCategory =
   | 'pms_import'
   | 'error';
 
-export interface AuditTrailActor {
-  type: 'user' | 'system' | 'automation';
-  userId?: string;
-  userName?: string;
-}
+export type AuditTrailActor =
+  | { type: 'user'; userId: string; userName: string }
+  | { type: 'system' }
+  | { type: 'automation' };
 
 export interface AuditTrailMetadata {
   fileNames?: string[];
@@ -85,8 +85,8 @@ export async function addAuditTrailEntry(
     }
 
     await db.collection("disputes").doc(disputeId).update({
-      auditTrail: admin.firestore.FieldValue.arrayUnion(entry),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      auditTrail: FieldValue.arrayUnion(entry),
+      updatedAt: FieldValue.serverTimestamp(),
     });
   } catch (error) {
     console.error(`Error adding audit trail entry to dispute ${disputeId}:`, error);

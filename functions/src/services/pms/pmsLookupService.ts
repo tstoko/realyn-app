@@ -8,6 +8,7 @@
  */
 
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import {findBestMatches, isAmbiguousMatch, type DisputeMatchInput} from "./disputeMatcher";
 import type {PMSReservationDocument, PMSReservation, PMSFolio, PMSActivityLog} from "../../types/pmsData";
 import type {PMSLiveClient} from "./types";
@@ -237,7 +238,7 @@ async function cacheMatchResult(
   try {
     await db.collection("disputes").doc(disputeId).update({
       pmsMatch: result,
-      pmsMatchedAt: admin.firestore.FieldValue.serverTimestamp(),
+      pmsMatchedAt: FieldValue.serverTimestamp(),
     });
   } catch (err) {
     console.warn(`[PMSLookup] Failed to cache PMS match on dispute ${disputeId}:`, err);

@@ -13,23 +13,23 @@
  * Check if running in production environment
  * 
  * In Firebase Functions, we check:
- * 1. FUNCTIONS_EMULATOR - set when running in emulator
- * 2. K_SERVICE - set in Cloud Run (production)
- * 3. NODE_ENV - traditional environment variable
+ * 1. REALYN_ENV - explicit override (set to "staging" on staging Cloud Run)
+ * 2. FUNCTIONS_EMULATOR - set when running in emulator
+ * 3. K_SERVICE - set in Cloud Run (production unless REALYN_ENV says otherwise)
+ * 4. NODE_ENV - traditional environment variable
  */
 export function isProduction(): boolean {
-  // If running in emulator, definitely not production
-  if (process.env.FUNCTIONS_EMULATOR === "true") {
-    return false;
-  }
-  
-  // If K_SERVICE is set, we're in Cloud Run (production)
-  if (process.env.K_SERVICE) {
-    return true;
-  }
-  
-  // Fall back to NODE_ENV
+  if (process.env.REALYN_ENV === "staging") return false;
+  if (process.env.FUNCTIONS_EMULATOR === "true") return false;
+  if (process.env.K_SERVICE) return true;
   return process.env.NODE_ENV === "production";
+}
+
+/**
+ * Check if running in staging environment
+ */
+export function isStaging(): boolean {
+  return process.env.REALYN_ENV === "staging";
 }
 
 /**
@@ -50,9 +50,10 @@ export function isTest(): boolean {
 /**
  * Get the current environment name
  */
-export function getEnvironment(): "production" | "development" | "test" {
+export function getEnvironment(): "production" | "staging" | "development" | "test" {
   if (isTest()) return "test";
   if (isProduction()) return "production";
+  if (isStaging()) return "staging";
   return "development";
 }
 
@@ -76,17 +77,39 @@ export function shouldEnableDebugLogging(): boolean {
 }
 
 // =============================================================================
+// CORS Configuration
+// =============================================================================
+
+export const ALLOWED_ORIGINS: string[] = [
+  "https://dashboard.realyn.app",
+  "https://realyn.app",
+  "https://realyn-dashboard.web.app",
+  "https://realyn-app.web.app",
+  "https://realyn-app-staging-dashboard.web.app",
+  "https://realyn-app-staging-website.web.app",
+  ...(process.env.FUNCTIONS_EMULATOR === "true"
+    ? ["http://localhost:3001", "http://localhost:3000", "http://127.0.0.1:3001", "http://127.0.0.1:3000"]
+    : []),
+];
+
+// =============================================================================
 // Configuration Values
 // =============================================================================
 
 /**
- * Get the Firebase project ID
+ * Get the Firebase project ID.
+ * Throws if no env var is set -- prevents silent fallback to production.
  */
 export function getProjectId(): string {
-  return process.env.GCLOUD_PROJECT || 
+  const projectId = process.env.GCLOUD_PROJECT || 
          process.env.GCP_PROJECT || 
-         process.env.FIREBASE_PROJECT_ID ||
-         "realyn-app";
+         process.env.FIREBASE_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "Missing Firebase project ID. Set GCLOUD_PROJECT, GCP_PROJECT, or FIREBASE_PROJECT_ID."
+    );
+  }
+  return projectId;
 }
 
 /**

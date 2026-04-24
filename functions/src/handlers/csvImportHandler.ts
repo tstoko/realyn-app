@@ -7,15 +7,17 @@
 
 import * as functions from "firebase-functions/v2";
 import { processCSVImport } from "../services/pms/pmsImportService";
-import { applyRateLimit, RATE_LIMIT_CONFIGS, getClientIP } from "../utils/rateLimiter";
-import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { applyRateLimit, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { assertFeatureEnabled, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 export const processCSVImportHandler = functions.https.onRequest(
   {
     region: "us-central1",
-    cors: true,
+    cors: ALLOWED_ORIGINS,
     timeoutSeconds: 120,
     memory: "512MiB",
   },
@@ -25,24 +27,31 @@ export const processCSVImportHandler = functions.https.onRequest(
       return;
     }
 
-    const authResult = await verifyUser(req);
+    const { organizationId, uploadedBy } = req.body || {};
+
+    if (!organizationId) {
+      res.status(400).json({ error: "Missing organizationId" });
+      return;
+    }
+
+    const authResult = await verifyUserInOrganization(req, organizationId);
     if (!authResult.success) {
       sendAuthError(res, authResult);
       return;
     }
 
-    // Rate limiting
-    const rateLimitKey = req.body?.organizationId || getClientIP(req);
-    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.ai);
+    try {
+      await assertFeatureEnabled(organizationId, "pmsIntegration");
+    } catch (err) {
+      if (err instanceof PlanLimitError) { sendPlanLimitError(res, err); return; }
+      throw err;
+    }
+
+    const rateLimitKey = `org:${organizationId}`;
+    const allowed = await applyRateLimit(req, res, rateLimitKey, RATE_LIMIT_CONFIGS.csvImport);
     if (!allowed) return;
 
     try {
-      const { organizationId, uploadedBy } = req.body || {};
-
-      if (!organizationId) {
-        res.status(400).json({ error: "Missing organizationId" });
-        return;
-      }
 
       // Extract file data from the request
       // Support both base64-encoded body and raw text

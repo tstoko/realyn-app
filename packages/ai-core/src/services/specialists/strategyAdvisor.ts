@@ -1,0 +1,408 @@
+/**
+ * Strategy Advisor Specialist
+ *
+ * Synthesizes insights from Claim Analyst, Evidence Analyzer, and Relevance Scorer
+ * into a coherent dispute strategy. Acts as a senior strategist who reviews
+ * subordinate analysts' reports and produces a clear strategy brief.
+ */
+
+import {
+  DisputeCase,
+  ClaimAnalysis,
+  ExistingEvidenceAnalysis,
+  EvidenceRelevanceScores,
+  DisputeStrategy,
+  DisputeStrategySchema,
+} from "../../types/aiDispute";
+import { DisputeCodeInfo } from "../../config/disputeCodeMapping";
+import type { SchemeRule, WinPattern } from "../../types/knowledgeBase";
+import { callLLM, LLMCallOptions } from "../llmService";
+import { buildDisputeContextBlock } from "../promptHelpers";
+
+// ============================================================
+// System Prompt
+// ============================================================
+
+const STRATEGY_ADVISOR_SYSTEM_PROMPT = `You are a senior dispute strategist. You receive detailed reports from three specialist analysts and synthesize them into a clear dispute strategy.
+
+## YOUR ROLE
+
+You review:
+1. **Claim Analysis** – What the customer is arguing, weak points, required disproofs
+2. **Evidence Analysis** – What documents the merchant already has, gaps in coverage
+3. **Relevance Scores** – Which evidence types are most impactful for this dispute
+4. **Dispute Code Info** (when available) – Network rules and standard requirements
+
+Your job is to produce a strategic recommendation:
+- Should the merchant **fight** or **accept** this dispute?
+- What is the **primary defense** line?
+- What are the **defense points** and which evidence supports each?
+- What are the **known weaknesses** in the merchant's position?
+- What evidence should be **prioritized** (what must be gathered vs what's already available)?
+
+## STRATEGY GUIDELINES
+
+### Fight vs Accept
+- Recommend "fight" if there's a reasonable path to winning with obtainable evidence
+- Recommend "accept" only if the customer's claim is clearly valid or evidence is unobtainable
+- Set confidence 0-100 based on how strong the defense case is
+
+### Defense Points
+- Each defense point should address a specific customer argument
+- Link defense points to specific evidence types that support them
+- Be concrete: "Signed registration card proves guest checked in" not "We have records"
+
+### Known Weaknesses
+- Be honest about gaps in the merchant's position
+- Identify arguments the merchant cannot fully counter
+- This helps the planner avoid over-promising
+
+### Evidence Priority
+- List evidence types in order of strategic importance
+- Mark which are already available (no action needed)
+- Mark which must be gathered (action required)
+- Focus on evidence that's both high-impact and obtainable
+
+## OUTPUT FORMAT
+
+Respond with valid JSON matching the schema. Be strategic and practical.`;
+
+// ============================================================
+// Main Function
+// ============================================================
+
+/**
+ * Synthesize a dispute strategy from specialist analyses.
+ */
+export interface StrategyAdvisorKBContext {
+  schemeRule?: SchemeRule | null;
+  winPatterns?: WinPattern[];
+}
+
+export async function synthesizeStrategy(
+  disputeCase: DisputeCase,
+  claimAnalysis: ClaimAnalysis,
+  existingEvidence: ExistingEvidenceAnalysis | null,
+  relevanceScores: EvidenceRelevanceScores | null,
+  codeInfo: DisputeCodeInfo | null,
+  options?: Partial<LLMCallOptions>,
+  pmsMatch?: import("../../ports").PMSMatchResult,
+  kbContext?: StrategyAdvisorKBContext,
+): Promise<DisputeStrategy | null> {
+  try {
+    const prompt = buildStrategyPrompt(
+      disputeCase,
+      claimAnalysis,
+      existingEvidence,
+      relevanceScores,
+      codeInfo,
+      pmsMatch,
+      kbContext,
+    );
+
+    const result = await callLLM(prompt, DisputeStrategySchema, {
+      systemPrompt: STRATEGY_ADVISOR_SYSTEM_PROMPT,
+      temperature: 0.3,
+      maxTokens: 3000,
+      ...options,
+    });
+
+    if (!result.success || !result.data) {
+      console.warn("[StrategyAdvisor] LLM call failed:", result.error);
+      return null;
+    }
+
+    console.log(
+      `[StrategyAdvisor] Strategy: ${result.data.recommendation} ` +
+      `(confidence: ${result.data.confidence}%), ` +
+      `${result.data.defensePoints.length} defense points, ` +
+      `${result.data.knownWeaknesses.length} weaknesses`
+    );
+    return result.data;
+  } catch (error) {
+    console.error("[StrategyAdvisor] Error synthesizing strategy:", error);
+    return null;
+  }
+}
+
+// ============================================================
+// Prompt Building
+// ============================================================
+
+function buildStrategyPrompt(
+  disputeCase: DisputeCase,
+  claimAnalysis: ClaimAnalysis,
+  existingEvidence: ExistingEvidenceAnalysis | null,
+  relevanceScores: EvidenceRelevanceScores | null,
+  codeInfo: DisputeCodeInfo | null,
+  pmsMatch?: import("../../ports").PMSMatchResult,
+  kbContext?: StrategyAdvisorKBContext,
+): string {
+  const parts: string[] = [];
+
+  parts.push("# DISPUTE STRATEGY SYNTHESIS REQUEST\n");
+
+  parts.push(buildDisputeContextBlock(disputeCase, {
+    includePsp: true,
+    includeDates: true,
+  }));
+
+  // Rich scheme rule context (KB-populated) takes priority over basic code info
+  const rule = kbContext?.schemeRule;
+  if (rule && (rule.merchantObligation || rule.citations.length > 0)) {
+    parts.push("## CARD NETWORK SCHEME RULES");
+    parts.push(`- **Code**: ${rule.code} (${rule.network.toUpperCase()}) — ${rule.description}`);
+    parts.push(`- **Category**: ${rule.category}${rule.subcategory ? ` / ${rule.subcategory}` : ""}`);
+    if (rule.merchantObligation) {
+      parts.push(`- **Merchant obligation**: ${rule.merchantObligation}`);
+    }
+    if (rule.cardholderBurden) {
+      parts.push(`- **Cardholder burden**: ${rule.cardholderBurden}`);
+    }
+    parts.push(`- **Required evidence**: ${rule.requiredEvidence.join(", ")}`);
+    if (rule.optionalEvidence.length > 0) {
+      parts.push(`- **Optional evidence**: ${rule.optionalEvidence.join(", ")}`);
+    }
+    if (rule.submissionConstraints.length > 0) {
+      parts.push(`- **Submission constraints**: ${rule.submissionConstraints.join("; ")}`);
+    }
+    if (rule.citations.length > 0) {
+      parts.push("**Relevant citations:**");
+      for (const cite of rule.citations) {
+        parts.push(`  - ${cite.section}: "${cite.excerpt}"`);
+      }
+    }
+    parts.push(`- **Default Recommendation**: ${rule.defaultRecommendation}`);
+    parts.push(`- **Default Winnability**: ${rule.defaultWinnability}`);
+    parts.push("");
+  } else if (codeInfo) {
+    parts.push("## DISPUTE CODE INFO");
+    parts.push(`- **Code**: ${codeInfo.code} (${codeInfo.network.toUpperCase()})`);
+    parts.push(`- **Category**: ${codeInfo.category}`);
+    if (codeInfo.subcategory) {
+      parts.push(`- **Subcategory**: ${codeInfo.subcategory}`);
+    }
+    parts.push(`- **Description**: ${codeInfo.description}`);
+    parts.push(`- **Relevance**: ${codeInfo.hotelRelevance}`);
+    parts.push(`- **Default Recommendation**: ${codeInfo.defaultRecommendation}`);
+    parts.push(`- **Required Evidence**: ${codeInfo.requiredEvidence.join(", ")}`);
+    if (codeInfo.optionalEvidence.length > 0) {
+      parts.push(`- **Optional Evidence**: ${codeInfo.optionalEvidence.join(", ")}`);
+    }
+    parts.push("");
+  }
+
+  // Win patterns from KB (when populated)
+  const winPatterns = kbContext?.winPatterns;
+  if (winPatterns && winPatterns.length > 0) {
+    parts.push("## HISTORICAL WIN PATTERNS");
+    for (const wp of winPatterns) {
+      parts.push(`- Win rate: ${(wp.winRate * 100).toFixed(0)}% (${wp.sampleSize} cases)`);
+      parts.push(`  Evidence combination: ${wp.evidenceCombination.join(", ")}`);
+      if (wp.argumentPatterns.length > 0) {
+        parts.push(`  Successful argument patterns: ${wp.argumentPatterns.join("; ")}`);
+      }
+    }
+    parts.push("");
+  }
+
+  // Report 1: Claim Analysis
+  parts.push("## ANALYST REPORT 1: CLAIM ANALYSIS");
+  parts.push(`**Claim Type**: ${claimAnalysis.claimType}`);
+  parts.push("");
+
+  parts.push("**Customer Arguments**:");
+  for (const arg of claimAnalysis.customerArguments) {
+    parts.push(`- ${arg}`);
+  }
+  parts.push("");
+
+  parts.push("**Required Disproofs**:");
+  for (const disproof of claimAnalysis.requiredDisproofs) {
+    parts.push(`- ${disproof}`);
+  }
+  parts.push("");
+
+  parts.push("**Weak Points in Claim**:");
+  for (const weak of claimAnalysis.weakPoints) {
+    parts.push(`- ${weak}`);
+  }
+  parts.push("");
+
+  parts.push("**Suggested Counterarguments**:");
+  for (const counter of claimAnalysis.suggestedCounterarguments) {
+    parts.push(`- ${counter}`);
+  }
+  parts.push("");
+
+  // Report 2: Evidence Analysis
+  if (existingEvidence) {
+    parts.push("## ANALYST REPORT 2: EXISTING EVIDENCE");
+
+    const relevantDocs = existingEvidence.availableDocuments.filter(d => d.relevantForDispute);
+    if (relevantDocs.length > 0) {
+      parts.push("**Relevant Documents on File**:");
+      for (const doc of relevantDocs) {
+        parts.push(`- ${doc.name} (${doc.category})`);
+      }
+      parts.push("");
+    }
+
+    if (existingEvidence.extractedPolicies.length > 0) {
+      parts.push("**Extracted Policies**:");
+      for (const policy of existingEvidence.extractedPolicies) {
+        parts.push(`- ${policy.type}: ${policy.summary}`);
+      }
+      parts.push("");
+    }
+
+    if (existingEvidence.missingDocuments.length > 0) {
+      parts.push("**Missing Documents**:");
+      for (const missing of existingEvidence.missingDocuments) {
+        parts.push(`- ${missing}`);
+      }
+      parts.push("");
+    }
+
+    if (existingEvidence.argumentCoverage && existingEvidence.argumentCoverage.length > 0) {
+      parts.push("**Argument Coverage**:");
+      for (const cov of existingEvidence.argumentCoverage) {
+        const covered = cov.coveredBy && cov.coveredBy.length > 0
+          ? `covered by: ${cov.coveredBy.join(", ")}`
+          : "NOT COVERED";
+        parts.push(`- "${cov.customerArgument}" — ${covered}`);
+        if (cov.gapDescription) {
+          parts.push(`  Gap (${cov.gapSeverity}): ${cov.gapDescription}`);
+        }
+      }
+      parts.push("");
+    }
+  }
+
+  // Report 3: Relevance Scores
+  if (relevanceScores) {
+    parts.push("## ANALYST REPORT 3: EVIDENCE RELEVANCE SCORES");
+
+    parts.push("**Top Priority Evidence**:");
+    for (const evidenceType of relevanceScores.topPriorityEvidence) {
+      const score = relevanceScores.scores.find(s => s.evidenceType === evidenceType);
+      if (score) {
+        const available = score.alreadyAvailable ? " ✅ AVAILABLE" : "";
+        parts.push(`- ${evidenceType}: ${score.relevanceScore}/100${available}`);
+        parts.push(`  ${score.reasoning}`);
+        if (score.directlyDisproves) {
+          parts.push(`  → Disproves: "${score.directlyDisproves}"`);
+        }
+      }
+    }
+    parts.push("");
+
+    if (relevanceScores.lowValueEvidence.length > 0) {
+      parts.push("**Low Value Evidence**: " + relevanceScores.lowValueEvidence.join(", "));
+      parts.push("");
+    }
+  }
+
+  // PMS match data (available evidence from property management system)
+  if (pmsMatch) {
+    parts.push("## PMS DATA MATCHED");
+    parts.push(`A reservation match was found (confidence: ${pmsMatch.confidence}%, source: ${pmsMatch.source}).`);
+    parts.push(`- Reservation: ${pmsMatch.reservation.guestName}, ${pmsMatch.confirmationNumber}`);
+    parts.push(`- Dates: ${pmsMatch.reservation.checkIn} to ${pmsMatch.reservation.checkOut}, Status: ${pmsMatch.reservation.status}`);
+    if (pmsMatch.folio) {
+      parts.push(`- Folio: ${pmsMatch.folio.lines.length} line items, total charges ${pmsMatch.folio.currency} ${(pmsMatch.folio.totalCharges / 100).toFixed(2)}`);
+    }
+    if (pmsMatch.activityLogs.length > 0) {
+      parts.push(`- Activity logs: ${pmsMatch.activityLogs.length} entries`);
+    }
+    parts.push("This structured PMS data will be auto-collected as evidence. Factor its availability into your confidence assessment.");
+    parts.push("");
+  }
+
+  // Task
+  parts.push("## YOUR TASK");
+  parts.push("Synthesize the above analyst reports into a clear dispute strategy.");
+  parts.push("Consider:");
+  parts.push("1. Should we fight or accept? How confident are you?");
+  parts.push("2. What is the primary line of defense?");
+  parts.push("3. What are the specific defense points and supporting evidence?");
+  parts.push("4. What weaknesses should we be aware of?");
+  parts.push("5. What evidence should be prioritized for gathering?");
+  parts.push("");
+  parts.push("Respond with valid JSON.");
+
+  return parts.join("\n");
+}
+
+// ============================================================
+// Fallback Strategy Generation
+// ============================================================
+
+/**
+ * Generate a deterministic fallback strategy when LLM is unavailable.
+ */
+export function generateFallbackStrategy(
+  claimAnalysis: ClaimAnalysis,
+  relevanceScores: EvidenceRelevanceScores | null,
+  codeInfo: DisputeCodeInfo | null
+): DisputeStrategy {
+  const claimType = claimAnalysis.claimType;
+
+  // Default recommendation based on claim type and code info
+  let recommendation: "fight" | "accept" = "fight";
+  let confidence = 50;
+
+  if (codeInfo) {
+    recommendation = codeInfo.defaultRecommendation === "accept" ? "accept" : "fight";
+    confidence = codeInfo.defaultWinnability === "high" ? 75
+      : codeInfo.defaultWinnability === "medium" ? 55
+      : 35;
+  }
+
+  // Primary defense by claim type
+  const defenseByType: Record<string, string> = {
+    fraud: "Guest identity was verified at check-in and the transaction was properly authorized",
+    cancellation: "The cancellation policy was clearly disclosed and the guest failed to cancel within the allowed window",
+    service: "The merchant provided the agreed services and the customer completed their engagement",
+    authorization: "The transaction was properly authorized with the correct amount agreed upon by the guest",
+    other: "Documentation shows the merchant fulfilled its obligations per the booking/order terms",
+  };
+
+  // Build defense points from claim analysis
+  const defensePoints = claimAnalysis.requiredDisproofs.slice(0, 4).map((disproof, i) => ({
+    point: `Counter argument ${i + 1}: ${disproof}`,
+    supportingEvidence: [] as string[],
+    addressesClaim: claimAnalysis.customerArguments[i] || claimAnalysis.customerArguments[0] || "general claim",
+  }));
+
+  // Evidence priority from relevance scores
+  const evidencePriority = relevanceScores
+    ? relevanceScores.scores
+        .filter(s => s.relevanceScore >= 50)
+        .sort((a, b) => b.relevanceScore - a.relevanceScore)
+        .slice(0, 6)
+        .map(s => ({
+          evidenceType: s.evidenceType,
+          reason: s.reasoning,
+          alreadyAvailable: s.alreadyAvailable || false,
+          mustGather: s.relevanceScore >= 70 && !s.alreadyAvailable,
+        }))
+    : codeInfo
+      ? codeInfo.requiredEvidence.map(cat => ({
+          evidenceType: cat,
+          reason: `Required for ${codeInfo.category} disputes`,
+          alreadyAvailable: false,
+          mustGather: true,
+        }))
+      : [];
+
+  return {
+    recommendation,
+    confidence,
+    primaryDefense: defenseByType[claimType] || defenseByType.other,
+    defensePoints,
+    knownWeaknesses: ["Fallback strategy - LLM analysis unavailable; review manually"],
+    evidencePriority,
+    approachNotes: `Deterministic strategy for ${claimType} dispute. Review and adjust as needed.`,
+  };
+}

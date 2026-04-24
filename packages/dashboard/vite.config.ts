@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
 import crypto from 'crypto';
@@ -38,5 +39,11 @@ export default defineConfig({
   build: {
     outDir: 'build',
     emptyOutDir: true,
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });

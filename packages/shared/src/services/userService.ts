@@ -1,10 +1,8 @@
 import { doc, getDoc } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, getFunctionsBaseUrl } from './firebase';
 import type { User } from '../types';
 import { getUserPreferences, updateUserPreferences } from './userPreferencesService';
 import type { UserPreferences } from '../types';
-
-const FUNCTIONS_BASE_URL = 'https://us-central1-realyn-app.cloudfunctions.net';
 
 /**
  * Create or update a user document via Cloud Function
@@ -21,7 +19,7 @@ export async function createOrUpdateUser(userId: string, userData: {
   if (!currentUser) throw new Error('Not authenticated');
   const idToken = await currentUser.getIdToken();
 
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+  const response = await fetch(`${getFunctionsBaseUrl()}/userWriteHandler`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
     body: JSON.stringify({
@@ -71,7 +69,7 @@ export async function updateUserProfile(
   if (!currentUser) throw new Error('Not authenticated');
   const idToken = await currentUser.getIdToken();
 
-  const response = await fetch(`${FUNCTIONS_BASE_URL}/userWriteHandler`, {
+  const response = await fetch(`${getFunctionsBaseUrl()}/userWriteHandler`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
     body: JSON.stringify({

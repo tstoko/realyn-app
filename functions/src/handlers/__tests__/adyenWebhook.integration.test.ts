@@ -11,7 +11,16 @@ jest.mock("../../utils/adyenHelpers");
 jest.mock("../../services/disputeService");
 jest.mock("firebase-admin", () => ({
   firestore: jest.fn(() => ({
+    runTransaction: jest.fn(async (fn) =>
+      fn({
+        get: jest.fn().mockResolvedValue({ exists: false, data: () => undefined }),
+        set: jest.fn(),
+      }),
+    ),
     collection: jest.fn(() => ({
+      doc: jest.fn(() => ({
+        get: jest.fn(),
+      })),
       where: jest.fn(() => ({
         limit: jest.fn(() => ({
           get: jest.fn(),

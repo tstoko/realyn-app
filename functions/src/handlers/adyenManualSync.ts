@@ -6,22 +6,16 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import { syncDisputesForOrganization } from "../services/psp/adyenDisputeSync";
-import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 export const adyenManualSync = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {
       res.status(405).send("Method Not Allowed");
-      return;
-    }
-
-    // Verify authentication
-    const authResult = await verifyUser(req);
-    if (!authResult.success) {
-      sendAuthError(res, authResult);
       return;
     }
 
@@ -32,6 +26,12 @@ export const adyenManualSync = onRequest(
         success: false,
         message: "Missing organizationId",
       });
+      return;
+    }
+
+    const authResult = await verifyUserInOrganization(req, organizationId);
+    if (!authResult.success) {
+      sendAuthError(res, authResult);
       return;
     }
 

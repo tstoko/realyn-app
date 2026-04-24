@@ -4,10 +4,12 @@ import { performDemoReset } from '../../services/demoResetService';
 
 interface DemoModeBannerProps {
   organizationId?: string | null;
+  /** Reset calls an admin-only Cloud Function; hide for demo org users with role `user`. */
+  canReset?: boolean;
   onReset?: () => void;
 }
 
-export const DemoModeBanner: React.FC<DemoModeBannerProps> = ({ organizationId, onReset }) => {
+export const DemoModeBanner: React.FC<DemoModeBannerProps> = ({ organizationId, canReset = true, onReset }) => {
   const [isResetting, setIsResetting] = useState(false);
 
   const handleReset = async () => {
@@ -37,14 +39,18 @@ export const DemoModeBanner: React.FC<DemoModeBannerProps> = ({ organizationId, 
         <span className="text-xs font-semibold uppercase tracking-wider">DEMO MODE</span>
         <span className="text-xs text-cyan-400">This is a demonstration environment</span>
       </div>
-      <button
-        onClick={handleReset}
-        disabled={isResetting}
-        className="flex items-center space-x-1 text-xs font-medium text-cyan-300 hover:text-cyan-200 transition-colors px-2 py-1 rounded hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <RefreshCw className={`w-3 h-3 ${isResetting ? 'animate-spin' : ''}`} />
-        <span>{isResetting ? 'Resetting…' : 'Reset Demo'}</span>
-      </button>
+      {canReset ? (
+        <button
+          onClick={handleReset}
+          disabled={isResetting}
+          className="flex items-center space-x-1 text-xs font-medium text-cyan-300 hover:text-cyan-200 transition-colors px-2 py-1 rounded hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className={`w-3 h-3 ${isResetting ? 'animate-spin' : ''}`} />
+          <span>{isResetting ? 'Resetting…' : 'Reset Demo'}</span>
+        </button>
+      ) : (
+        <span className="text-xs text-cyan-500/80">Re-seed with CLI or sign in as admin</span>
+      )}
     </div>
   );
 };

@@ -1,14 +1,20 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyUser, verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-import { encrypt } from "../utils/encryption";
-
-const FieldValue = admin.firestore.FieldValue;
+import { savePspIntegrations, saveOperaCloudIntegration } from "../services/integrationWriteService";
+import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 export const organizationWriteHandler = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
+    const rateLimitOk = await applyRateLimit(
+      req, res, getClientIP(req), RATE_LIMIT_CONFIGS.general
+    );
+    if (!rateLimitOk) return;
+
     if (req.method !== "POST") {
       res.status(405).json({ success: false, error: "Method not allowed" });
       return;
@@ -90,10 +96,7 @@ export const organizationWriteHandler = onRequest(
             return;
           }
 
-          await db.collection("organizations").doc(organizationId).update({
-            pspIntegrations,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          await savePspIntegrations(organizationId, pspIntegrations);
 
           res.json({ success: true });
           return;
@@ -117,23 +120,7 @@ export const organizationWriteHandler = onRequest(
             return;
           }
 
-          const safeConfig: Record<string, any> = {};
-          if (config.gatewayUrl !== undefined) safeConfig.gatewayUrl = config.gatewayUrl;
-          if (config.authMode !== undefined) safeConfig.authMode = config.authMode;
-          if (config.oauthClientId !== undefined) safeConfig.oauthClientId = config.oauthClientId;
-          if (config.oauthClientSecret !== undefined) safeConfig.oauthClientSecret = encrypt(config.oauthClientSecret);
-          if (config.appKey !== undefined) safeConfig.appKey = encrypt(config.appKey);
-          if (config.enterpriseId !== undefined) safeConfig.enterpriseId = config.enterpriseId;
-          if (config.hotelCodes !== undefined) safeConfig.hotelCodes = config.hotelCodes;
-          if (config.integrationUsername !== undefined) safeConfig.integrationUsername = config.integrationUsername;
-          if (config.integrationPassword !== undefined) safeConfig.integrationPassword = encrypt(config.integrationPassword);
-          if (config.status !== undefined) safeConfig.status = config.status;
-          if (config.lastTestedAt !== undefined) safeConfig.lastTestedAt = config.lastTestedAt;
-
-          await db.collection("organizations").doc(organizationId).update({
-            operaCloudIntegration: safeConfig,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          await saveOperaCloudIntegration(organizationId, config);
 
           res.json({ success: true });
           return;
