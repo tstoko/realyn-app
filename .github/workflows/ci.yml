@@ -15,8 +15,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc
-        working-directory: packages/ai-core
+      - run: npx turbo run build --filter=@realyn/ai-core
       - run: npm ci
         working-directory: functions
       - run: npm test
@@ -47,8 +46,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
-        working-directory: packages/dashboard
+      - run: npx turbo run typecheck --filter=@realyn/dashboard
 
   typecheck-ai-core:
     name: Typecheck AI Core
@@ -60,8 +58,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc --noEmit
-        working-directory: packages/ai-core
+      - run: npx turbo run typecheck --filter=@realyn/ai-core
 
   typecheck-functions:
     name: Typecheck Functions
@@ -73,8 +70,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc
-        working-directory: packages/ai-core
+      - run: npx turbo run build --filter=@realyn/ai-core
       - run: npm ci
         working-directory: functions
       - run: npx tsc --noEmit
@@ -90,10 +86,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc
-        working-directory: packages/ai-core
-      - run: npx tsc --noEmit
-        working-directory: packages/core
+      - run: npx turbo run typecheck --filter=@realyn/core
 
   core-test:
     name: Core Tests
@@ -105,12 +98,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx tsc
-        working-directory: packages/ai-core
-      - run: npm run build
-        working-directory: packages/core
-      - run: npm test
-        working-directory: packages/core
+      - run: npx turbo run test --filter=@realyn/core
 
   dashboard-test:
     name: Dashboard Tests
