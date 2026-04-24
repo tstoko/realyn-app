@@ -294,15 +294,49 @@ export async function getEvidenceFilesForVision(
   return visionFiles;
 }
 
+const ALLOWED_PDF_DOWNLOAD_HOSTS = new Set([
+  "firebasestorage.googleapis.com",
+  "storage.googleapis.com",
+]);
+
+function assertAllowedEvidencePdfUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid PDF URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("PDF URL must use HTTPS");
+  }
+  if (!ALLOWED_PDF_DOWNLOAD_HOSTS.has(parsed.hostname)) {
+    throw new Error(`PDF download host not allowed: ${parsed.hostname}`);
+  }
+}
+
+export interface PdfDownloadLogContext {
+  disputeId: string;
+  fileId: string;
+  fileName: string;
+}
+
+function formatPdfLogContext(ctx: PdfDownloadLogContext): string {
+  return `disputeId=${ctx.disputeId} fileId=${ctx.fileId} fileName=${ctx.fileName}`;
+}
+
 /**
  * Extract text content from a PDF file URL
  * Downloads the PDF, parses it, and returns extracted text
  * Limits to 10,000 characters to prevent token overflow
  */
-async function getPDFTextContent(url: string): Promise<{ text: string; pageCount: number } | null> {
+async function getPDFTextContent(
+  url: string,
+  logContext: PdfDownloadLogContext,
+): Promise<{ text: string; pageCount: number } | null> {
   try {
-    console.log(`[PDF] Downloading PDF from: ${url}`);
-    
+    assertAllowedEvidencePdfUrl(url);
+    console.log(`[PDF] Downloading PDF (${formatPdfLogContext(logContext)})`);
+
     // Download PDF as buffer
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
@@ -329,8 +363,12 @@ async function getPDFTextContent(url: string): Promise<{ text: string; pageCount
       text: limitedText.trim(),
       pageCount,
     };
-  } catch (error: any) {
-    console.error(`[PDF] Failed to extract text from PDF (${url}):`, error.message);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[PDF] Failed to extract text (${formatPdfLogContext(logContext)}):`,
+      msg,
+    );
     return null;
   }
 }
@@ -367,7 +405,11 @@ export async function getEvidencePDFsWithText(
   for (const file of filesToProcess) {
     console.log(`[PDF] Processing: ${file.fileName}`);
     
-    const textResult = await getPDFTextContent(file.downloadURL);
+    const textResult = await getPDFTextContent(file.downloadURL, {
+      disputeId,
+      fileId: file.id,
+      fileName: file.fileName,
+    });
     
     if (!textResult || !textResult.text) {
       console.warn(`[PDF] No text extracted from ${file.fileName}, skipping`);
@@ -612,7 +654,11 @@ export async function getEnrichedEvidence(
           
           if (isPDF) {
             console.log(`[EnrichedEvidence] Extracting PDF text for ${file.fileName}`);
-            const pdfResult = await getPDFTextContent(file.downloadURL);
+            const pdfResult = await getPDFTextContent(file.downloadURL, {
+              disputeId,
+              fileId: file.id,
+              fileName: file.fileName,
+            });
             if (pdfResult) {
               enriched.pdfText = pdfResult.text;
               enriched.pdfPageCount = pdfResult.pageCount;

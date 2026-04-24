@@ -19,6 +19,7 @@ import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/au
 import { assertFeatureEnabled, PlanLimitError, sendPlanLimitError } from "../utils/planEnforcement";
 import { ALLOWED_ORIGINS } from "../config/environment";
 import { addAuditTrailEntry, createSystemAuditEntry, createErrorAuditEntry } from "../utils/auditTrailHelper";
+import { sendInternalError } from "../utils/httpErrorResponse";
 
 // ============================================================
 // AI Dispute Handlers
@@ -58,6 +59,8 @@ export const planEvidence = functions.https.onRequest(
   {
     region: "us-central1",
     cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -160,7 +163,7 @@ export const planEvidence = functions.https.onRequest(
         }
       }
 
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "planEvidence");
     }
   }
 );
@@ -299,6 +302,8 @@ export const updateEvidenceItem = functions.https.onRequest(
   {
     region: "us-central1",
     cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -366,7 +371,11 @@ export const updateEvidenceItem = functions.https.onRequest(
       );
 
       if (!success) {
-        res.status(500).json({ error: "Failed to update evidence item" });
+        sendInternalError(
+          res,
+          new Error("updateEvidenceItemStatus returned false"),
+          "updateEvidenceItem",
+        );
         return;
       }
 
@@ -378,9 +387,7 @@ export const updateEvidenceItem = functions.https.onRequest(
         progress,
       });
     } catch (error) {
-      console.error("Error in updateEvidenceItem:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "updateEvidenceItem");
     }
   }
 );
@@ -393,6 +400,8 @@ export const getProgress = functions.https.onRequest(
   {
     region: "us-central1",
     cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "GET") {
@@ -439,9 +448,7 @@ export const getProgress = functions.https.onRequest(
         progress,
       });
     } catch (error) {
-      console.error("Error in getProgress:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "getProgress");
     }
   }
 );
@@ -454,6 +461,8 @@ export const toggleAIPlan = functions.https.onRequest(
   {
     region: "us-central1",
     cors: ALLOWED_ORIGINS,
+    memory: "512MiB",
+    timeoutSeconds: 60,
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -508,7 +517,11 @@ export const toggleAIPlan = functions.https.onRequest(
       const success = await toggleAIPlanMode(disputeId, useAIPlan);
 
       if (!success) {
-        res.status(500).json({ error: "Failed to toggle AI plan mode" });
+        sendInternalError(
+          res,
+          new Error("toggleAIPlanMode returned false"),
+          "toggleAIPlan",
+        );
         return;
       }
 
@@ -517,9 +530,7 @@ export const toggleAIPlan = functions.https.onRequest(
         useAIPlan,
       });
     } catch (error) {
-      console.error("Error in toggleAIPlan:", error);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "toggleAIPlan");
     }
   }
 );
@@ -644,7 +655,11 @@ export const draftArgument = functions.https.onRequest(
       // Build the DisputeCase
       const disputeCase = await buildDisputeCase(disputeId, organizationId);
       if (!disputeCase) {
-        res.status(500).json({ error: "Failed to build dispute case" });
+        sendInternalError(
+          res,
+          new Error("buildDisputeCase returned null"),
+          "draftArgument",
+        );
         return;
       }
 
@@ -708,7 +723,11 @@ export const draftArgument = functions.https.onRequest(
       );
 
       if (!argument) {
-        res.status(500).json({ error: "Failed to generate argument" });
+        sendInternalError(
+          res,
+          new Error("generateDisputeArgument returned null"),
+          "draftArgument",
+        );
         return;
       }
 
@@ -794,7 +813,7 @@ export const draftArgument = functions.https.onRequest(
         }
       }
 
-      res.status(500).json({ error: message });
+      sendInternalError(res, error, "draftArgument");
     }
   }
 );

@@ -36,7 +36,6 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@pinecone-database/pinecone": "^7.2.0",
     "@realyn/ai-core": "file:../packages/ai-core",
-    "@sentry/node": "^9.27.0",
     "axios": "^1.13.6",
     "csv-parse": "^6.1.0",
     "express": "^5.1.0",
@@ -60,5 +59,8 @@
     "ts-jest": "^29.4.6",
     "typescript": "^5.5.0"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "protobufjs": "7.5.5"
+  }
 }

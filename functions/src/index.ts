@@ -9,6 +9,7 @@ import { normalizeStripeDispute } from "./utils/disputeNormalizer";
 import { upsertUnifiedDispute, updateDisputeStatus as updateUnifiedDisputeStatus } from "./services/disputeService";
 import { recordDisputeOutcome } from "./services/winPatternService";
 import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "./utils/rateLimiter";
+import { sendInternalError } from "./utils/httpErrorResponse";
 
 import { configureTelemetry } from "@realyn/ai-core/telemetry";
 import { cloudLoggingEmitter } from "./lib/cloudLoggingTelemetry";
@@ -58,8 +59,8 @@ export const stripeWebhook = onRequest(
     if (rawBody) {
       try {
         event = stripe.webhooks.constructEvent(rawBody, signature, webhookKey) as Stripe.Event;
-      } catch (error: any) {
-        console.error("Signature verification failed:", error.message);
+      } catch (error: unknown) {
+        console.error("Signature verification failed:", error);
         res.status(400).json({ error: "Invalid signature" });
         return;
       }
@@ -97,9 +98,8 @@ export const stripeWebhook = onRequest(
 
       await processStripeEvent(event, stripe);
       res.json({ received: true });
-    } catch (error: any) {
-      console.error("Error processing webhook:", error);
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      sendInternalError(res, error, "StripeWebhook");
     }
   }
 );

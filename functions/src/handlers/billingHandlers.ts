@@ -6,6 +6,8 @@ import Stripe from "stripe";
 import { Request, Response } from "express";
 import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
 import { ALLOWED_ORIGINS } from "../config/environment";
+import { getDashboardBaseUrl } from "../config/emailAndDashboardParams";
+import { sendInternalError } from "../utils/httpErrorResponse";
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -83,13 +85,14 @@ async function handleCreateCheckoutSession(req: Request, res: Response): Promise
     customerId = customer.id;
   }
 
+  const dashboardBase = getDashboardBaseUrl();
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
     payment_method_types: ["card"],
     line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${req.headers.origin || "https://dashboard.realyn.com"}/billing?success=true`,
-    cancel_url: `${req.headers.origin || "https://dashboard.realyn.com"}/billing?canceled=true`,
+    success_url: `${dashboardBase}/billing?success=true`,
+    cancel_url: `${dashboardBase}/billing?canceled=true`,
     subscription_data: {
       trial_period_days: 14,
       metadata: { organizationId: org.orgId, planId: planId || "unknown" },
@@ -127,9 +130,27 @@ async function handleBillingWebhook(req: Request, res: Response): Promise<void> 
       signature,
       billingWebhookSecret.value().trim()
     ) as Stripe.Event;
-  } catch (err: any) {
-    console.error("Billing webhook signature verification failed:", err.message);
+  } catch (err: unknown) {
+    console.error("Billing webhook signature verification failed:", err);
     res.status(400).json({ error: "Invalid signature" });
+    return;
+  }
+
+  const eventRef = db.collection("_processedWebhookEvents").doc(`stripe_billing_${event.id}`);
+  const alreadyProcessed = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(eventRef);
+    if (snap.exists) return true;
+    tx.set(eventRef, {
+      provider: "stripe_billing",
+      eventType: event.type,
+      processedAt: FieldValue.serverTimestamp(),
+    });
+    return false;
+  });
+
+  if (alreadyProcessed) {
+    console.log(`[BillingWebhook] Duplicate event ${event.id} — skipping`);
+    res.json({ received: true, duplicate: true });
     return;
   }
 
@@ -188,9 +209,8 @@ async function handleBillingWebhook(req: Request, res: Response): Promise<void> 
     }
 
     res.json({ received: true });
-  } catch (error: any) {
-    console.error("Error processing billing webhook:", error);
-    res.status(500).json({ error: error.message });
+  } catch (error: unknown) {
+    sendInternalError(res, error, "BillingWebhook");
   }
 }
 
@@ -251,7 +271,7 @@ async function handleCreateBillingPortalSession(req: Request, res: Response): Pr
   const stripe = getBillingStripe();
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${req.headers.origin || "https://dashboard.realyn.com"}/billing`,
+    return_url: `${getDashboardBaseUrl()}/billing`,
   });
 
   res.json({ url: session.url });

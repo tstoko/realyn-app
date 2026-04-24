@@ -7,6 +7,7 @@ import { normalizeAdyenDispute } from "../utils/disputeNormalizer";
 import { upsertUnifiedDispute } from "../services/disputeService";
 import { recordDisputeOutcome } from "../services/winPatternService";
 import { applyRateLimit, getClientIP, RATE_LIMIT_CONFIGS } from "../utils/rateLimiter";
+import { sendInternalError } from "../utils/httpErrorResponse";
 
 /**
  * Adyen webhook handler for dispute events
@@ -127,9 +128,8 @@ export const adyenWebhook = onRequest(
 
       // Always return [accepted] for Adyen
       res.status(200).send("[accepted]");
-    } catch (error: any) {
-      console.error("Error processing Adyen webhook:", error);
-      res.status(500).json({ error: error.message });
+    } catch (error: unknown) {
+      sendInternalError(res, error, "AdyenWebhook");
     }
   }
 );

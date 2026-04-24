@@ -46,30 +46,49 @@ export const dataRetentionCleanup = onSchedule(
     let anonymized = 0;
     let errors = 0;
 
+    const cutoffTs = admin.firestore.Timestamp.fromDate(cutoffDate);
+    const PAGE_SIZE = 200;
+    /** Max disputes to process per terminal status per scheduler run (prevents timeout starvation). */
+    const MAX_PER_STATUS = 5000;
+
     for (const status of terminalStatuses) {
-      const snapshot = await db
-        .collection("disputes")
-        .where("status", "==", status)
-        .where("updatedAt", "<", admin.firestore.Timestamp.fromDate(cutoffDate))
-        .limit(200)
-        .get();
+      let processedThisStatus = 0;
+      let lastDoc: admin.firestore.QueryDocumentSnapshot | null = null;
 
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-        if (data.anonymizedAt) continue; // already anonymized
-
-        const orgId = data.organizationId;
-        if (!orgId) continue;
-
-        const result = await anonymizeDispute(doc.id, orgId);
-        if (result.success) {
-          anonymized++;
-        } else {
-          errors++;
-          console.warn(
-            `[DataRetention Scheduler] Failed to anonymize ${doc.id}: ${result.error}`
-          );
+      while (processedThisStatus < MAX_PER_STATUS) {
+        let q = db
+          .collection("disputes")
+          .where("status", "==", status)
+          .where("updatedAt", "<", cutoffTs)
+          .orderBy("updatedAt", "asc")
+          .limit(PAGE_SIZE);
+        if (lastDoc) {
+          q = q.startAfter(lastDoc);
         }
+        const snapshot = await q.get();
+        if (snapshot.empty) break;
+
+        for (const doc of snapshot.docs) {
+          const data = doc.data();
+          if (data.anonymizedAt) continue;
+
+          const orgId = data.organizationId;
+          if (!orgId) continue;
+
+          const result = await anonymizeDispute(doc.id, orgId);
+          if (result.success) {
+            anonymized++;
+          } else {
+            errors++;
+            console.warn(
+              `[DataRetention Scheduler] Failed to anonymize ${doc.id}: ${result.error}`
+            );
+          }
+        }
+
+        lastDoc = snapshot.docs[snapshot.docs.length - 1];
+        processedThisStatus += snapshot.docs.length;
+        if (snapshot.docs.length < PAGE_SIZE) break;
       }
     }
 

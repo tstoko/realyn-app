@@ -176,7 +176,12 @@ describe("adyenWebhook", () => {
     await adyenWebhook(mockRequest, mockResponse);
 
     expect(mockResponse.status).toHaveBeenCalledWith(500);
-    expect(mockResponse.json).toHaveBeenCalledWith({ error: error.message });
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "Internal server error",
+        errorId: expect.stringMatching(/^[0-9a-f]{8}$/),
+      }),
+    );
   });
 });
 

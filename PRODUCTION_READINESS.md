@@ -113,11 +113,9 @@ This is where the product goes from "working demo" to "thing someone can actuall
 - Depends on onboarding (step 15) so there's a place to put the paywall.
 - **Implemented:** Defined `Plan`, `Subscription`, and `PlanFeatures` types in `packages/shared/src/billing.ts` with two plans (Starter $49/mo, Professional $149/mo). Extended `Organization` type with `subscription` field. Built `billingHandlers.ts` with `createCheckoutSession` (creates Stripe customer + checkout session with 14-day trial), `billingWebhook` (handles `checkout.session.completed`, `customer.subscription.updated/deleted`, `invoice.payment_failed`), and `createBillingPortalSession`. Built `PlanSelector.tsx` (plan cards with monthly/yearly toggle), `BillingSettings.tsx` (current plan status + manage billing button), and `BillingPage.tsx`. Added `/billing` route to dashboard. Uses separate `STRIPE_BILLING_SECRET_KEY` secret to isolate billing Stripe from PSP dispute Stripe. **Remaining:** Create Stripe products/prices and set `VITE_STRIPE_PRICE_*` env vars.
 
-### 17. Wire up Sentry (or equivalent) ✅ DONE
-- **File:** `functions/src/utils/errorReporting.ts` (placeholder already exists)
-- Connect to a real Sentry project, add the browser SDK to the dashboard, configure alerts.
-- Do this before real customers so you catch issues before they report them.
-- **Implemented:** Added `@sentry/node` to `functions/package.json`. Created `functions/src/utils/withErrorReporting.ts` wrapper that catches unhandled errors and reports via `ErrorReporter` (which forwards to Sentry when `SENTRY_DSN` is set). Added `@sentry/react` to `packages/dashboard/package.json`. Initialized Sentry in `packages/dashboard/src/index.tsx` (conditional on `VITE_SENTRY_DSN` env var) with `Sentry.ErrorBoundary` wrapping the app. Both are no-ops when DSN is not configured. **Remaining:** Create Sentry projects and set `SENTRY_DSN` / `VITE_SENTRY_DSN` env vars.
+### 17. Error reporting — Cloud Logging / Error Reporting (no Sentry)
+- **Decision:** Sentry SDKs and `functions/src/utils/errorReporting.ts` / `withErrorReporting.ts` were removed. Gen2 Cloud Functions already surface `console.error` with stack traces to **Google Cloud Error Reporting** when logs are structured appropriately (see `functions/src/utils/logger.ts`).
+- **Operational:** Set up log-based alerts in Cloud Console (error rate, 5xx spikes) and optionally export to BigQuery for analytics.
 
 ---
 
@@ -199,7 +197,6 @@ Use this when wiring **staging** (`realyn-app-staging`) or **production** so hos
 |------|---------------------|------------------|
 | Firebase web app | Secrets `DASHBOARD_VITE_FIREBASE_API_KEY`, `DASHBOARD_VITE_FIREBASE_MESSAGING_SENDER_ID`, `DASHBOARD_VITE_FIREBASE_APP_ID` | `STAGING_VITE_FIREBASE_*` (same suffixes) |
 | Stripe price IDs (billing UI) | `DASHBOARD_VITE_STRIPE_PRICE_STARTER_MONTHLY` / `_YEARLY`, `DASHBOARD_VITE_STRIPE_PRICE_PROFESSIONAL_MONTHLY` / `_YEARLY` | `STAGING_VITE_STRIPE_PRICE_*` |
-| Sentry (optional) | `DASHBOARD_VITE_SENTRY_DSN` | `STAGING_VITE_SENTRY_DSN` |
 | Website URL (optional) | Variable `DASHBOARD_VITE_WEBSITE_URL` (defaults to `https://realyn.app`) | Variable `STAGING_VITE_WEBSITE_URL` (see workflow default) |
 | Hosting deploy SA | `FIREBASE_SERVICE_ACCOUNT_REALYN_APP` | `FIREBASE_SERVICE_ACCOUNT_REALYN_APP_STAGING` |
 
@@ -209,7 +206,6 @@ Workflow files: [`.github/workflows/deploy-dashboard.yml`](.github/workflows/dep
 
 | Item | Notes |
 |------|--------|
-| `SENTRY_DSN` | Read in [`functions/src/utils/errorReporting.ts`](functions/src/utils/errorReporting.ts). Set on the deployed Gen2 environment (Google Cloud Console → Cloud Run service for each function, or your usual Firebase/GCP env mechanism). Not injected by the hosting workflows above. |
 | `RESEND_API_KEY` | Secret for Resend; bound on [`disputeNotificationTrigger`](functions/src/handlers/disputeNotificationTrigger.ts), [`deadlineReminderScheduler`](functions/src/handlers/deadlineReminderScheduler.ts), and [`createInvite`](functions/src/handlers/inviteHandlers.ts). `firebase functions:secrets:set RESEND_API_KEY`. |
 | `DASHBOARD_URL` | Non-secret env: base URL for email and invite links. Set per Cloud Run service (production vs staging dashboard). See [`functions/src/config/emailAndDashboardParams.ts`](functions/src/config/emailAndDashboardParams.ts) and [`functions/.env.example`](functions/.env.example). |
 | `PINECONE_API_KEY` | Secret for Pinecone Serverless (RAG retrieval + ingestion). Bind on any function that calls `retrieveRagContext` or related helpers; also required by the `rag:setup` / `rag:ingest` / `rag:test` scripts. `firebase functions:secrets:set PINECONE_API_KEY`. |
