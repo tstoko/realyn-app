@@ -100,7 +100,10 @@ export interface AutomationStep {
   title: string;
   description: string;
   status: 'pending' | 'success' | 'failure' | 'in_progress';
-  actor?: { type: 'user'; userId: string; userName: string } | { type: 'system' };
+  actor?:
+    | { type: 'user'; userId: string; userName: string }
+    | { type: 'system' }
+    | { type: 'automation' };
   category?: AuditTrailCategory;
   metadata?: Record<string, unknown>;
   relatedResources?: {
@@ -162,6 +165,38 @@ export interface Dispute {
   argumentDraftGeneratedAt?: Date;
   argumentVersions?: ArgumentVersion[];
   argumentSubmittedAt?: Date;
+
+  // Readiness & draft validation
+  readinessAssessment?: {
+    caseId: string;
+    assessedAt: Date | string;
+    version: number;
+    evidenceCompleteness: {
+      requiredFulfilled: number;
+      requiredTotal: number;
+      optionalFulfilled: number;
+      optionalTotal: number;
+      percentComplete: number;
+    };
+    deadlineRisk: 'critical' | 'urgent' | 'normal' | 'comfortable';
+    daysRemaining: number | null;
+    winnability: 'high' | 'medium' | 'low';
+    recommendation: 'fight' | 'accept';
+    draftStatus: string;
+    blockingIssues: { issue: string; severity: 'critical' | 'major' | 'minor' }[];
+    overallReadiness: string;
+  };
+  draftValidation?: {
+    caseId: string;
+    validatedAt: Date | string;
+    draftVersion: number;
+    overallSupport: 'strong' | 'adequate' | 'weak' | 'unsupported';
+    supportedClaims: { claim: string; evidenceIds: string[] }[];
+    weakClaims: { claim: string; reason: string; suggestedEvidence: string[] }[];
+    unsupportedClaims: { claim: string; reason: string }[];
+    missingPspFields: { field: string; required: boolean }[];
+    submissionRisk: 'low' | 'medium' | 'high';
+  };
 }
 
 export interface FilterState {
@@ -299,7 +334,20 @@ export interface HotelUser {
   name: string;
   email: string;
   role: 'Manager' | 'Staff';
-  password: string;
+  firebaseUid?: string;
+}
+
+export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface Invite {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: 'Manager' | 'Staff';
+  invitedBy: string;
+  status: InviteStatus;
+  createdAt: Timestamp | Date;
+  expiresAt: Timestamp | Date;
 }
 
 export interface AutomationSettings {
@@ -427,6 +475,14 @@ export interface Organization {
   documents: HotelDocument[];
   users: HotelUser[];
   isDemo?: boolean;
+  subscription?: {
+    planId: string;
+    stripeCustomerId: string;
+    stripeSubscriptionId: string;
+    status: 'active' | 'past_due' | 'canceled' | 'trialing' | 'incomplete';
+    currentPeriodEnd: Date;
+    cancelAtPeriodEnd: boolean;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

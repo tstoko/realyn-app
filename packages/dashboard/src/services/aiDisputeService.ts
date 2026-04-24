@@ -74,11 +74,10 @@ export async function generateEvidencePlan(
   try {
     const baseUrl = getFunctionsBaseUrl();
     const fullUrl = `${baseUrl}/planEvidence?disputeId=${disputeId}`;
+    const headers = await getAuthHeaders();
     const response = await fetch(fullUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         organizationId,
         regenerate,
@@ -128,11 +127,10 @@ export async function updateEvidenceItemStatus(
 ): Promise<UpdateEvidenceItemResponse> {
   try {
     const baseUrl = getFunctionsBaseUrl();
+    const headers = await getAuthHeaders();
     const response = await fetch(`${baseUrl}/updateEvidenceItem?disputeId=${disputeId}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         organizationId,
         requirementId,

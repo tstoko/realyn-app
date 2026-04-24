@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import type { UnifiedDisputeData } from "../types/dispute";
 import { archiveDispute } from "./disputeHistoryService";
+import { assertDisputeQuota } from "../utils/planEnforcement";
 
 // Get Firestore instance (will be initialized by index.ts)
 function getDb() {
@@ -34,7 +36,7 @@ export async function upsertUnifiedDispute(
       ? admin.firestore.Timestamp.fromDate(normalized.respondBy)
       : null,
     customerExplanation: normalized.customerExplanation,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
   };
 
   // Use a deterministic doc ID derived from PSP provider + dispute ID to prevent duplicates
@@ -43,12 +45,21 @@ export async function upsertUnifiedDispute(
   const existing = await docRef.get();
 
   if (!existing.exists) {
+    let quotaExceeded = false;
+    try {
+      const quota = await assertDisputeQuota(normalized.organizationId);
+      quotaExceeded = quota.quotaExceeded;
+    } catch {
+      // Quota check failure must not block webhook-driven dispute ingestion
+    }
+
     await docRef.set({
       ...disputeData,
       lifecycleStatus: "new",
       automationStatus: "auditing",
       internalStatus: "needs_review",
       auditTrail: [],
+      ...(quotaExceeded ? { quotaExceeded: true } : {}),
     });
     console.log(
       `Created ${normalized.pspProvider} dispute: ${normalized.pspDisputeId} for organization: ${normalized.organizationId}`
@@ -98,7 +109,7 @@ export async function updateDisputeStatus(
     await docRef.update({
       status: newStatus,
       lifecycleStatus,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
     console.log(`Updated ${pspProvider} dispute: ${pspDisputeId} to status ${newStatus}`);
   } else {
@@ -122,7 +133,7 @@ export async function updateDisputeStatus(
       await db.collection("disputes").doc(legacyDoc.id).update({
         status: newStatus,
         lifecycleStatus,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
       console.log(`Updated legacy ${pspProvider} dispute: ${pspDisputeId} to status ${newStatus}`);
     }

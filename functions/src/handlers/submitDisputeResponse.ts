@@ -1,19 +1,60 @@
-// @ts-nocheck
 import { onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 import Stripe from "stripe";
-import { Client, Config, ModificationApi } from "@adyen/api-library";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { getOrganization } from "../services/organizationService";
 import { getEvidenceFiles } from "../services/evidenceService";
-import { buildStripeEvidencePayload } from "../utils/stripeEvidenceMapper";
+import { buildStripeEvidencePayload, StripeEvidenceMapping } from "../utils/stripeEvidenceMapper";
 import { mapEvidenceFilesToAdyen, buildAdyenDefenseComment } from "../utils/adyenEvidenceMapper";
-import axios from "axios";
 import { AdyenClient } from "../services/psp/adyenClient";
 import { DisputeArgument, ArgumentVersion } from "../types/aiDispute";
-import { verifyUser, verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { verifyUserInOrganization, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 import { createPSPAdapter } from "../services/psp/pspFactory";
 import type { PSPProvider } from "../types/dispute";
+
+/** Dispute document data shape as stored in Firestore */
+interface DisputeDocData {
+  pspProvider: string;
+  pspDisputeId: string;
+  pspPaymentId: string;
+  argumentDraft?: DisputeArgument & { accessActivityLog?: string };
+  argumentVersions?: ArgumentVersion[];
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface SubmitRequestBody {
+  disputeId?: string;
+  organizationId?: string;
+  evidence?: {
+    textEvidence?: Record<string, unknown>;
+    customerCommunication?: string;
+    customerSignature?: string;
+    receipt?: string;
+    serviceDocumentation?: string;
+    uncategorizedFile?: string;
+    productDescription?: string;
+    accessActivityLog?: string;
+    customerPurchaseIp?: string;
+  };
+}
+
+interface StripeApiError {
+  type?: string;
+  code?: string;
+  message: string;
+}
+
+interface HttpApiError {
+  message: string;
+  code?: string;
+  response?: {
+    status?: number;
+    data?: { message?: string };
+  };
+}
 
 /**
  * Build full argument text from DisputeArgument for Stripe's uncategorized_text field
@@ -69,31 +110,34 @@ function buildFullArgumentText(argument: DisputeArgument): string {
  */
 export const submitStripeDisputeResponse = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
+      res.status(405).send("Method Not Allowed");
+      return;
     }
 
-    const { disputeId, organizationId, evidence } = req.body;
+    const { disputeId, organizationId, evidence } = req.body as SubmitRequestBody;
 
     if (!disputeId || !organizationId) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "Missing disputeId or organizationId",
       });
+      return;
     }
 
     // Verify authentication AND organization membership
     const authResult = await verifyUserInOrganization(req, organizationId);
     if (!authResult.success) {
-      return sendAuthError(res, authResult);
+      sendAuthError(res, authResult);
+      return;
     }
 
     let retries = 0;
     const maxRetries = 3;
-    let dispute: any;
+    let dispute: DisputeDocData | undefined;
 
     try {
       const db = admin.firestore();
@@ -101,37 +145,41 @@ export const submitStripeDisputeResponse = onRequest(
       // Get dispute
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
       if (!disputeDoc.exists) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: "Dispute not found",
         });
+        return;
       }
 
-      dispute = disputeDoc.data();
+      dispute = disputeDoc.data() as DisputeDocData;
       if (dispute.pspProvider !== "stripe") {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "This dispute is not from Stripe",
         });
+        return;
       }
 
       // Get organization with decrypted credentials
       const organization = await getOrganization(organizationId);
       if (!organization || !organization.pspIntegrations?.stripe) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Stripe integration not configured",
         });
+        return;
       }
 
       const stripeIntegration = organization.pspIntegrations.stripe;
       // Use secretKey if available (manual setup), otherwise use accessToken (OAuth setup)
       const apiKey = stripeIntegration.secretKey || stripeIntegration.accessToken;
       if (!apiKey) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Stripe credentials not found (secretKey or accessToken required)",
         });
+        return;
       }
       const stripe = new Stripe(apiKey, { apiVersion: "2023-10-16" });
 
@@ -148,10 +196,10 @@ export const submitStripeDisputeResponse = onRequest(
       );
 
       // Check if dispute has an AI-generated argument draft
-      const argumentDraft: DisputeArgument | undefined = dispute.argumentDraft;
+      const argumentDraft = dispute.argumentDraft;
 
       // Also include any direct evidence fields from request (for backward compatibility)
-      const finalPayload: Stripe.DisputeEvidenceParams = {
+      const finalPayload: StripeEvidenceMapping = {
         ...evidencePayload,
         // Allow override from request body if provided
         customer_communication: evidence?.customerCommunication || evidencePayload.customer_communication,
@@ -210,22 +258,23 @@ export const submitStripeDisputeResponse = onRequest(
 
       // Remove undefined values
       Object.keys(finalPayload).forEach(key => {
-        if (finalPayload[key as keyof Stripe.DisputeEvidenceParams] === undefined) {
-          delete finalPayload[key as keyof Stripe.DisputeEvidenceParams];
+        if (finalPayload[key as keyof StripeEvidenceMapping] === undefined) {
+          delete finalPayload[key as keyof StripeEvidenceMapping];
         }
       });
 
       // Submit evidence to Stripe with retry logic
-      let updatedDispute: Stripe.Dispute;
+      let updatedDispute: Stripe.Response<Stripe.Dispute> | undefined;
       
       while (retries <= maxRetries) {
         try {
           updatedDispute = await stripe.disputes.update(
             dispute.pspDisputeId,
-            finalPayload
+            { evidence: finalPayload as Stripe.DisputeUpdateParams.Evidence }
           );
           break; // Success, exit retry loop
-        } catch (error: any) {
+        } catch (err: unknown) {
+          const error = err as StripeApiError;
           retries++;
           
           // Don't retry on certain errors
@@ -233,12 +282,12 @@ export const submitStripeDisputeResponse = onRequest(
               (error.code === 'dispute_already_submitted' || 
                error.code === 'dispute_not_found' ||
                error.code === 'invalid_evidence')) {
-            throw error; // Don't retry invalid requests
+            throw err; // Don't retry invalid requests
           }
           
           // Retry on rate limits or network errors
           if (retries > maxRetries) {
-            throw error; // Max retries reached
+            throw err; // Max retries reached
           }
           
           // Exponential backoff: wait 2^retries seconds
@@ -248,17 +297,21 @@ export const submitStripeDisputeResponse = onRequest(
         }
       }
 
+      if (!updatedDispute) {
+        throw new Error("Failed to submit dispute to Stripe after retries");
+      }
+
       // Update dispute status in Firestore
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, FirebaseFirestore.FieldValue | string | ArgumentVersion[]> = {
         status: updatedDispute.status,
         lifecycleStatus: "submitted",
         automationStatus: "submitted",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       };
       
       // Mark argument submission time if used
       if (argumentDraft) {
-        updateData.argumentSubmittedAt = admin.firestore.FieldValue.serverTimestamp();
+        updateData.argumentSubmittedAt = FieldValue.serverTimestamp();
         
         // Also update the argument version to mark it as submitted
         const existingVersions: ArgumentVersion[] = dispute.argumentVersions || [];
@@ -281,14 +334,15 @@ export const submitStripeDisputeResponse = onRequest(
 
       console.log(`Successfully submitted Stripe dispute ${dispute.pspDisputeId} for organization ${organizationId}`);
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: "Dispute response submitted successfully",
         disputeStatus: updatedDispute.status,
         evidenceFilesSubmitted: evidenceFiles.length,
       });
-    } catch (error: any) {
-      console.error("Error submitting Stripe dispute response:", error);
+    } catch (err: unknown) {
+      const error = err as StripeApiError;
+      console.error("Error submitting Stripe dispute response:", err);
       
       // Log detailed error information
       const errorDetails = {
@@ -319,7 +373,7 @@ export const submitStripeDisputeResponse = onRequest(
         userMessage = "Connection error. Please check your internet connection and try again.";
       }
 
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: userMessage,
         error: error.message,
@@ -334,29 +388,32 @@ export const submitStripeDisputeResponse = onRequest(
  */
 export const submitAdyenDisputeResponse = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
+      res.status(405).send("Method Not Allowed");
+      return;
     }
 
-    const { disputeId, organizationId, evidence } = req.body;
+    const { disputeId, organizationId, evidence } = req.body as SubmitRequestBody;
 
     if (!disputeId || !organizationId) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "Missing disputeId or organizationId",
       });
+      return;
     }
 
     // Verify authentication AND organization membership
     const authResult = await verifyUserInOrganization(req, organizationId);
     if (!authResult.success) {
-      return sendAuthError(res, authResult);
+      sendAuthError(res, authResult);
+      return;
     }
 
-    let dispute: any;
+    let dispute: DisputeDocData | undefined;
 
     try {
       const db = admin.firestore();
@@ -364,38 +421,42 @@ export const submitAdyenDisputeResponse = onRequest(
       // Get dispute
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
       if (!disputeDoc.exists) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           message: "Dispute not found",
         });
+        return;
       }
 
-      dispute = disputeDoc.data();
+      dispute = disputeDoc.data() as DisputeDocData;
       if (dispute.pspProvider !== "adyen") {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "This dispute is not from Adyen",
         });
+        return;
       }
 
       // Get organization with decrypted credentials
       const organization = await getOrganization(organizationId);
       if (!organization || !organization.pspIntegrations?.adyen) {
         console.error(`Adyen: Integration not configured for organization: ${organizationId}`);
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Adyen integration not configured",
         });
+        return;
       }
 
       const adyenIntegration = organization.pspIntegrations.adyen;
       
       if (!adyenIntegration.apiKey) {
         console.error(`Adyen: Missing API key for organization: ${organizationId}`);
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Adyen API key not found",
         });
+        return;
       }
 
       console.log(`Adyen: Submitting dispute response for organization: ${organizationId}, dispute: ${dispute.pspDisputeId}`);
@@ -436,28 +497,28 @@ export const submitAdyenDisputeResponse = onRequest(
       // Submit defense to Adyen with retry logic
       let retries = 0;
       const maxRetries = 3;
-      let defenseResponse: any;
 
       while (retries <= maxRetries) {
         try {
           // Use Adyen client's defendDispute method
-          defenseResponse = await client.defendDispute(dispute.pspDisputeId, {
+          await client.defendDispute(dispute.pspDisputeId, {
             documents: mappedEvidence.documents,
             comment: defenseComment || mappedEvidence.comment,
             defenseReasonCode: mappedEvidence.defenseReasonCode,
           });
           break; // Success, exit retry loop
-        } catch (error: any) {
+        } catch (err: unknown) {
+          const error = err as HttpApiError;
           retries++;
           
           // Don't retry on certain errors
           if (error.response?.status === 400 || error.response?.status === 422) {
-            throw error; // Don't retry invalid requests
+            throw err; // Don't retry invalid requests
           }
           
           // Retry on rate limits or network errors
           if (retries > maxRetries) {
-            throw error; // Max retries reached
+            throw err; // Max retries reached
           }
           
           // Exponential backoff
@@ -471,19 +532,20 @@ export const submitAdyenDisputeResponse = onRequest(
       await db.collection("disputes").doc(disputeId).update({
         lifecycleStatus: "submitted",
         automationStatus: "submitted",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
 
-      console.log(`Adyen: ✅ Successfully submitted chargeback defense ${defenseReference} for organization ${organizationId}, dispute: ${dispute.pspDisputeId}`);
+      console.log(`Adyen: Successfully submitted chargeback defense ${defenseReference} for organization ${organizationId}, dispute: ${dispute.pspDisputeId}`);
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: "Dispute response submitted successfully",
         defenseReference: defenseReference,
         evidenceFilesSubmitted: evidenceFiles.length,
       });
-    } catch (error: any) {
-      console.error("Error submitting Adyen dispute response:", error);
+    } catch (err: unknown) {
+      const error = err as HttpApiError;
+      console.error("Error submitting Adyen dispute response:", err);
       
       // Log detailed error information
       const errorDetails = {
@@ -508,7 +570,7 @@ export const submitAdyenDisputeResponse = onRequest(
         userMessage = "Connection error. Please check your internet connection and try again.";
       }
 
-      return res.status(error.response?.status || 500).json({
+      res.status(error.response?.status || 500).json({
         success: false,
         message: userMessage,
         error: error.message,
@@ -533,26 +595,29 @@ export const submitAdyenDisputeResponse = onRequest(
  */
 export const submitDisputeResponse = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
+      res.status(405).send("Method Not Allowed");
+      return;
     }
 
-    const { disputeId, organizationId } = req.body;
+    const { disputeId, organizationId } = req.body as SubmitRequestBody;
 
     if (!disputeId || !organizationId) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: "Missing disputeId or organizationId",
       });
+      return;
     }
 
     // Verify authentication AND organization membership
     const authResult = await verifyUserInOrganization(req, organizationId);
     if (!authResult.success) {
-      return sendAuthError(res, authResult);
+      sendAuthError(res, authResult);
+      return;
     }
 
     try {
@@ -561,26 +626,29 @@ export const submitDisputeResponse = onRequest(
       // Get dispute to determine PSP provider
       const disputeDoc = await db.collection("disputes").doc(disputeId).get();
       if (!disputeDoc.exists) {
-        return res.status(404).json({ success: false, message: "Dispute not found" });
+        res.status(404).json({ success: false, message: "Dispute not found" });
+        return;
       }
 
-      const dispute = disputeDoc.data()!;
+      const dispute = disputeDoc.data() as DisputeDocData;
       const provider = dispute.pspProvider as PSPProvider;
 
       if (!provider) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Dispute has no PSP provider set",
         });
+        return;
       }
 
       // Get organization credentials
       const organization = await getOrganization(organizationId);
       if (!organization || !organization.pspIntegrations) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: "Organization PSP integrations not configured",
         });
+        return;
       }
 
       // Create the appropriate adapter
@@ -589,7 +657,7 @@ export const submitDisputeResponse = onRequest(
       // Gather evidence
       const evidenceFiles = await getEvidenceFiles(disputeId);
       const argument: DisputeArgument | undefined = dispute.argumentDraft;
-      const textEvidence = req.body.evidence?.textEvidence || {};
+      const textEvidence = (req.body as SubmitRequestBody).evidence?.textEvidence || {};
 
       // Submit defense
       const result = await adapter.submitDefense(
@@ -600,14 +668,14 @@ export const submitDisputeResponse = onRequest(
 
       if (result.success) {
         // Update dispute status
-        const updateData: Record<string, any> = {
+        const updateData: Record<string, FirebaseFirestore.FieldValue | string> = {
           lifecycleStatus: "submitted",
           automationStatus: "submitted",
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         };
 
         if (argument) {
-          updateData.argumentSubmittedAt = admin.firestore.FieldValue.serverTimestamp();
+          updateData.argumentSubmittedAt = FieldValue.serverTimestamp();
         }
 
         await db.collection("disputes").doc(disputeId).update(updateData);
@@ -618,18 +686,19 @@ export const submitDisputeResponse = onRequest(
         );
       }
 
-      return res.status(result.success ? 200 : 500).json({
+      res.status(result.success ? 200 : 500).json({
         success: result.success,
         message: result.message,
         disputeStatus: result.status,
         evidenceFilesSubmitted: evidenceFiles.length,
         pspResponseId: result.pspResponseId,
       });
-    } catch (error: any) {
-      console.error("Error in unified dispute submission:", error);
-      return res.status(500).json({
+    } catch (err: unknown) {
+      console.error("Error in unified dispute submission:", err);
+      const message = err instanceof Error ? err.message : "Failed to submit dispute response";
+      res.status(500).json({
         success: false,
-        message: error.message || "Failed to submit dispute response",
+        message,
       });
     }
   },

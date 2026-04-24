@@ -2,6 +2,7 @@ import React from "react"
 import { Logo, Button } from "@realyn/shared"
 import { ArrowLeftIcon } from "@radix-ui/react-icons"
 import { AnimatedGrid } from "../../components/landing/animated-grid"
+import { COMPANY_ADDRESS, GOVERNING_JURISDICTION, LEGAL_EMAIL } from "../../config/companyInfo"
 
 interface TermsOfServiceProps {
   onBack: () => void
@@ -147,7 +148,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({ onBack }) => {
             <section>
               <h2 className="text-2xl font-semibold text-slate-50 mb-4">14. Governing Law</h2>
               <p>
-                These Terms shall be governed by and construed in accordance with the laws of [Your Jurisdiction], without regard to its conflict of law provisions. Any disputes arising from these Terms shall be subject to the exclusive jurisdiction of the courts in [Your Jurisdiction].
+                These Terms shall be governed by and construed in accordance with the laws of {GOVERNING_JURISDICTION}, without regard to its conflict of law provisions. Any disputes arising from these Terms shall be subject to the exclusive jurisdiction of the courts in {GOVERNING_JURISDICTION}.
               </p>
             </section>
 
@@ -157,8 +158,8 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({ onBack }) => {
                 If you have questions about these Terms, please contact us at:
               </p>
               <p className="mt-2">
-                <strong>Email:</strong> legal@realyn.com<br />
-                <strong>Address:</strong> [Your Company Address]
+                <strong>Email:</strong> {LEGAL_EMAIL}<br />
+                <strong>Address:</strong> {COMPANY_ADDRESS}
               </p>
             </section>
           </div>

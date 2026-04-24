@@ -3,13 +3,14 @@ import { Request, Response } from "express";
 import Stripe from "stripe";
 import { AdyenClient } from "../services/psp/adyenClient";
 import { verifyUser, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 /**
  * Test Stripe connection
  */
 export const testStripeConnection = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {
@@ -72,7 +73,7 @@ export const testStripeConnection = onRequest(
  */
 export const testAdyenConnection = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response): Promise<void> => {
     if (req.method !== "POST") {

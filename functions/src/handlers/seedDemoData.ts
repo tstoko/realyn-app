@@ -1,5 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { triggerEvidencePlanning } from "../services/ai/evidencePlanningService";
 import { buildDisputeCase } from "../services/ai/disputeCaseBuilder";
@@ -7,7 +8,7 @@ import { generateDisputeArgument } from "../services/ai/argumentGenerator";
 import { updateEvidenceItemStatus } from "../services/ai/evidencePlanningService";
 import { EvidenceItem } from "../types/aiDispute";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-import { shouldEnableTestHandlers } from "../config/environment";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
 
 const db = admin.firestore();
 
@@ -88,7 +89,7 @@ const demoDisputes = [
  * - Pre-generates arguments for some disputes
  */
 export const seedDemoData = onRequest(
-  { cors: true, secrets: ["ANTHROPIC_API_KEY"] },
+  { cors: ALLOWED_ORIGINS, secrets: ["ANTHROPIC_API_KEY"] },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
@@ -163,8 +164,8 @@ export const seedDemoData = onRequest(
             autoSubmissionMinAmount: 0,
             autoMarkNotContested: false,
           },
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         };
 
         const orgRef = await db.collection("organizations").add(demoHotelData);
@@ -284,7 +285,7 @@ export const seedDemoData = onRequest(
                   if (argument) {
                     await db.collection("disputes").doc(disputeId).update({
                       argumentDraft: removeUndefinedFields(argument),
-                      argumentDraftGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+                      argumentDraftGeneratedAt: FieldValue.serverTimestamp(),
                       lifecycleStatus: "draft_ready",
                       internalStatus: "ready_to_submit",
                     });
@@ -327,8 +328,8 @@ export const seedDemoData = onRequest(
               if (argument) {
                 await db.collection("disputes").doc(disputeId).update({
                   argumentDraft: removeUndefinedFields(argument),
-                  argumentDraftGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
-                  argumentSubmittedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  argumentDraftGeneratedAt: FieldValue.serverTimestamp(),
+                  argumentSubmittedAt: FieldValue.serverTimestamp(),
                   lifecycleStatus: "submitted",
                   internalStatus: "submitted",
                   status: "under_review",

@@ -41,6 +41,14 @@ service cloud.firestore {
                     && userCanReadOrg(get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId);
         allow write: if false;
       }
+
+      // Tasks subcollection — inherits parent dispute's org scope
+      match /tasks/{taskId} {
+        allow read: if isAuthenticated()
+                    && get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId != null
+                    && userCanReadOrg(get(/databases/$(database)/documents/disputes/$(disputeId)).data.organizationId);
+        allow write: if false;
+      }
     }
 
     // =========================================================================
@@ -66,6 +74,7 @@ service cloud.firestore {
         allow read: if userCanReadOrg(orgId);
         allow write: if false;
       }
+
     }
 
     // =========================================================================
@@ -85,6 +94,65 @@ service cloud.firestore {
                   && resource.data.organizationId != null
                   && userCanReadOrg(resource.data.organizationId);
       allow write: if false;
+    }
+
+    // =========================================================================
+    // Operations Collection (long-running jobs)
+    // =========================================================================
+    match /operations/{operationId} {
+      allow read: if isAuthenticated()
+                  && resource.data.organizationId != null
+                  && userCanReadOrg(resource.data.organizationId);
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Rulesets Collection (versioned scheme rules)
+    // =========================================================================
+    match /rulesets/{rulesetId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      match /rules/{ruleId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
+    }
+
+    // =========================================================================
+    // Knowledge Base Collections (read-only for authenticated users)
+    // Writes handled exclusively by Cloud Functions (admin SDK / seed handlers).
+    // =========================================================================
+    match /schemeRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /evidenceRequirements/{reqId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /pspFormats/{formatId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /evidenceOutputTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    match /winPatterns/{patternId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Webhook Idempotency (internal — no client access)
+    // =========================================================================
+    match /_processedWebhookEvents/{eventId} {
+      allow read, write: if false;
     }
 
     // =========================================================================

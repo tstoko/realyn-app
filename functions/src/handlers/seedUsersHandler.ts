@@ -2,7 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { Request, Response } from "express";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
-import { shouldEnableTestHandlers } from "../config/environment";
+import { shouldEnableTestHandlers, ALLOWED_ORIGINS } from "../config/environment";
 
 // Ensure admin is initialized with explicit project configuration
 if (!admin.apps.length) {
@@ -13,7 +13,7 @@ if (!admin.apps.length) {
 
 export const seedUsersHandler = onRequest(
   {
-    cors: true,
+    cors: ALLOWED_ORIGINS,
   },
   async (req: Request, res: Response) => {
     if (!shouldEnableTestHandlers()) {

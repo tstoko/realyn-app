@@ -1,10 +1,12 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { Request, Response } from "express";
 import { verifyAdmin, sendAuthError } from "../utils/authMiddleware";
+import { ALLOWED_ORIGINS } from "../config/environment";
 
 export const adminUpdateDispute = onRequest(
-  { cors: true },
+  { cors: ALLOWED_ORIGINS },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
@@ -29,7 +31,7 @@ export const adminUpdateDispute = onRequest(
       }
 
       const updatePayload: Record<string, any> = {
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       };
 
       if (typeof updates.reason === "string") updatePayload.reason = updates.reason;
@@ -47,7 +49,7 @@ export const adminUpdateDispute = onRequest(
       }
 
       if (auditNote) {
-        updatePayload.auditTrail = admin.firestore.FieldValue.arrayUnion({
+        updatePayload.auditTrail = FieldValue.arrayUnion({
           timestamp: admin.firestore.Timestamp.now(),
           title: "Admin Update",
           description: auditNote,

@@ -13,10 +13,26 @@
     "dev:dashboard": "turbo dev --filter=@realyn/dashboard",
     "dev:emulators": "JAVA_HOME=/opt/homebrew/opt/openjdk@17 firebase emulators:start --export-on-exit=./emulator-data --import=./emulator-data",
     "dev:dashboard:emulators": "JAVA_HOME=/opt/homebrew/opt/openjdk@17 firebase emulators:start --export-on-exit=./emulator-data --import=./emulator-data & turbo dev --filter=@realyn/dashboard",
+    "setup:dashboard:emulator": "node scripts/setup-dashboard-emulator.mjs",
+    "seed:dice:emulator": "cd functions && npm run seed:dice:emulator",
+    "seed:nimax": "cd functions && npm run seed:nimax",
+    "seed:nimax:emulator": "cd functions && npm run seed:nimax:emulator",
+    "seed:zipworld": "cd functions && npm run seed:zipworld",
+    "seed:zipworld:emulator": "cd functions && npm run seed:zipworld:emulator",
+    "seed:skiddle": "cd functions && npm run seed:skiddle",
+    "seed:skiddle:emulator": "cd functions && npm run seed:skiddle:emulator",
+    "seed:sadlerswells": "cd functions && npm run seed:sadlerswells",
+    "seed:sadlerswells:emulator": "cd functions && npm run seed:sadlerswells:emulator",
+    "seed:attractionworld": "cd functions && npm run seed:attractionworld",
+    "seed:attractionworld:emulator": "cd functions && npm run seed:attractionworld:emulator",
+    "test": "turbo test",
     "deploy:functions": "cd functions && npm run deploy",
-    "seed:dice": "cd functions && npx tsx src/scripts/seedDiceDemo.ts"
+    "seed:dice": "cd functions && npm run seed:dice"
   },
   "packageManager": "npm@11.6.2",
+  "overrides": {
+    "protobufjs": "7.5.5"
+  },
   "devDependencies": {
     "autoprefixer": "^10.5.0",
     "tailwindcss": "^3.4.19",

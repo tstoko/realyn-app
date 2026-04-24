@@ -32,13 +32,28 @@ export const PolicyConsentModal: React.FC<PolicyConsentModalProps> = ({ userId, 
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to save consent');
+      const text = await response.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = {}; }
+
+      if (!response.ok) {
+        const serverMsg = data.error || `HTTP ${response.status}`;
+        throw new Error(serverMsg);
+      }
 
       onAccept();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save policy consent:', err);
-      setError('Failed to save your consent. Please try again.');
+      const detail = err?.message || '';
+      const showDetail = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true';
+
+      if (showDetail && detail) {
+        setError(`Failed to save consent: ${detail}`);
+      } else if (detail.includes('401') || detail.includes('Unauthorized') || detail.includes('expired')) {
+        setError('Session expired. Please sign out and sign back in.');
+      } else {
+        setError('Failed to save your consent. Please try again.');
+      }
     } finally {
       setSaving(false);
     }

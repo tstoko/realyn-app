@@ -64,7 +64,7 @@ export interface HotelUser {
   name: string;
   email: string;
   role: "Manager" | "Staff";
-  password?: string; // Encrypted
+  firebaseUid?: string;
 }
 
 export interface PMSIntegrationConfig {
@@ -74,17 +74,31 @@ export interface PMSIntegrationConfig {
   reservationCount?: number;
 }
 
+export type SubscriptionStatus = "active" | "past_due" | "canceled" | "trialing" | "incomplete";
+
+export interface OrganizationSubscription {
+  planId: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  status: SubscriptionStatus;
+  currentPeriodEnd?: Date | admin.firestore.Timestamp;
+  cancelAtPeriodEnd?: boolean;
+}
+
 export interface Organization {
   id: string;
   name: string;
   location: string;
+  industry?: string;
   pspIntegrations: PSPIntegrations;
   pmsIntegration?: PMSIntegrationConfig;
   operaCloudIntegration?: OperaCloudConfig;
   automationSettings: AutomationSettings;
+  subscription?: OrganizationSubscription;
   teams: Team[];
   documents: HotelDocument[];
   users: HotelUser[];
+  isDemo?: boolean;
   createdAt: admin.firestore.Timestamp;
   updatedAt: admin.firestore.Timestamp;
 }

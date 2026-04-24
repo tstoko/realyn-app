@@ -225,28 +225,20 @@ function mapErrorToUserMessage(error: string, errorCode?: string): string {
 }
 
 /**
- * Submit dispute argument and evidence to PSP (Stripe or Adyen)
- * 
- * This calls the Cloud Function which:
- * 1. Retrieves the dispute and argument draft from Firestore
- * 2. Retrieves all uploaded evidence files
- * 3. Submits everything to the PSP (Stripe or Adyen)
- * 4. Updates the dispute status in Firestore
+ * Submit dispute argument and evidence to PSP via the unified endpoint.
+ *
+ * The backend reads the dispute to determine the PSP provider, resolves
+ * credentials, and delegates to the correct PSPAdapter (Stripe, Adyen, etc.).
  */
 export async function submitArgumentToPsp(
   disputeId: string,
   organizationId: string,
-  pspProvider: 'stripe' | 'adyen'
+  _pspProvider?: 'stripe' | 'adyen'
 ): Promise<SubmitToPspResponse> {
   try {
-    // Choose endpoint based on PSP
-    const endpoint = pspProvider === 'stripe' 
-      ? 'submitStripeDisputeResponse'
-      : 'submitAdyenDisputeResponse';
-    
     const headers = await getAuthHeaders();
     const response = await fetch(
-      `${FUNCTIONS_BASE_URL}/${endpoint}`,
+      `${FUNCTIONS_BASE_URL}/submitDisputeResponse`,
       {
         method: 'POST',
         headers,

@@ -50,9 +50,19 @@ jest.mock("../../ai/evidencePlanningService", () => ({
   updateEvidenceItemStatus: (...args: any[]) => mockUpdateEvidenceItemStatus(...args),
 }));
 
+jest.mock("../../knowledgeBaseService", () => ({
+  getOutputTemplate: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock("../../evidenceService", () => ({
+  registerEvidenceFile: jest.fn().mockResolvedValue("mock-evidence-doc-id"),
+}));
+
 const mockCreateSystemAuditEntry = jest.fn().mockResolvedValue(undefined);
+const mockCreateErrorAuditEntry = jest.fn().mockResolvedValue(undefined);
 jest.mock("../../../utils/auditTrailHelper", () => ({
   createSystemAuditEntry: (...args: any[]) => mockCreateSystemAuditEntry(...args),
+  createErrorAuditEntry: (...args: any[]) => mockCreateErrorAuditEntry(...args),
 }));
 
 // ---------------------------------------------------------------------------
