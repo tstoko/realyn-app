@@ -72,7 +72,13 @@ Chosen for zero-ops serverless scaling, pay-per-query pricing, metadata filterin
 
 ### Embedding Model
 
-**Recommended:** `text-embedding-3-large` (OpenAI) at 1536 dimensions, or `text-embedding-004` (Vertex AI / Google) at 768 dimensions. Both support the document sizes involved. Choose based on existing vendor relationships and latency requirements. Vertex AI keeps data within GCP.
+**See [`embedding-provider-setup.md`](./embedding-provider-setup.md) for full setup steps and provider comparison.**
+
+Short version: Anthropic (our current LLM) does not offer embeddings, so a separate provider is needed. Recommended order:
+
+1. **Pinecone Inference** — embed + upsert in one call, no new vendor. Default starting point.
+2. **Voyage AI** (`voyage-3-large` or `voyage-law-2`) — Anthropic's recommended partner; slight quality edge on rulebook text.
+3. **OpenAI `text-embedding-3-small`** or **Vertex AI `text-embedding-004`** — fine alternatives if a key already exists for other reasons.
 
 ### Retrieval Strategy: Hybrid Search
 
