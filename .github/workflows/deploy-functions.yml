@@ -36,6 +36,13 @@ jobs:
         run: npm run build
         working-directory: functions
 
+      - name: Pack AI Core for Functions runtime
+        run: |
+          AI_CORE_PACK="$(npm pack ../packages/ai-core --pack-destination .)"
+          npm pkg set "dependencies.@realyn/ai-core=file:${AI_CORE_PACK}"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+        working-directory: functions
+
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:

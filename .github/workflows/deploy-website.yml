@@ -8,12 +8,25 @@ on:
       - 'packages/shared/**'
       - 'package.json'
       - 'package-lock.json'
+  workflow_dispatch:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build:website
+      - run: npm ci
+      - run: npm run build:website
+        env:
+          VITE_ENVIRONMENT: production
+          VITE_FIREBASE_PROJECT_ID: realyn-app
+          VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app.cloudfunctions.net
+          VITE_FIREBASE_REGION: us-central1
+          VITE_FIREBASE_AUTH_DOMAIN: realyn-app.firebaseapp.com
+          VITE_FIREBASE_STORAGE_BUCKET: realyn-app.firebasestorage.app
+          VITE_DASHBOARD_URL: ${{ vars.WEBSITE_VITE_DASHBOARD_URL || 'https://dashboard.realyn.app' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.DASHBOARD_VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.DASHBOARD_VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.DASHBOARD_VITE_FIREBASE_APP_ID }}
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

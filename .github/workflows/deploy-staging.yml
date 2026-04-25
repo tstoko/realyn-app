@@ -67,6 +67,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:website
+        env:
+          VITE_ENVIRONMENT: staging
+          VITE_FIREBASE_PROJECT_ID: realyn-app-staging
+          VITE_FIREBASE_FUNCTIONS_URL: https://us-central1-realyn-app-staging.cloudfunctions.net
+          VITE_FIREBASE_REGION: us-central1
+          VITE_FIREBASE_AUTH_DOMAIN: realyn-app-staging.firebaseapp.com
+          VITE_FIREBASE_STORAGE_BUCKET: realyn-app-staging.firebasestorage.app
+          VITE_DASHBOARD_URL: ${{ vars.STAGING_VITE_DASHBOARD_URL || 'https://realyn-app-staging-dashboard.web.app' }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.STAGING_VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.STAGING_VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.STAGING_VITE_FIREBASE_APP_ID }}
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -92,6 +103,12 @@ jobs:
       - run: npm ci
         working-directory: functions
       - run: npm run build
+        working-directory: functions
+      - name: Pack AI Core for Functions runtime
+        run: |
+          AI_CORE_PACK="$(npm pack ../packages/ai-core --pack-destination .)"
+          npm pkg set "dependencies.@realyn/ai-core=file:${AI_CORE_PACK}"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
         working-directory: functions
       - uses: w9jds/firebase-action@v15.15.0
         with:
