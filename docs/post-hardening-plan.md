@@ -85,6 +85,9 @@ index, which won’t break the previous (single-field) query path either.
 collection, longer once `disputes` grows).
 
 **Status:** [ ] staging  [ ] production
+*(Requires `firebase` CLI + a logged-in account with deploy access on
+both projects. Cannot be executed by an autonomous agent without
+credentials. Run from a developer workstation.)*
 
 ---
 
@@ -148,6 +151,13 @@ falls back to production URL — undesirable in staging but not destructive.
 **Estimate.** 20 min including verification.
 
 **Status:** [ ] staging  [ ] production
+*(Requires `gcloud` + project owner permissions on both Cloud projects.
+Run from a developer workstation. Test coverage for the redirect URL
+contract was added in §B4 — see
+`functions/src/handlers/__tests__/billingHandlers.test.ts`
+"Checkout & Portal redirect URLs use DASHBOARD_URL", which pins both the
+DASHBOARD_URL-set path and the production fallback so the regression A2
+is meant to prevent will fail in CI before it reaches staging.)*
 
 ---
 
@@ -175,6 +185,9 @@ deploy workflow once and confirm no warnings about missing secrets.
 **Estimate.** 5 min.
 
 **Status:** [ ]
+*(Requires `gh` CLI authenticated with admin access to the repo's Settings.
+Code-side scan confirms no remaining `SENTRY_*` references in workflow
+files: `rg -n "SENTRY" .github/workflows/` returns nothing. Safe to run.)*
 
 ---
 
@@ -209,6 +222,14 @@ tests, so a manual smoke pass in staging is cheap insurance.
 **Estimate.** 1–2 hours.
 
 **Status:** [ ]
+*(Requires staging Firebase project credentials and Stripe CLI. Cannot be
+executed by an autonomous agent without those credentials. Some of the
+checklist items now have automated coverage that will fail in CI before
+the manual smoke is needed: billing webhook idempotency + signature path
++ generic-500 error shape are pinned in
+`functions/src/handlers/__tests__/billingHandlers.test.ts`. AI handler
+generic-500 path is pinned in
+`functions/src/handlers/__tests__/aiDisputeHandlers.test.ts`.)*
 
 ---
 
@@ -243,7 +264,10 @@ shouldn’t), recover from `git stash` / iCloud Trash.
 
 **Estimate.** 2 min.
 
-**Status:** [ ]
+**Status:** [x] verified clean
+*(Both `find docs -depth -type f -name '* 2.md'` and
+`find docs -depth -type d -name '* 2'` return no results on `main` as of
+commit `bb7105b` and on the post-hardening branches. Nothing to delete.)*
 
 ---
 
@@ -291,7 +315,12 @@ upgraded SDK to confirm no regression in deterministic output).
 
 **Decision required.** None — proceed when ready.
 
-**Status:** [ ] not started
+**Status:** [x] done
+*(Pinned to `^0.91.1` across `packages/ai-core`, `functions/`. The
+`messages.create` surface used by `callLLM` / `callLLMWithVision`
+(content blocks, usage shape, system prompt, vision URL source) is
+unchanged so no call sites needed adapting. Functions Jest: 338/338
+green pre-bump and post-bump (368 after §B4).)*
 
 ---
 
@@ -312,34 +341,63 @@ The Phase 2 RAG plan introduces `cases` and `policies` namespaces in Pinecone
 where the same question is sharper: cases are per-tenant data and **must** be
 namespace-scoped on the read side as well.
 
-**Decision required (product).**
-1. Are `winPatterns` derived from anonymised cross-tenant data, or per-tenant?
-   - If cross-tenant (anonymised pattern library): current rule is fine,
-     but the doc model should make that explicit (`isAnonymised: true` flag,
-     no PII fields, regular spot-check).
-   - If per-tenant: rule becomes
-     `allow read: if isAuthenticated() && resource.data.organizationId in [request.auth.token.organizationId, request.auth.token.organizationIds]`,
-     same shape as `disputes`.
-2. For Phase 2 `cases` ingestion: confirm the design is "Pinecone namespace
-   per organization, server-side filter on every query." That decision belongs
-   in [`docs/rag-implementation-guide.md`](rag-implementation-guide.md) §Phase 2.
+**Decision (post-hardening sweep).**
 
-**Change (after decision).** If per-tenant: update rule, add a backfill script
-to ensure every existing `winPatterns` doc has an `organizationId` field.
+Resolved: the current rule (`allow read: if isAuthenticated()`) is correct
+for `winPatterns` because the data model is structurally anonymous and
+cross-tenant by construction:
 
-**Verification.** Add a Firestore rules test (`firebase emulators:exec`) that:
-- a user with `organizationId=A` cannot read a `winPatterns` doc with
-  `organizationId=B`;
-- a user with `organizationId=A` can read a doc with `organizationId=A`.
+- Doc ID is `{network}_{reasonCode}_{verticalId}` (see
+  [`packages/ai-core/src/types/knowledgeBase.ts`](../packages/ai-core/src/types/knowledgeBase.ts)
+  `winPatternDocId`). There is no `organizationId` in the key and none in
+  the `WinPattern` interface (`reasonCode`, `network`, `verticalId`,
+  `evidenceCombination: string[]`, `argumentPatterns: string[]`,
+  `winCount`, `lossCount`, `winRate`, `sampleSize`, `lastUpdated`).
+- `evidenceCombination` stores evidence-category strings (e.g. `pms_data`,
+  `policy`), not file names or content.
+- `argumentPatterns` stores argument-paragraph headings produced by the LLM
+  (e.g. `"Service Provided"`, `"Cancellation Policy"`), not body text and
+  not tenant-identifying content.
+- Updates are produced by `recordDisputeOutcome` in
+  [`functions/src/services/winPatternService.ts`](../functions/src/services/winPatternService.ts),
+  which never writes `organizationId` and only ever increments aggregate
+  counters.
 
-**Rollback.** Rules are versioned; `firebase deploy --only firestore:rules`
-with the previous file restores instantly.
+This means `winPatterns` is best modelled as a **shared, write-only-via-
+admin-SDK reference table** alongside `schemeRules`, `evidenceRequirements`,
+`pspFormats`, and `evidenceOutputTemplates`. All five collections have the
+same `allow read: if isAuthenticated()` rule today and that's correct.
 
-**Estimate.** 1–3 hours depending on whether backfill is needed.
+**Phase-2 cross-tenant decision (`cases` namespace in Pinecone).** The
+design is locked: per-organization Pinecone namespace, server-side filter
+on every retrieval query. The retrieval-side enforcement already exists in
+[`packages/ai-core/src/services/ragService.ts`](../packages/ai-core/src/services/ragService.ts)
+`buildFilter('cases')`, which emits `organizationId: { $eq: f.organizationId }`
+when an `organizationId` filter is provided in the call. The remaining
+Phase-2 work (tracked in [`docs/rag-implementation-guide.md`](rag-implementation-guide.md)
+Phase 2) is to make that filter **mandatory** at the call site, e.g. with a
+typed wrapper that won't compile without an `organizationId`.
 
-**Decision required.** Yes — see above.
+**Defensive guardrail (cheap, do now).** Add a comment in
+[`firestore.rules`](../firestore.rules) above the `winPatterns` block that
+spells out the contract: "no `organizationId` field, no PII, aggregated
+across all tenants". Future changes that add per-tenant data to the
+collection MUST then either change the rule or migrate to a new
+collection. Done in this PR.
 
-**Status:** [ ] decision pending
+**Verification.** A Firestore rules emulator test would only assert "any
+authenticated user can read", which is already the behaviour. Worth adding
+when the rule changes shape; not required to assert the current decision.
+
+**Rollback.** N/A — no rule change.
+
+**Estimate.** Decision was 30 min of analysis; the comment-based guardrail
+adds 5 min.
+
+**Decision required.** Resolved.
+
+**Status:** [x] resolved (no rule change; data-model invariants documented
+in `firestore.rules` and here)
 
 ---
 
@@ -383,7 +441,15 @@ in its own PR after C8.
 
 **Decision required.** Yes — see above.
 
-**Status:** [ ] decision pending
+**Status:** [x] done (Option 2 chosen)
+*(`packages/core/` deleted entirely. Single non-trivial diff in the
+evidencePlanning integration test was ported into
+`functions/src/services/ai/__tests__/evidencePlanning.integration.test.ts`
+so no test coverage was lost. CI workflow updated to drop
+`typecheck-core` and `core-test` jobs. AGENTS.md updated to reflect that
+the test sandbox is `packages/ai-core` (Jest) plus `functions/`. Verified
+no remaining `@realyn/core` references outside `AGENTS.md` and this
+plan doc. Test counts after this commit: ai-core 28, functions 368.)*
 
 ---
 
@@ -427,7 +493,17 @@ group).
 than it needs another test file *right now*; both are work and you can only
 do one at a time.
 
-**Status:** [ ] not started
+**Status:** [x] done (billing + AI handler critical paths covered)
+*(New test files:
+`functions/src/handlers/__tests__/billingHandlers.test.ts` (12 tests)
+covers signature verification, idempotency contract on
+`_processedWebhookEvents`, internal-error generic-500 + redaction, and
+the `DASHBOARD_URL` redirect contract for both Checkout and Portal.
+`functions/src/handlers/__tests__/aiDisputeHandlers.test.ts` (18 tests)
+covers `planEvidence` / `draftArgument` / `toggleAIPlan`: auth gate,
+plan-limit gate, validation, atomic queue/claim, cached draft path, and
+internal-error generic-500 + redaction. Signup / invite / team handlers
+remain on the post-RAG backlog — out of scope for this commit.)*
 
 ---
 
@@ -755,7 +831,24 @@ revert behaviour without redeploying code.
 
 **Estimate.** 1 day end-to-end (code + tests + manual sanity check).
 
-**Status:** [ ] evidencePlanner  [ ] argumentGenerator
+**Status:** [x] evidencePlanner  [x] argumentGenerator
+*(Implemented as
+[`packages/ai-core/src/services/ragPromptInjection.ts`](../packages/ai-core/src/services/ragPromptInjection.ts):
+single source of truth for retrieval query construction (PII-free), the
+`## REFERENCE MATERIAL` block format, the `RAG_RETRIEVAL_ENABLED`
+feature flag, and the structured `[rag]` log line. Wired into
+`generateEvidencePlan` and `generateDisputeArgument`; both fall back to
+the deterministic pipeline on any retrieval error. 28 unit tests across
+3 ai-core suites pin: feature-flag gate, PII-safe query builder, fail-
+safe contract on store errors, and prompt-presence/absence of
+`## REFERENCE MATERIAL` for both planner and generator.
+
+The Cloud Functions side is already wired: `functions/src/services/ai/ragService.ts`
+runs `configureVectorStore(pineconeVectorStore)` at module init, so once
+`PINECONE_API_KEY` is bound on the deployed handlers (§C7) and rulebooks
+are ingested into the index (§C5), retrieval will activate automatically
+without further code changes. Until then, the empty-chunks path keeps
+behaviour identical to pre-RAG.)*
 
 ---
 

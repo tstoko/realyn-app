@@ -143,6 +143,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // winPatterns documents are shared, anonymised, cross-tenant statistics
+    // keyed by `{network}_{reasonCode}_{verticalId}`. They MUST NOT carry
+    // `organizationId`, file names, customer text, or any other tenant-
+    // identifying field — only category strings, paragraph headings, and
+    // counters. See docs/post-hardening-plan.md §B2 for the full rationale.
+    // If a future change adds per-tenant data to this collection, change
+    // this rule to filter on `organizationId` (mirroring `disputes`) AND
+    // backfill the field on every existing doc.
     match /winPatterns/{patternId} {
       allow read: if isAuthenticated();
       allow write: if false;
