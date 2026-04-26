@@ -33,7 +33,7 @@
   "main": "lib/index.js",
   "dependencies": {
     "@adyen/api-library": "^30.1.0",
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@pinecone-database/pinecone": "^7.2.0",
     "@realyn/ai-core": "file:../packages/ai-core",
     "axios": "^1.13.6",
