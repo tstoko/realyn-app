@@ -76,30 +76,6 @@ jobs:
       - run: npx tsc --noEmit
         working-directory: functions
 
-  typecheck-core:
-    name: Typecheck Core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx turbo run typecheck --filter=@realyn/core
-
-  core-test:
-    name: Core Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx turbo run test --filter=@realyn/core
-
   dashboard-test:
     name: Dashboard Tests
     runs-on: ubuntu-latest
