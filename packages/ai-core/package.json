@@ -73,6 +73,10 @@
       "types": "./dist/services/ragService.d.ts",
       "default": "./dist/services/ragService.js"
     },
+    "./services/ragPromptInjection": {
+      "types": "./dist/services/ragPromptInjection.d.ts",
+      "default": "./dist/services/ragPromptInjection.js"
+    },
     "./config/ragConfig": {
       "types": "./dist/config/ragConfig.d.ts",
       "default": "./dist/config/ragConfig.js"
@@ -104,7 +108,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
@@ -112,6 +117,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.5.0"
   },
   "engines": {

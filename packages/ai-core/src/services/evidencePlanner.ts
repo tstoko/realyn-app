@@ -15,6 +15,10 @@ import {
 import { callLLM } from "./llmService";
 import { buildDisputeContextBlock } from "./promptHelpers";
 import { verticalRegistry } from "../verticals/registry";
+import {
+  buildReferenceMaterialBlock,
+  retrieveRulebookForPrompt,
+} from "./ragPromptInjection";
 
 // ============================================================
 // Evidence Planner
@@ -73,9 +77,25 @@ export async function generateEvidencePlan(
 
   // Try AI-powered plan generation first
   try {
-    // Build the prompt for the LLM (now with specialist context)
+    // Retrieve scheme-rulebook context for prompt injection. Always returns
+    // (possibly empty) — failures in retrieval must never block evidence
+    // planning. See `ragPromptInjection.retrieveRulebookForPrompt`.
+    const ragResult = await retrieveRulebookForPrompt({
+      disputeCase,
+      stage: "evidence_planning",
+      reasonCodeDescription: codeInfo?.description,
+    });
+    const referenceMaterialBlock = buildReferenceMaterialBlock(ragResult.chunks);
+
+    // Build the prompt for the LLM (now with specialist context + RAG)
     // NOTE: disputeCase is expected to already be PII-sanitized by the orchestrator
-    const prompt = buildEvidencePlanPrompt(disputeCase, codeInfo, network, context);
+    const prompt = buildEvidencePlanPrompt(
+      disputeCase,
+      codeInfo,
+      network,
+      context,
+      referenceMaterialBlock,
+    );
 
     // Select system prompt based on vertical + specialist context
     const vertical = context?.merchantVertical ?? disputeCase.merchantVertical ?? "hospitality";
@@ -313,7 +333,8 @@ function buildEvidencePlanPrompt(
   disputeCase: DisputeCase,
   codeInfo: ReturnType<typeof getDisputeCodeInfo>,
   network: CardNetwork,
-  context?: SpecialistContext
+  context?: SpecialistContext,
+  referenceMaterialBlock: string = "",
 ): string {
   const parts: string[] = [];
   const vertical = context?.merchantVertical ?? "hospitality";
@@ -668,6 +689,13 @@ function buildEvidencePlanPrompt(
     }
     parts.push("Use these patterns to guide which evidence to prioritize.");
     parts.push("");
+  }
+
+  // Inject scheme-rulebook RAG context as ## REFERENCE MATERIAL after the
+  // deterministic facts and before the instruction-to-LLM. When retrieval
+  // returned no chunks, `referenceMaterialBlock` is empty and this is a no-op.
+  if (referenceMaterialBlock) {
+    parts.push(referenceMaterialBlock);
   }
 
   // Instructions with explicit JSON structure
