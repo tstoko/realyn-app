@@ -14,27 +14,54 @@
  */
 
 // ---------------------------------------------------------------------------
-// Embedding model
+// Embedding provider + model
 // ---------------------------------------------------------------------------
+
+/**
+ * Embedding provider. Must match the model in {@link EMBEDDING_MODEL}.
+ *
+ * - `pinecone` — Pinecone Inference (single-vendor; default before this
+ *   migration).
+ * - `voyage` — Voyage AI's REST API. Used for domain-tuned models like
+ *   `voyage-law-2` whose retrieval quality on regulatory text outperforms
+ *   general-purpose embeddings.
+ *
+ * Locked constant: changing this without re-ingesting every record produces
+ * silent retrieval-quality collapse (different embedding spaces), so the
+ * value is treated identically to {@link RAG_SCHEMA_VERSION} — bump the
+ * schema version when changing it.
+ */
+export const EMBEDDING_PROVIDER = "voyage" as const;
+export type EmbeddingProvider = typeof EMBEDDING_PROVIDER;
 
 /**
  * Embedding model used for both document ingestion and query embedding.
  * MUST be the same at ingest time and query time or retrieval quality collapses.
  *
- * `multilingual-e5-large` is hosted by Pinecone Inference (no extra API key,
- * no second vendor). 1024 dimensions, tuned for retrieval on mixed-language
- * content. We write this value into every record's metadata (`embeddingModel`)
- * so mismatches can be detected in Firestore/Pinecone audits.
+ * `voyage-law-2` is Voyage AI's domain-tuned model for legal/regulatory
+ * retrieval. 1024 dimensions, accessed via the Voyage REST API
+ * (https://api.voyageai.com/v1/embeddings) using `VOYAGE_API_KEY`.
+ *
+ * History:
+ *   v1 (RAG_SCHEMA_VERSION=1) — `multilingual-e5-large` via Pinecone Inference.
+ *   v2 (RAG_SCHEMA_VERSION=2) — `voyage-law-2` via Voyage AI; index switched
+ *     to `metric: dotproduct` so dense + sparse hybrid retrieval can share
+ *     a single Pinecone index.
+ *
+ * We write this value into every record's metadata (`embeddingModel`) so
+ * mismatches can be detected in Firestore/Pinecone audits.
  */
-export const EMBEDDING_MODEL = "multilingual-e5-large" as const;
+export const EMBEDDING_MODEL = "voyage-law-2" as const;
 export type EmbeddingModel = typeof EMBEDDING_MODEL;
 
 /** Vector dimension for {@link EMBEDDING_MODEL}. */
 export const EMBEDDING_DIM = 1024 as const;
 
 /**
- * Pinecone Inference distinguishes between passage-style and query-style
- * embedding calls. Passing the wrong one costs ~10% recall.
+ * Internal embedding-call vocabulary. Both Pinecone Inference and Voyage AI
+ * distinguish between passage-style and query-style calls; the adapter layer
+ * maps these to each provider's own terminology (Pinecone: `passage`/`query`;
+ * Voyage: `document`/`query`). Passing the wrong one costs ~10% recall.
  */
 export type EmbeddingInputType = "passage" | "query";
 

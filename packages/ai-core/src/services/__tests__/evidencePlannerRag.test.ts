@@ -20,6 +20,7 @@ import {
   type VectorStorePort,
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
+import { _resetVoyageClientForTests } from "../voyageEmbeddingClient";
 import { generateEvidencePlan } from "../evidencePlanner";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase, EvidencePlan } from "../../types/aiDispute";
@@ -77,9 +78,10 @@ jest.mock("@anthropic-ai/sdk", () => {
   };
 });
 
-// Pinecone Inference is what the embedding service uses for embedQuery.
-// Stub it to return a deterministic 1024-dim vector so the embedding step
-// succeeds without a real API call.
+// Both embedding-provider paths are stubbed so this test is agnostic to the
+// `EMBEDDING_PROVIDER` constant in `ragConfig.ts`. Pinecone Inference is
+// stubbed via the @pinecone-database/pinecone module mock; Voyage is stubbed
+// via a global fetch installed in beforeEach.
 jest.mock("@pinecone-database/pinecone", () => ({
   Pinecone: jest.fn().mockImplementation(() => ({
     inference: {
@@ -90,6 +92,22 @@ jest.mock("@pinecone-database/pinecone", () => ({
     },
   })),
 }));
+
+function installFetchStub() {
+  const fakeEmbedding = new Array(1024).fill(0.01);
+  const stub = jest.fn(async () =>
+    new Response(
+      JSON.stringify({
+        object: "list",
+        data: [{ object: "embedding", embedding: fakeEmbedding, index: 0 }],
+        model: "voyage-law-2",
+        usage: { total_tokens: 5 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+  (globalThis as any).fetch = stub;
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -160,6 +178,7 @@ const fakeEmptyStore: VectorStorePort = {
 
 describe("generateEvidencePlan ↔ RAG", () => {
   const ORIGINAL_ENV = { ...process.env };
+  const ORIGINAL_FETCH = (globalThis as any).fetch;
 
   beforeEach(() => {
     capturedPrompts.length = 0;
@@ -167,18 +186,23 @@ describe("generateEvidencePlan ↔ RAG", () => {
       ...ORIGINAL_ENV,
       ANTHROPIC_API_KEY: "sk-ant-test",
       PINECONE_API_KEY: "pcsk-test",
+      VOYAGE_API_KEY: "voyage-test",
     };
     delete process.env.RAG_RETRIEVAL_ENABLED;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetVoyageClientForTests();
+    installFetchStub();
     jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
+    (globalThis as any).fetch = ORIGINAL_FETCH;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetVoyageClientForTests();
     jest.restoreAllMocks();
   });
 

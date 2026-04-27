@@ -29,6 +29,7 @@ import {
   type VectorMatch,
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
+import { _resetVoyageClientForTests } from "../voyageEmbeddingClient";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase } from "../../types/aiDispute";
 
@@ -95,7 +96,9 @@ function makeFailingStore(message: string): VectorStorePort {
 }
 
 // ---------------------------------------------------------------------------
-// Stub Pinecone Inference embedQuery via direct mock of the embedding client
+// Stub the dense-embedding path. Both providers live behind embedQuery; the
+// `EMBEDDING_PROVIDER` constant decides which is hit at runtime, and we stub
+// both so swapping the provider in `ragConfig.ts` doesn't break this suite.
 // ---------------------------------------------------------------------------
 
 jest.mock("@pinecone-database/pinecone", () => {
@@ -111,27 +114,55 @@ jest.mock("@pinecone-database/pinecone", () => {
   };
 });
 
+// Voyage REST is plain `fetch` — install a global stub returning a 1024-dim
+// fake embedding. Set lazily in `beforeEach` so individual tests can override.
+function installFetchStub() {
+  const fakeEmbedding = new Array(1024).fill(0.01);
+  const stub = jest.fn(async () =>
+    new Response(
+      JSON.stringify({
+        object: "list",
+        data: [{ object: "embedding", embedding: fakeEmbedding, index: 0 }],
+        model: "voyage-law-2",
+        usage: { total_tokens: 5 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+  (globalThis as any).fetch = stub;
+  return stub;
+}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
 describe("ragPromptInjection", () => {
   const ORIGINAL_ENV = { ...process.env };
+  const ORIGINAL_FETCH = (globalThis as any).fetch;
   let logSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    process.env = { ...ORIGINAL_ENV, PINECONE_API_KEY: "test-pinecone-key" };
+    process.env = {
+      ...ORIGINAL_ENV,
+      PINECONE_API_KEY: "test-pinecone-key",
+      VOYAGE_API_KEY: "test-voyage-key",
+    };
     delete process.env.RAG_RETRIEVAL_ENABLED;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetVoyageClientForTests();
+    installFetchStub();
     logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
+    (globalThis as any).fetch = ORIGINAL_FETCH;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetVoyageClientForTests();
     jest.restoreAllMocks();
   });
 

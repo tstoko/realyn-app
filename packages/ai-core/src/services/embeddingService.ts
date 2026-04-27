@@ -21,10 +21,16 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import {
   EMBEDDING_MODEL,
   EMBEDDING_DIM,
+  EMBEDDING_PROVIDER,
   EMBED_BATCH_SIZE,
   type EmbeddingInputType,
 } from "../config/ragConfig";
 import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
+import {
+  voyageEmbed,
+  isVoyageAvailable,
+  getVoyageInitError,
+} from "./voyageEmbeddingClient";
 
 // ---------------------------------------------------------------------------
 // Lazy client
@@ -55,10 +61,18 @@ function getPineconeClient(): Pinecone | null {
 }
 
 export function isEmbeddingAvailable(): boolean {
+  // Availability depends on the configured provider — Pinecone Inference for
+  // `pinecone`, Voyage AI's REST API for `voyage`. The sparse/lexical encoder
+  // (used by hybrid retrieval) is always Pinecone-hosted regardless of the
+  // dense provider, so a Pinecone client failure still means the dense path
+  // is partially degraded for `voyage` callers; consult `isVoyageAvailable()`
+  // and `getPineconeClient()` directly when you need finer status.
+  if (EMBEDDING_PROVIDER === "voyage") return isVoyageAvailable();
   return getPineconeClient() !== null;
 }
 
 export function getEmbeddingInitError(): string | null {
+  if (EMBEDDING_PROVIDER === "voyage") return getVoyageInitError();
   return clientInitError;
 }
 
@@ -113,12 +127,33 @@ async function embedTextsInternal(
     return { success: true, vectors: [], model, dim: EMBEDDING_DIM, tokensUsed: 0 };
   }
 
+  // Route to the configured provider. The two paths must produce vectors of
+  // the same `EMBEDDING_DIM`; if you change provider/model and the dim shifts,
+  // bump `RAG_SCHEMA_VERSION` and re-ingest.
+  let result: EmbedResult;
+  if (EMBEDDING_PROVIDER === "voyage") {
+    result = await embedViaVoyage(texts, model, inputType);
+  } else {
+    result = await embedViaPineconeInference(texts, model, inputType);
+  }
+
+  emitTelemetry(options, result, startMs);
+  return result;
+}
+
+async function embedViaPineconeInference(
+  texts: string[],
+  model: string,
+  inputType: EmbeddingInputType,
+): Promise<EmbedResult> {
   const client = getPineconeClient();
   if (!client) {
-    const err = clientInitError || "Pinecone client not available";
-    const result: EmbedResult = { success: false, model, dim: EMBEDDING_DIM, error: err };
-    emitTelemetry(options, result, startMs);
-    return result;
+    return {
+      success: false,
+      model,
+      dim: EMBEDDING_DIM,
+      error: clientInitError || "Pinecone client not available",
+    };
   }
 
   try {
@@ -143,27 +178,30 @@ async function embedTextsInternal(
       if (response.usage?.totalTokens) tokensUsed += response.usage.totalTokens;
     }
 
-    const result: EmbedResult = {
+    return {
       success: true,
       vectors,
       model,
       dim: vectors[0]?.length ?? EMBEDDING_DIM,
       tokensUsed,
     };
-    emitTelemetry(options, result, startMs);
-    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Pinecone embedding call failed:", message);
-    const result: EmbedResult = {
-      success: false,
-      model,
-      dim: EMBEDDING_DIM,
-      error: message,
-    };
-    emitTelemetry(options, result, startMs);
-    return result;
+    return { success: false, model, dim: EMBEDDING_DIM, error: message };
   }
+}
+
+async function embedViaVoyage(
+  texts: string[],
+  model: string,
+  inputType: EmbeddingInputType,
+): Promise<EmbedResult> {
+  const result = await voyageEmbed(texts, model, inputType);
+  if (!result.success) {
+    console.error(`Voyage embedding call failed: ${result.error}`);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
