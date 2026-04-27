@@ -216,6 +216,8 @@ export {
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
   RAG_HYBRID_ALPHA,
+  RERANK_MODEL,
+  RERANK_CANDIDATE_K,
   PINECONE_CLOUD,
   PINECONE_METRIC,
   PINECONE_REGION,
@@ -234,6 +236,7 @@ export type {
   EmbeddingProvider as RagEmbeddingProvider,
   EmbeddingInputType,
   PineconeMetric,
+  RerankModel,
   RagNamespace,
 } from "./config/ragConfig";
 
@@ -294,6 +297,19 @@ export type {
   SparseEmbedResult,
   SparseEmbeddingModel,
 } from "./services/sparseEmbeddingService";
+
+export {
+  configureRerankPort,
+  getRerankPort,
+  isRerankEnabled,
+  maybeRerank,
+} from "./services/rerankService";
+
+export type {
+  RerankPort,
+  RerankRequest,
+  RerankResultEntry,
+} from "./services/rerankService";
 
 export {
   retrieveRagContext,

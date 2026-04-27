@@ -19,6 +19,7 @@ import {
   MIN_RELEVANCE_SCORE,
   RAG_HYBRID_ALPHA,
   RAG_NAMESPACES,
+  RERANK_CANDIDATE_K,
   type RagNamespace,
 } from "../config/ragConfig";
 import {
@@ -36,6 +37,7 @@ import {
   sparseEmbedQuery,
   type SparseVector,
 } from "./sparseEmbeddingService";
+import { isRerankEnabled, maybeRerank } from "./rerankService";
 import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
 
 // ---------------------------------------------------------------------------
@@ -269,15 +271,37 @@ async function queryNamespace(
   query: RagQuery,
   minScore: number,
 ): Promise<RetrievedChunk[]> {
-  const topK = query.topK?.[namespace] ?? DEFAULT_TOP_K[namespace];
+  const finalTopK = query.topK?.[namespace] ?? DEFAULT_TOP_K[namespace];
+  // When reranking is enabled, fetch a wider candidate pool so the cross-
+  // encoder has more variety to choose from. Reranker keeps the top
+  // `finalTopK` of `RERANK_CANDIDATE_K` candidates.
+  const candidateTopK = isRerankEnabled() ? Math.max(RERANK_CANDIDATE_K, finalTopK) : finalTopK;
   const filter = buildFilter(namespace, query);
 
-  const matches = await store.query({ namespace, vector, sparseVector, topK, filter });
+  const matches = await store.query({
+    namespace,
+    vector,
+    sparseVector,
+    topK: candidateTopK,
+    filter,
+  });
 
-  return matches
-    .filter((m) => m.score >= minScore && m.metadata)
+  const candidates = matches
+    .filter((m) => m.metadata)
     .map((m) => toRetrievedChunk(m))
     .filter((c): c is RetrievedChunk => c !== null);
+
+  // Rerank (no-op when disabled or no port configured) then drop chunks
+  // below `minScore`. The order matters: reranking against low-quality
+  // candidates is wasted but harmless; filtering before rerank can starve
+  // the cross-encoder of variety.
+  const reranked = await maybeRerank({
+    query: query.queryText,
+    chunks: candidates,
+    topN: finalTopK,
+  });
+
+  return reranked.filter((c) => c.score >= minScore);
 }
 
 function buildFilter(namespace: RagNamespace, query: RagQuery): Record<string, unknown> | undefined {

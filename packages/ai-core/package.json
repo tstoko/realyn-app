@@ -77,6 +77,10 @@
       "types": "./dist/services/sparseEmbeddingService.d.ts",
       "default": "./dist/services/sparseEmbeddingService.js"
     },
+    "./services/rerankService": {
+      "types": "./dist/services/rerankService.d.ts",
+      "default": "./dist/services/rerankService.js"
+    },
     "./services/ragService": {
       "types": "./dist/services/ragService.d.ts",
       "default": "./dist/services/ragService.js"

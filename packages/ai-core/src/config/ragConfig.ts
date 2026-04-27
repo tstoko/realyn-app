@@ -139,6 +139,28 @@ export const MIN_RELEVANCE_SCORE = 0.35 as const;
 export const RAG_HYBRID_ALPHA = 0.5 as const;
 
 /**
+ * Reranking model used by `rerankService.maybeRerank` when reranking is
+ * enabled (`RERANK_ENABLED=true`).
+ *
+ * `cohere-rerank-3.5` is Cohere's leading cross-encoder, available via
+ * Pinecone Inference. Open-source alternatives reachable through the same
+ * endpoint: `bge-reranker-v2-m3`, `pinecone-rerank-v0`. Plan-tier and
+ * rate-limit caveats apply — see docs/post-hardening-plan.md §C7
+ * corrections; verify availability at provisioning time (`rag:test`)
+ * before flipping `RERANK_ENABLED=true` in any environment.
+ */
+export const RERANK_MODEL = "cohere-rerank-3.5" as const;
+export type RerankModel = typeof RERANK_MODEL;
+
+/**
+ * Number of candidates to fetch from hybrid retrieval before reranking.
+ * The reranker keeps the best `DEFAULT_TOP_K` of these; pulling more
+ * candidates gives the cross-encoder more variety to choose from at the
+ * cost of latency proportional to this number.
+ */
+export const RERANK_CANDIDATE_K = 20 as const;
+
+/**
  * Default `topK` per namespace. The RAG service can override per call,
  * but these are the sensible defaults for the existing pipeline.
  */
