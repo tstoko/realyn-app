@@ -152,6 +152,27 @@ export const EMBED_BATCH_SIZE = 64 as const;
 /**
  * Version stamped into every record's metadata so future migrations can
  * detect and handle vectors from older ingestion runs. Bump when the
- * chunking strategy, metadata shape, or embedding model changes.
+ * chunking strategy, metadata shape, embedding model, or index metric
+ * changes.
+ *
+ * History:
+ *   v1 — multilingual-e5-large via Pinecone Inference, cosine metric, dense-only.
+ *   v2 — voyage-law-2 via Voyage AI, dotproduct metric, dense vectors L2-
+ *        normalised at upsert/query time, hybrid retrieval (dense + sparse)
+ *        on the same index. Re-ingestion required when crossing this
+ *        boundary because vector spaces are not comparable.
  */
-export const RAG_SCHEMA_VERSION = 1 as const;
+export const RAG_SCHEMA_VERSION = 2 as const;
+
+/**
+ * Pinecone index distance metric.
+ *
+ * `dotproduct` is required for single-index hybrid retrieval (dense + sparse
+ * vectors on the same record) — Pinecone's hybrid path does not work with
+ * `cosine`. We L2-normalise dense vectors at upsert/query time, which makes
+ * dotproduct on the dense side mathematically identical to cosine similarity,
+ * so the dense retrieval characteristics are preserved while enabling sparse
+ * fusion.
+ */
+export const PINECONE_METRIC = "dotproduct" as const;
+export type PineconeMetric = typeof PINECONE_METRIC;

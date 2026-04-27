@@ -216,6 +216,7 @@ export {
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
   PINECONE_CLOUD,
+  PINECONE_METRIC,
   PINECONE_REGION,
   CHUNK_TARGET_TOKENS,
   CHUNK_OVERLAP_TOKENS,
@@ -231,6 +232,7 @@ export type {
   EmbeddingModel as RagEmbeddingModel,
   EmbeddingProvider as RagEmbeddingProvider,
   EmbeddingInputType,
+  PineconeMetric,
   RagNamespace,
 } from "./config/ragConfig";
 
@@ -264,6 +266,7 @@ export {
   embedQuery,
   isEmbeddingAvailable,
   getEmbeddingInitError,
+  l2Normalize,
 } from "./services/embeddingService";
 
 export type { EmbedOptions, EmbedResult, EmbedQueryResult } from "./services/embeddingService";
