@@ -123,6 +123,22 @@ export const CHUNK_MAX_TOKENS = 1200 as const;
 export const MIN_RELEVANCE_SCORE = 0.35 as const;
 
 /**
+ * Hybrid retrieval alpha weight.
+ *
+ * `score = (alpha * dense·dense_query) + ((1 - alpha) * sparse·sparse_query)`.
+ *
+ * - `1.0` → pure dense (semantic) retrieval.
+ * - `0.0` → pure sparse (lexical) retrieval.
+ * - `0.5` → balanced; what we ship by default.
+ *
+ * Implemented client-side via {@link applyAlpha}: Pinecone has no native
+ * alpha flag, so we scale the dense and sparse query vectors before sending.
+ * Tunable per call but pinned here as the default; revisit during the
+ * post-ingest eval (§C8) once we have actual Hit@5/MRR numbers.
+ */
+export const RAG_HYBRID_ALPHA = 0.5 as const;
+
+/**
  * Default `topK` per namespace. The RAG service can override per call,
  * but these are the sensible defaults for the existing pipeline.
  */

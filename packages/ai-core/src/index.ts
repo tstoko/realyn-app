@@ -215,6 +215,7 @@ export {
   EMBEDDING_DIM,
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
+  RAG_HYBRID_ALPHA,
   PINECONE_CLOUD,
   PINECONE_METRIC,
   PINECONE_REGION,
@@ -278,6 +279,21 @@ export {
 } from "./services/voyageEmbeddingClient";
 
 export type { VoyageEmbedResult } from "./services/voyageEmbeddingClient";
+
+export {
+  sparseEmbedDocuments,
+  sparseEmbedQuery,
+  isSparseEmbeddingAvailable,
+  getSparseEmbeddingInitError,
+  applyAlpha,
+  SPARSE_EMBEDDING_MODEL,
+} from "./services/sparseEmbeddingService";
+
+export type {
+  SparseVector,
+  SparseEmbedResult,
+  SparseEmbeddingModel,
+} from "./services/sparseEmbeddingService";
 
 export {
   retrieveRagContext,

@@ -16,6 +16,7 @@ import {
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
 import { _resetVoyageClientForTests } from "../voyageEmbeddingClient";
+import { _resetSparseEmbeddingClientForTests } from "../sparseEmbeddingService";
 import { generateDisputeArgument } from "../argumentGenerator";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase, EvidencePlan, DisputeArgument, EvidenceItem } from "../../types/aiDispute";
@@ -64,10 +65,21 @@ jest.mock("@anthropic-ai/sdk", () => ({
 jest.mock("@pinecone-database/pinecone", () => ({
   Pinecone: jest.fn().mockImplementation(() => ({
     inference: {
-      embed: jest.fn(async () => ({
-        data: [{ values: new Array(1024).fill(0.01) }],
-        usage: { totalTokens: 5 },
-      })),
+      embed: jest.fn(async (req: { model: string; inputs: string[] }) => {
+        const isSparse = req.model.includes("sparse");
+        if (isSparse) {
+          return {
+            data: req.inputs.map(() => ({
+              sparseValues: { indices: [1, 7], values: [0.4, 0.3] },
+            })),
+            usage: { totalTokens: 7 },
+          };
+        }
+        return {
+          data: req.inputs.map(() => ({ values: new Array(1024).fill(0.01) })),
+          usage: { totalTokens: 5 },
+        };
+      }),
     },
   })),
 }));
@@ -198,6 +210,7 @@ describe("generateDisputeArgument ↔ RAG", () => {
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
     _resetVoyageClientForTests();
+    _resetSparseEmbeddingClientForTests();
     installFetchStub();
     jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -210,6 +223,7 @@ describe("generateDisputeArgument ↔ RAG", () => {
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
     _resetVoyageClientForTests();
+    _resetSparseEmbeddingClientForTests();
     jest.restoreAllMocks();
   });
 

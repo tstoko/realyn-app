@@ -17,6 +17,7 @@
 import {
   DEFAULT_TOP_K,
   MIN_RELEVANCE_SCORE,
+  RAG_HYBRID_ALPHA,
   RAG_NAMESPACES,
   type RagNamespace,
 } from "../config/ragConfig";
@@ -30,6 +31,11 @@ import {
   type PolicyQueryFilter,
 } from "../types/rag";
 import { embedQuery } from "./embeddingService";
+import {
+  applyAlpha,
+  sparseEmbedQuery,
+  type SparseVector,
+} from "./sparseEmbeddingService";
 import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
 
 // ---------------------------------------------------------------------------
@@ -38,9 +44,17 @@ import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
 
 export interface VectorQuery {
   namespace: RagNamespace;
+  /** Dense query vector. L2-normalised so dotproduct ≡ cosine. */
   vector: number[];
   topK: number;
   filter?: Record<string, unknown>;
+  /**
+   * Optional sparse query vector. When present together with `vector`, the
+   * adapter performs hybrid (dense + sparse) retrieval against a single
+   * `metric: dotproduct` Pinecone index. Both vectors are expected to be
+   * pre-scaled per {@link applyAlpha} — the adapter does no further weighting.
+   */
+  sparseVector?: SparseVector;
 }
 
 export interface VectorMatch {
@@ -102,9 +116,36 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
     ? { disputeId: query.disputeId, stage: query.stage ?? "rag_retrieve" }
     : undefined;
 
-  const embedResult = await embedQuery(query.queryText, { telemetry });
-  if (!embedResult.success || !embedResult.vector) {
+  // Embed the query in parallel for both providers — dense via the configured
+  // EMBEDDING_PROVIDER (Voyage), sparse via Pinecone Inference's hosted
+  // sparse-english model. We treat a sparse failure as non-fatal (partial:true)
+  // so dense-only retrieval still happens; the inverse (dense fail, sparse OK)
+  // is fatal because dense covers semantic matches that sparse can't.
+  const [denseResult, sparseResult] = await Promise.all([
+    embedQuery(query.queryText, { telemetry }),
+    sparseEmbedQuery(query.queryText),
+  ]);
+
+  if (!denseResult.success || !denseResult.vector) {
     return { ...EMPTY_RAG_RESULT, partial: true, latencyMs: Date.now() - startMs };
+  }
+
+  // Apply hybrid alpha weighting client-side. If sparse failed, fall back to
+  // pure-dense retrieval (alpha=1) so the request still produces results,
+  // but mark partial so callers / telemetry can see the degraded mode.
+  let denseQueryVector = denseResult.vector;
+  let sparseQueryVector: SparseVector | undefined;
+  let degradedToDenseOnly = false;
+  if (sparseResult.success && sparseResult.vector) {
+    const scaled = applyAlpha(denseResult.vector, sparseResult.vector, RAG_HYBRID_ALPHA);
+    denseQueryVector = scaled.dense;
+    sparseQueryVector = scaled.sparse;
+  } else {
+    console.warn(
+      `[rag] sparse query embed failed (${sparseResult.error ?? "unknown"}); ` +
+        `falling back to dense-only retrieval`,
+    );
+    degradedToDenseOnly = true;
   }
 
   const minScore = query.minScore ?? MIN_RELEVANCE_SCORE;
@@ -115,10 +156,12 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
   ];
 
   const requests = namespaces.map((ns) =>
-    queryNamespace(store, ns, embedResult.vector!, query, minScore).catch((err) => {
-      console.warn(`[rag] ${ns} retrieval failed:`, err?.message ?? err);
-      return null as RetrievedChunk[] | null;
-    }),
+    queryNamespace(store, ns, denseQueryVector, sparseQueryVector, query, minScore).catch(
+      (err) => {
+        console.warn(`[rag] ${ns} retrieval failed:`, err?.message ?? err);
+        return null as RetrievedChunk[] | null;
+      },
+    ),
   );
 
   const settled = await Promise.all(requests);
@@ -127,7 +170,7 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
     rulebooks: [],
     cases: [],
     policies: [],
-    partial: false,
+    partial: degradedToDenseOnly,
     latencyMs: Date.now() - startMs,
   };
 
@@ -222,13 +265,14 @@ async function queryNamespace(
   store: VectorStorePort,
   namespace: RagNamespace,
   vector: number[],
+  sparseVector: SparseVector | undefined,
   query: RagQuery,
   minScore: number,
 ): Promise<RetrievedChunk[]> {
   const topK = query.topK?.[namespace] ?? DEFAULT_TOP_K[namespace];
   const filter = buildFilter(namespace, query);
 
-  const matches = await store.query({ namespace, vector, topK, filter });
+  const matches = await store.query({ namespace, vector, sparseVector, topK, filter });
 
   return matches
     .filter((m) => m.score >= minScore && m.metadata)

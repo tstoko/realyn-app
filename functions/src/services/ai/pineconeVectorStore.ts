@@ -71,12 +71,25 @@ export const pineconeVectorStore: VectorStorePort = {
     const indexName = getPineconeIndexName();
     const index = pc.index(indexName).namespace(q.namespace);
 
-    const response = await index.query({
+    // Hybrid retrieval: when both `vector` and `sparseVector` are present,
+    // forward both to Pinecone. Both are expected to be already alpha-scaled
+    // by ragService (Pinecone has no native alpha parameter, so the scaling
+    // is implemented client-side via applyAlpha). Index must use
+    // `metric: dotproduct` for hybrid to work — see ragConfig.PINECONE_METRIC.
+    const queryParams: Record<string, unknown> = {
       vector: q.vector,
       topK: q.topK,
       filter: q.filter,
       includeMetadata: true,
-    });
+    };
+    if (q.sparseVector) {
+      queryParams.sparseVector = {
+        indices: q.sparseVector.indices,
+        values: q.sparseVector.values,
+      };
+    }
+
+    const response = await index.query(queryParams as Parameters<typeof index.query>[0]);
 
     return (response.matches ?? []).map((m) => ({
       id: String(m.id),
@@ -124,12 +137,30 @@ export async function upsertRecords(
   for (let i = 0; i < upsertable.length; i += UPSERT_BATCH_SIZE) {
     const slice = upsertable.slice(i, i + UPSERT_BATCH_SIZE);
     try {
+      // PineconeRecord supports both dense `values` and sparse `sparseValues`
+      // on the same record for hybrid indexes. Records with only dense data
+      // upsert fine to a hybrid (`metric: dotproduct`) index; sparse-only
+      // records would too. We always emit dense + (optionally) sparse.
       await index.upsert({
-        records: slice.map((r) => ({
-          id: r.id,
-          values: r.vector!,
-          metadata: r.metadata as unknown as Record<string, string | number | boolean | string[]>,
-        })),
+        records: slice.map((r) => {
+          const record: {
+            id: string;
+            values: number[];
+            sparseValues?: { indices: number[]; values: number[] };
+            metadata: Record<string, string | number | boolean | string[]>;
+          } = {
+            id: r.id,
+            values: r.vector!,
+            metadata: r.metadata as unknown as Record<string, string | number | boolean | string[]>,
+          };
+          if (r.sparseVector) {
+            record.sparseValues = {
+              indices: r.sparseVector.indices,
+              values: r.sparseVector.values,
+            };
+          }
+          return record;
+        }),
       });
       result.upserted += slice.length;
     } catch (err) {

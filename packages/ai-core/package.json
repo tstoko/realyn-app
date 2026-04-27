@@ -73,6 +73,10 @@
       "types": "./dist/services/voyageEmbeddingClient.d.ts",
       "default": "./dist/services/voyageEmbeddingClient.js"
     },
+    "./services/sparseEmbeddingService": {
+      "types": "./dist/services/sparseEmbeddingService.d.ts",
+      "default": "./dist/services/sparseEmbeddingService.js"
+    },
     "./services/ragService": {
       "types": "./dist/services/ragService.d.ts",
       "default": "./dist/services/ragService.js"
