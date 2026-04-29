@@ -118,11 +118,12 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
     ? { disputeId: query.disputeId, stage: query.stage ?? "rag_retrieve" }
     : undefined;
 
-  // Embed the query in parallel for both providers — dense via the configured
-  // EMBEDDING_PROVIDER (Voyage), sparse via Pinecone Inference's hosted
-  // sparse-english model. We treat a sparse failure as non-fatal (partial:true)
-  // so dense-only retrieval still happens; the inverse (dense fail, sparse OK)
-  // is fatal because dense covers semantic matches that sparse can't.
+  // Embed the query in parallel — dense via Pinecone Inference's
+  // `multilingual-e5-large`, sparse via Pinecone Inference's
+  // `pinecone-sparse-english-v0`. We treat a sparse failure as non-fatal
+  // (partial:true) so dense-only retrieval still happens; the inverse (dense
+  // fail, sparse OK) is fatal because dense covers semantic matches sparse
+  // can't.
   const [denseResult, sparseResult] = await Promise.all([
     embedQuery(query.queryText, { telemetry }),
     sparseEmbedQuery(query.queryText),

@@ -211,7 +211,6 @@ export { nullTelemetryEmitter, configureTelemetry, getTelemetryEmitter } from ".
 
 export {
   EMBEDDING_MODEL,
-  EMBEDDING_PROVIDER,
   EMBEDDING_DIM,
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
@@ -233,7 +232,6 @@ export {
 
 export type {
   EmbeddingModel as RagEmbeddingModel,
-  EmbeddingProvider as RagEmbeddingProvider,
   EmbeddingInputType,
   PineconeMetric,
   RerankModel,
@@ -274,14 +272,6 @@ export {
 } from "./services/embeddingService";
 
 export type { EmbedOptions, EmbedResult, EmbedQueryResult } from "./services/embeddingService";
-
-export {
-  voyageEmbed,
-  isVoyageAvailable,
-  getVoyageInitError,
-} from "./services/voyageEmbeddingClient";
-
-export type { VoyageEmbedResult } from "./services/voyageEmbeddingClient";
 
 export {
   sparseEmbedDocuments,

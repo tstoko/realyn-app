@@ -3,7 +3,7 @@
  *
  * We use Pinecone's hosted inference API so a single `PINECONE_API_KEY` covers
  * both vector storage and embedding generation. Keeping this behind a narrow
- * interface means we can swap the backend later (Voyage, OpenAI, local model)
+ * interface means we can swap the backend later (Voyage, OpenAI, local model — currently Pinecone-only)
  * without touching callers.
  *
  * Design notes:
@@ -21,16 +21,10 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import {
   EMBEDDING_MODEL,
   EMBEDDING_DIM,
-  EMBEDDING_PROVIDER,
   EMBED_BATCH_SIZE,
   type EmbeddingInputType,
 } from "../config/ragConfig";
 import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
-import {
-  voyageEmbed,
-  isVoyageAvailable,
-  getVoyageInitError,
-} from "./voyageEmbeddingClient";
 
 // ---------------------------------------------------------------------------
 // Lazy client
@@ -61,18 +55,10 @@ function getPineconeClient(): Pinecone | null {
 }
 
 export function isEmbeddingAvailable(): boolean {
-  // Availability depends on the configured provider — Pinecone Inference for
-  // `pinecone`, Voyage AI's REST API for `voyage`. The sparse/lexical encoder
-  // (used by hybrid retrieval) is always Pinecone-hosted regardless of the
-  // dense provider, so a Pinecone client failure still means the dense path
-  // is partially degraded for `voyage` callers; consult `isVoyageAvailable()`
-  // and `getPineconeClient()` directly when you need finer status.
-  if (EMBEDDING_PROVIDER === "voyage") return isVoyageAvailable();
   return getPineconeClient() !== null;
 }
 
 export function getEmbeddingInitError(): string | null {
-  if (EMBEDDING_PROVIDER === "voyage") return getVoyageInitError();
   return clientInitError;
 }
 
@@ -127,40 +113,12 @@ async function embedTextsInternal(
     return { success: true, vectors: [], model, dim: EMBEDDING_DIM, tokensUsed: 0 };
   }
 
-  // Route to the configured provider. The two paths must produce vectors of
-  // the same `EMBEDDING_DIM`; if you change provider/model and the dim shifts,
-  // bump `RAG_SCHEMA_VERSION` and re-ingest.
-  let result: EmbedResult;
-  if (EMBEDDING_PROVIDER === "voyage") {
-    result = await embedViaVoyage(texts, model, inputType);
-  } else {
-    result = await embedViaPineconeInference(texts, model, inputType);
-  }
-
-  // L2-normalise on success so dotproduct retrieval equals cosine similarity.
-  // Required by the schema-v2 dotproduct index (see ragConfig.PINECONE_METRIC).
-  // No-op when result.success is false.
-  if (result.success && result.vectors) {
-    result = { ...result, vectors: result.vectors.map(l2Normalize) };
-  }
-
-  emitTelemetry(options, result, startMs);
-  return result;
-}
-
-async function embedViaPineconeInference(
-  texts: string[],
-  model: string,
-  inputType: EmbeddingInputType,
-): Promise<EmbedResult> {
   const client = getPineconeClient();
   if (!client) {
-    return {
-      success: false,
-      model,
-      dim: EMBEDDING_DIM,
-      error: clientInitError || "Pinecone client not available",
-    };
+    const err = clientInitError || "Pinecone client not available";
+    const result: EmbedResult = { success: false, model, dim: EMBEDDING_DIM, error: err };
+    emitTelemetry(options, result, startMs);
+    return result;
   }
 
   try {
@@ -185,30 +143,31 @@ async function embedViaPineconeInference(
       if (response.usage?.totalTokens) tokensUsed += response.usage.totalTokens;
     }
 
-    return {
+    // L2-normalise so dotproduct retrieval equals cosine similarity. Required
+    // by the schema-v2 dotproduct index (see ragConfig.PINECONE_METRIC) so
+    // dense + sparse hybrid retrieval can share a single index without the
+    // dense side biasing toward longer-magnitude vectors.
+    const result: EmbedResult = {
       success: true,
-      vectors,
+      vectors: vectors.map(l2Normalize),
       model,
       dim: vectors[0]?.length ?? EMBEDDING_DIM,
       tokensUsed,
     };
+    emitTelemetry(options, result, startMs);
+    return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Pinecone embedding call failed:", message);
-    return { success: false, model, dim: EMBEDDING_DIM, error: message };
+    const result: EmbedResult = {
+      success: false,
+      model,
+      dim: EMBEDDING_DIM,
+      error: message,
+    };
+    emitTelemetry(options, result, startMs);
+    return result;
   }
-}
-
-async function embedViaVoyage(
-  texts: string[],
-  model: string,
-  inputType: EmbeddingInputType,
-): Promise<EmbedResult> {
-  const result = await voyageEmbed(texts, model, inputType);
-  if (!result.success) {
-    console.error(`Voyage embedding call failed: ${result.error}`);
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------

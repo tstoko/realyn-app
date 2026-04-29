@@ -69,10 +69,6 @@
       "types": "./dist/services/embeddingService.d.ts",
       "default": "./dist/services/embeddingService.js"
     },
-    "./services/voyageEmbeddingClient": {
-      "types": "./dist/services/voyageEmbeddingClient.d.ts",
-      "default": "./dist/services/voyageEmbeddingClient.js"
-    },
     "./services/sparseEmbeddingService": {
       "types": "./dist/services/sparseEmbeddingService.d.ts",
       "default": "./dist/services/sparseEmbeddingService.js"

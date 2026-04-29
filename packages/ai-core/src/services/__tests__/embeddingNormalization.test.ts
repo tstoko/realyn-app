@@ -20,7 +20,6 @@ import {
   l2Normalize,
   _resetEmbeddingClientForTests,
 } from "../embeddingService";
-import { _resetVoyageClientForTests } from "../voyageEmbeddingClient";
 
 function magnitude(v: number[]): number {
   let s = 0;
@@ -28,32 +27,24 @@ function magnitude(v: number[]): number {
   return Math.sqrt(s);
 }
 
-// Provider stubs — we want to verify that the public embedDocuments/Query
-// surfaces normalise regardless of which provider produced the vector.
+// Pinecone Inference mock with controllable raw output. Tests set
+// `nextRawVectors` to inject non-unit-length vectors so we can verify the
+// public embedDocuments/embedQuery surfaces always emit normalised output.
+let nextRawVectors: number[][] = [[3, 4]]; // default magnitude 5 (3²+4² = 25)
+
 jest.mock("@pinecone-database/pinecone", () => ({
   Pinecone: jest.fn().mockImplementation(() => ({
     inference: {
       embed: jest.fn(async () => ({
-        // Deliberately non-unit-length to verify normalisation kicks in.
-        data: [{ values: [3, 4] }],
+        data: nextRawVectors.map((values) => ({ values })),
         usage: { totalTokens: 5 },
       })),
     },
   })),
 }));
 
-function installFetchStub(values: number[]) {
-  (globalThis as any).fetch = jest.fn(async () =>
-    new Response(
-      JSON.stringify({
-        object: "list",
-        data: [{ object: "embedding", embedding: values, index: 0 }],
-        model: "voyage-law-2",
-        usage: { total_tokens: 5 },
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    ),
-  );
+function setRawVectors(values: number[][]) {
+  nextRawVectors = values;
 }
 
 describe("l2Normalize", () => {
@@ -88,40 +79,30 @@ describe("l2Normalize", () => {
 
 describe("embedDocuments / embedQuery emit unit-length vectors", () => {
   const ORIGINAL_ENV = { ...process.env };
-  const ORIGINAL_FETCH = (globalThis as any).fetch;
 
   beforeEach(() => {
-    process.env = {
-      ...ORIGINAL_ENV,
-      PINECONE_API_KEY: "pcsk-test",
-      VOYAGE_API_KEY: "voyage-test",
-    };
+    process.env = { ...ORIGINAL_ENV, PINECONE_API_KEY: "pcsk-test" };
+    setRawVectors([[3, 4]]); // reset to default magnitude-5 vector
     _resetEmbeddingClientForTests();
-    _resetVoyageClientForTests();
     jest.spyOn(console, "warn").mockImplementation(() => {});
     jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
-    (globalThis as any).fetch = ORIGINAL_FETCH;
-    _resetVoyageClientForTests();
     jest.restoreAllMocks();
   });
 
-  test("embedDocuments returns unit-length vectors via Voyage provider", async () => {
-    // Voyage stub returns non-unit-length raw vector (magnitude 5)
-    installFetchStub([3, 0, 4]);
-
+  test("embedDocuments returns unit-length vectors when provider raw output is not unit length", async () => {
+    setRawVectors([[3, 0, 4]]); // raw magnitude 5
     const result = await embedDocuments(["test"]);
     expect(result.success).toBe(true);
     expect(result.vectors).toHaveLength(1);
     expect(magnitude(result.vectors![0])).toBeCloseTo(1, 6);
   });
 
-  test("embedQuery returns a unit-length vector via Voyage provider", async () => {
-    installFetchStub([5, 0, 12]); // magnitude 13
-
+  test("embedQuery returns a unit-length vector", async () => {
+    setRawVectors([[5, 0, 12]]); // raw magnitude 13
     const result = await embedQuery("test");
     expect(result.success).toBe(true);
     expect(result.vector).toBeDefined();
@@ -129,16 +110,28 @@ describe("embedDocuments / embedQuery emit unit-length vectors", () => {
   });
 
   test("normalisation is a no-op for already-unit-length vectors (within float tolerance)", async () => {
-    // Pre-normalise by hand to a known unit vector
     const unit = l2Normalize([1, 2, 3]);
-    installFetchStub(unit);
+    setRawVectors([unit]);
 
     const result = await embedQuery("test");
     expect(result.success).toBe(true);
-    // Each component matches within float precision; magnitude still 1.
     for (let i = 0; i < unit.length; i++) {
       expect(result.vector![i]).toBeCloseTo(unit[i], 10);
     }
     expect(magnitude(result.vector!)).toBeCloseTo(1, 6);
+  });
+
+  test("embedDocuments normalises every vector in a multi-text batch", async () => {
+    setRawVectors([
+      [3, 0, 4],   // mag 5
+      [0, 5, 12],  // mag 13
+      [1, 1, 1],   // mag √3
+    ]);
+    const result = await embedDocuments(["a", "b", "c"]);
+    expect(result.success).toBe(true);
+    expect(result.vectors).toHaveLength(3);
+    for (const v of result.vectors!) {
+      expect(magnitude(v)).toBeCloseTo(1, 6);
+    }
   });
 });

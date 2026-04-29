@@ -14,54 +14,49 @@
  */
 
 // ---------------------------------------------------------------------------
-// Embedding provider + model
+// Embedding model
 // ---------------------------------------------------------------------------
-
-/**
- * Embedding provider. Must match the model in {@link EMBEDDING_MODEL}.
- *
- * - `pinecone` — Pinecone Inference (single-vendor; default before this
- *   migration).
- * - `voyage` — Voyage AI's REST API. Used for domain-tuned models like
- *   `voyage-law-2` whose retrieval quality on regulatory text outperforms
- *   general-purpose embeddings.
- *
- * Locked constant: changing this without re-ingesting every record produces
- * silent retrieval-quality collapse (different embedding spaces), so the
- * value is treated identically to {@link RAG_SCHEMA_VERSION} — bump the
- * schema version when changing it.
- */
-export const EMBEDDING_PROVIDER = "voyage" as const;
-export type EmbeddingProvider = typeof EMBEDDING_PROVIDER;
 
 /**
  * Embedding model used for both document ingestion and query embedding.
  * MUST be the same at ingest time and query time or retrieval quality collapses.
  *
- * `voyage-law-2` is Voyage AI's domain-tuned model for legal/regulatory
- * retrieval. 1024 dimensions, accessed via the Voyage REST API
- * (https://api.voyageai.com/v1/embeddings) using `VOYAGE_API_KEY`.
+ * `multilingual-e5-large` is hosted by Pinecone Inference (single vendor —
+ * Anthropic for the LLM, Pinecone for vectors + sparse + rerank, no third
+ * vendor account). 1024 dimensions, tuned for retrieval on mixed-language
+ * content. We write this value into every record's metadata (`embeddingModel`)
+ * so mismatches can be detected in Firestore/Pinecone audits.
  *
  * History:
- *   v1 (RAG_SCHEMA_VERSION=1) — `multilingual-e5-large` via Pinecone Inference.
- *   v2 (RAG_SCHEMA_VERSION=2) — `voyage-law-2` via Voyage AI; index switched
- *     to `metric: dotproduct` so dense + sparse hybrid retrieval can share
- *     a single Pinecone index.
+ *   v1 (RAG_SCHEMA_VERSION=1) — `multilingual-e5-large`, cosine metric,
+ *     dense-only.
+ *   v2 (RAG_SCHEMA_VERSION=2) — same dense model, but the index switched to
+ *     `metric: dotproduct` so dense + sparse hybrid retrieval can share a
+ *     single Pinecone index, dense vectors are L2-normalised at upsert/query
+ *     time, and a sparse encoder (`pinecone-sparse-english-v0`) + cross-
+ *     encoder reranker (`cohere-rerank-3.5`, gated on `RERANK_ENABLED`) are
+ *     bolted on for hybrid + rerank. Vectors from v1 ingestion are NOT
+ *     comparable to v2 (different metric + normalisation + sparse
+ *     companions), so re-ingestion is required when crossing this boundary.
  *
- * We write this value into every record's metadata (`embeddingModel`) so
- * mismatches can be detected in Firestore/Pinecone audits.
+ * Domain-tuned alternative considered + rejected: Voyage AI's `voyage-law-2`.
+ * The trade-off was ~5–10 retrieval-quality points on legal text in exchange
+ * for a third vendor account and a third API key. We chose Pinecone-only
+ * (one vendor for embeddings + sparse + rerank) and let hybrid + rerank
+ * carry the precision lift instead. Re-evaluate if post-ingest evals
+ * (§C8 of docs/post-hardening-plan.md) show retrieval is the bottleneck.
  */
-export const EMBEDDING_MODEL = "voyage-law-2" as const;
+export const EMBEDDING_MODEL = "multilingual-e5-large" as const;
 export type EmbeddingModel = typeof EMBEDDING_MODEL;
 
 /** Vector dimension for {@link EMBEDDING_MODEL}. */
 export const EMBEDDING_DIM = 1024 as const;
 
 /**
- * Internal embedding-call vocabulary. Both Pinecone Inference and Voyage AI
- * distinguish between passage-style and query-style calls; the adapter layer
- * maps these to each provider's own terminology (Pinecone: `passage`/`query`;
- * Voyage: `document`/`query`). Passing the wrong one costs ~10% recall.
+ * Pinecone Inference distinguishes between passage-style and query-style
+ * embedding calls. Passing the wrong one costs ~10% recall, so call sites
+ * use {@link embedDocuments} / {@link embedQuery} rather than picking
+ * `inputType` directly.
  */
 export type EmbeddingInputType = "passage" | "query";
 
@@ -195,10 +190,12 @@ export const EMBED_BATCH_SIZE = 64 as const;
  *
  * History:
  *   v1 — multilingual-e5-large via Pinecone Inference, cosine metric, dense-only.
- *   v2 — voyage-law-2 via Voyage AI, dotproduct metric, dense vectors L2-
- *        normalised at upsert/query time, hybrid retrieval (dense + sparse)
- *        on the same index. Re-ingestion required when crossing this
- *        boundary because vector spaces are not comparable.
+ *   v2 — multilingual-e5-large via Pinecone Inference (same as v1), dotproduct
+ *        metric, dense vectors L2-normalised at upsert/query time, hybrid
+ *        retrieval (dense + sparse) on the same index, optional cross-encoder
+ *        rerank gated on RERANK_ENABLED. Re-ingestion required when crossing
+ *        this boundary because vector spaces are not comparable (different
+ *        metric + normalisation + sparse companions).
  */
 export const RAG_SCHEMA_VERSION = 2 as const;
 

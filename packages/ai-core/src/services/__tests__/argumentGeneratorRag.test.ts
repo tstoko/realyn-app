@@ -15,7 +15,6 @@ import {
   type VectorStorePort,
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
-import { _resetVoyageClientForTests } from "../voyageEmbeddingClient";
 import { _resetSparseEmbeddingClientForTests } from "../sparseEmbeddingService";
 import { generateDisputeArgument } from "../argumentGenerator";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
@@ -84,21 +83,6 @@ jest.mock("@pinecone-database/pinecone", () => ({
   })),
 }));
 
-function installFetchStub() {
-  const fakeEmbedding = new Array(1024).fill(0.01);
-  const stub = jest.fn(async () =>
-    new Response(
-      JSON.stringify({
-        object: "list",
-        data: [{ object: "embedding", embedding: fakeEmbedding, index: 0 }],
-        model: "voyage-law-2",
-        usage: { total_tokens: 5 },
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    ),
-  );
-  (globalThis as any).fetch = stub;
-}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -196,7 +180,6 @@ function rulebookMatch(id: string, score: number, text: string, source: string):
 
 describe("generateDisputeArgument ↔ RAG", () => {
   const ORIGINAL_ENV = { ...process.env };
-  const ORIGINAL_FETCH = (globalThis as any).fetch;
 
   beforeEach(() => {
     capturedPrompts.length = 0;
@@ -204,14 +187,11 @@ describe("generateDisputeArgument ↔ RAG", () => {
       ...ORIGINAL_ENV,
       ANTHROPIC_API_KEY: "sk-ant-test",
       PINECONE_API_KEY: "pcsk-test",
-      VOYAGE_API_KEY: "voyage-test",
     };
     delete process.env.RAG_RETRIEVAL_ENABLED;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
-    _resetVoyageClientForTests();
     _resetSparseEmbeddingClientForTests();
-    installFetchStub();
     jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
     jest.spyOn(console, "error").mockImplementation(() => {});
@@ -219,10 +199,8 @@ describe("generateDisputeArgument ↔ RAG", () => {
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
-    (globalThis as any).fetch = ORIGINAL_FETCH;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
-    _resetVoyageClientForTests();
     _resetSparseEmbeddingClientForTests();
     jest.restoreAllMocks();
   });
