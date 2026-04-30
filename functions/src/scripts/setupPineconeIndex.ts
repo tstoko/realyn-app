@@ -18,10 +18,10 @@
 
 import {
   EMBEDDING_DIM,
-  PINECONE_CLOUD,
   PINECONE_METRIC,
-  PINECONE_REGION,
+  getPineconeCloud,
   getPineconeIndexName,
+  getPineconeRegion,
 } from "@realyn/ai-core";
 import { getPineconeClient } from "../services/ai/pineconeVectorStore";
 
@@ -35,10 +35,12 @@ const METRIC = PINECONE_METRIC;
 
 async function main(): Promise<void> {
   const indexName = getPineconeIndexName();
+  const cloud = getPineconeCloud();
+  const region = getPineconeRegion();
   const pc = getPineconeClient();
 
   console.log(`[rag-setup] target index: ${indexName}`);
-  console.log(`[rag-setup] cloud/region: ${PINECONE_CLOUD}/${PINECONE_REGION}`);
+  console.log(`[rag-setup] cloud/region: ${cloud}/${region}`);
   console.log(`[rag-setup] dimension: ${EMBEDDING_DIM}, metric: ${METRIC}`);
 
   const existing = await pc.listIndexes();
@@ -72,8 +74,8 @@ async function main(): Promise<void> {
     metric: METRIC,
     spec: {
       serverless: {
-        cloud: PINECONE_CLOUD,
-        region: PINECONE_REGION,
+        cloud,
+        region,
       },
     },
     // Wait for the index to be ready before returning so subsequent scripts
