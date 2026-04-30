@@ -4,7 +4,7 @@
 > This is the **first place a fresh agent should read** when picking up RAG work.
 > Updated when state changes — feel free to edit it as you go.
 
-> **Status as of 2026-04-30:** PR #11 in review, PR #12 in review, `PINECONE_API_KEY` saved to Cursor secrets but unverified, no Pinecone index yet, no rulebooks ingested.
+> **Status as of 2026-04-30:** PR #11 in review, PR #12 in review, `PINECONE_API_KEY` saved to Cursor secrets and verified reachable in agent VM, `PINECONE_INDEX_NAME=realyn-rag-dev` saved, no Pinecone index yet, no rulebooks ingested. Pinecone organisation is on the **Starter (free) plan** — index defaults adjusted to `aws/us-east-1` accordingly (see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment)).
 
 ---
 
@@ -15,6 +15,7 @@
 3. **Run `cd functions && npm run rag:test`** — smoke query against the empty index. Expected: "no matches" + latency numbers. Confirms auth + region wiring.
 4. **Report back to the user** with: index name, observed config (cloud / region / metric / dim), smoke-query latency. **Do not proceed past `rag:test`** without explicit confirmation.
 5. **If `rag:setup` exits non-zero with a config-drift error**, that means a pre-existing index named `realyn-rag-dev` already exists with `metric: cosine` (left over from before the schema-v2 migration in PR #12). Tell the user; do not delete the index without explicit permission.
+6. **Cloud + region default to `aws/us-east-1`** because the Pinecone organisation is on the free Starter plan (only AWS Virginia is allowed). If `rag:setup` fails with a "free plan does not support indexes in <region>" error, see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment).
 
 ---
 
@@ -72,6 +73,54 @@ These were decided through a long thread with the user. Override only with expli
 The polarities are deliberately inverted. `RAG_RETRIEVAL_ENABLED` defaults ON because retrieval is fail-safe (empty chunks = original behaviour). `RERANK_ENABLED` defaults OFF because rerank is a more invasive feature with vendor-tier risk — it should not run accidentally before the Pinecone tier is verified.
 
 **Do not flip `RERANK_ENABLED=true` without first running a probe call against the Pinecone account and confirming rerank is on the tier and not rate-limit-constrained.** The plan calls this out at §C7.
+
+---
+
+## Free-tier vs paid-tier deployment
+
+The Pinecone organisation is currently on the **free Starter plan**. The codebase is configured to work on Starter today, with a low-friction upgrade path to a paid plan later.
+
+### What's tier-sensitive
+
+| Concern | Starter (current) | Standard / Enterprise |
+|---|---|---|
+| Allowed cloud + region for serverless indexes | `aws/us-east-1` only | All regions, including `gcp/us-central1` (co-locates with Cloud Functions) |
+| Storage cap per project | 2 GB | None / contractual |
+| Indexes per project | 5 | 20 / 200 |
+| `cohere-rerank-3.5` (the default `RERANK_MODEL`) | **Not available** | Unlimited |
+| `bge-reranker-v2-m3`, `pinecone-rerank-v0` | 500 reqs/month each | Unlimited |
+| Inference rate limits (embed + sparse + rerank) | 100 rps / 2000 rpm | Same 100 rps / 2000 rpm |
+
+### What's hard-coded vs configurable
+
+Configurable (env-driven, no code change to switch):
+
+- `PINECONE_INDEX_NAME` — already env-driven via `getPineconeIndexName()`.
+- `PINECONE_CLOUD` — env-driven via `getPineconeCloud()`. Default `aws`.
+- `PINECONE_REGION` — env-driven via `getPineconeRegion()`. Default `us-east-1`.
+
+Hard-coded (changing requires a re-ingest, in some cases a schema-version bump):
+
+- `EMBEDDING_MODEL`, `EMBEDDING_DIM`, `PINECONE_METRIC`, dense L2-normalisation, sparse encoder, hybrid alpha defaults, chunk sizes, schema version. These are the load-bearing invariants from §[Schema-v2 invariants](#schema-v2-invariants-from-packagesai-coresrcconfigragconfigts) and are intentionally not configurable.
+- `RERANK_MODEL` — locked to `cohere-rerank-3.5`. Not available on Starter; if rerank is ever enabled while on Starter, swap to `bge-reranker-v2-m3` or `pinecone-rerank-v0` in the same commit. This is fine today because `RERANK_ENABLED` defaults OFF.
+
+### Upgrade recipe (Starter → Standard, GCP co-location)
+
+When the Pinecone org gets upgraded:
+
+1. Upgrade the Pinecone organisation to Standard (or Enterprise) in the Pinecone console.
+2. Pick a new index name, e.g. `realyn-rag-gcp` — Pinecone serverless cloud + region are immutable on an existing index, so co-location requires a fresh index.
+3. Set the env vars on whoever runs ingestion + on the deployed Cloud Functions:
+   ```
+   PINECONE_INDEX_NAME=realyn-rag-gcp
+   PINECONE_CLOUD=gcp
+   PINECONE_REGION=us-central1
+   ```
+4. Run `cd functions && npm run rag:setup` — creates the new index in `gcp/us-central1`.
+5. Run `cd functions && npm run rag:ingest -- --file PATH …` for each rulebook to repopulate the new index.
+6. Once retrieval looks healthy on the new index, delete the old AWS index and remove `PINECONE_INDEX_NAME` overrides (or keep the override pointing at the new name).
+
+No code changes needed for the region switch. `RERANK_ENABLED=true` is now safe to consider once verified against the upgraded tier (see §C7 of the master plan).
 
 ---
 
