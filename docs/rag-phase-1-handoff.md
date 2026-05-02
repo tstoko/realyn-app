@@ -4,36 +4,38 @@
 > This is the **first place a fresh agent should read** when picking up RAG work.
 > Updated when state changes — feel free to edit it as you go.
 
-> **Status as of 2026-04-30:** PR #11 in review, PR #12 in review, `PINECONE_API_KEY` saved to Cursor secrets and verified reachable in agent VM, `PINECONE_INDEX_NAME=realyn-rag-dev` saved, no Pinecone index yet, no rulebooks ingested. Pinecone organisation is on the **Starter (free) plan** — index defaults adjusted to `aws/us-east-1` accordingly (see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment)).
+> **Status as of 2026-05-02:** PR #11 in review, PR #12 in review, **PR #13 in review**. The `realyn-rag-dev` Pinecone index is **provisioned and populated** — 2284 vectors in the `rulebooks` namespace (Visa Public Rules + Mastercard Chargeback Guide Merchant Edition). `PINECONE_API_KEY` is saved to Cursor secrets and was used end-to-end for ingest from a Cursor Cloud Agent VM. Pinecone organisation is on the **Starter (free) plan** — index defaults remain `aws/us-east-1` (see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment)). Next unblocked code work is **C7** (bind secret on deployed Functions + deploy) — currently gated on `FIREBASE_TOKEN` in Cursor secrets.
 
 ---
 
 ## TL;DR for the next agent
 
-1. **Verify the env var is reachable** — `echo "${PINECONE_API_KEY:+set}"` should print `set`. If not set, see [Troubleshooting](#troubleshooting-secrets-not-reachable).
-2. **Run `cd functions && npm run build && npm run rag:setup`** — creates the `realyn-rag-dev` index with the schema-v2 invariants below. Idempotent.
-3. **Run `cd functions && npm run rag:test`** — smoke query against the empty index. Expected: "no matches" + latency numbers. Confirms auth + region wiring.
-4. **Report back to the user** with: index name, observed config (cloud / region / metric / dim), smoke-query latency. **Do not proceed past `rag:test`** without explicit confirmation.
-5. **If `rag:setup` exits non-zero with a config-drift error**, that means a pre-existing index named `realyn-rag-dev` already exists with `metric: cosine` (left over from before the schema-v2 migration in PR #12). Tell the user; do not delete the index without explicit permission.
-6. **Cloud + region default to `aws/us-east-1`** because the Pinecone organisation is on the free Starter plan (only AWS Virginia is allowed). If `rag:setup` fails with a "free plan does not support indexes in <region>" error, see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment).
+The unglamorous parts (provisioning + ingestion) are done. What's left is mostly about deploying retrieval to the real Functions runtime and measuring whether it helps.
+
+1. **Don't re-run `rag:setup` expecting an empty index.** It already exists at `realyn-rag-dev` (`aws/us-east-1`, dotproduct, 1024-dim) with 2284 vectors. The script is still idempotent — re-running just no-ops — but ingestion-style work is **not** the next step.
+2. **If you have `PINECONE_API_KEY` reachable in your shell**, sanity-check the live index with `cd functions && npm run rag:test`. You should see real top-K hits (not "no matches"). Sample queries that returned coherent rule excerpts in PR #13: `"What evidence does a merchant need to defend a Visa 13.1 service not provided chargeback?"`, `"Mastercard reason code 4853 cardholder dispute compelling evidence"`. Top scores ~10+, well above the `MIN_RELEVANCE_SCORE=0.35` floor.
+3. **`PINECONE_API_KEY` is only in Cursor Cloud Agent VMs, not in your local IDE shell.** Local agents will see `echo "${PINECONE_API_KEY:+set}"` print empty. That's expected. Don't ask the user to paste it; either run a Cursor Cloud Agent for live-index work, or have the user export it themselves before invoking you on commands that need it.
+4. **The actual next code-side work is C7** — bind `PINECONE_API_KEY` as a Firebase Functions secret and add it to the `secrets: [...]` list on the `planEvidence` / `draftArgument` `onRequest` definitions in `functions/src/handlers/aiDisputeHandlers.ts`, then deploy. **C7 needs `FIREBASE_TOKEN` in Cursor secrets** (or a developer workstation with `firebase` CLI auth). Not currently in Cursor secrets — ask the user before suggesting they add it.
+5. **C3 (pre-RAG baseline) is still the blocking eval prerequisite.** It can't be backfilled retroactively. If C7 lands and the user wants to do C8, you must do C3 against the *deterministic-pipeline output for the same disputes* before flipping `RAG_RETRIEVAL_ENABLED` on for those disputes' replays. Reading staging disputes needs `GOOGLE_APPLICATION_CREDENTIALS_JSON` (not in Cursor secrets); the eval doc skeleton can be pre-filled without it.
+6. **Don't merge PR #11/#12/#13 in this session.** User wants to review. Merge order is #11 → #12 → #13. Branches are stacked.
 
 ---
 
 ## Master plan
 
-The full plan lives in [`docs/post-hardening-plan.md`](post-hardening-plan.md). The relevant cursor for this work is **Workstream C — RAG Phase 1**. Items already done by prior agents:
+The full plan lives in [`docs/post-hardening-plan.md`](post-hardening-plan.md). The relevant cursor for this work is **Workstream C — RAG Phase 1**.
 
 | Item | Status | Where |
 |---|---|---|
 | C6 — wire retrieval into evidencePlanner + argumentGenerator | ✅ Done | PR #11 |
 | RAG architecture corrections (dotproduct, L2 norm, hybrid, rerank) | ✅ Done | PR #12 |
-| C1 — provision Pinecone index | ⏳ **Next action** | Will happen when `rag:setup` runs |
-| C2 — source rulebook PDFs | 🔒 Awaiting decision | See [Awaiting decisions](#awaiting-decisions) |
-| C3 — pre-RAG baseline grading | 🔒 Awaiting decision | Needs human grading |
-| C4 — dry-run ingestion | ⏸️ Blocked on C2 | |
-| C5 — real ingestion | ⏸️ Blocked on C4 | |
-| C7 — bind PINECONE_API_KEY on Cloud Functions, deploy | 🔒 Needs FIREBASE_TOKEN | Not yet in Cursor secrets |
-| C8 — re-run eval, compare to baseline | ⏸️ Blocked on C5 + C3 | |
+| C1 — provision Pinecone index | ✅ Done | PR #13 — `realyn-rag-dev` in `aws/us-east-1`, dotproduct, 1024-dim, Ready |
+| C2 — source rulebook PDFs | ✅ Done | PR #13 — Visa Public Rules (canonical Visa-hosted URL) + Mastercard Chargeback Guide Merchant Edition (user-staged via temp commit, then reverted) |
+| C4 — dry-run ingestion | ✅ Done | PR #13 — chunking heuristics validated on both PDFs |
+| C5 — real ingestion | ✅ Done | PR #13 — 2284 vectors total: Visa 896 chunks + Mastercard 1388 chunks |
+| C3 — pre-RAG baseline grading | 🔒 Awaiting decision | Needs human grading + `GOOGLE_APPLICATION_CREDENTIALS_JSON` to read staging disputes. Doc skeleton can be pre-filled without creds. |
+| C7 — bind PINECONE_API_KEY on Cloud Functions, deploy | 🔒 **Next unblocked code work** — needs FIREBASE_TOKEN | Not yet in Cursor secrets. Code change for the `secrets: [...]` list is small and can be staged without deploying. |
+| C8 — re-run eval, compare to baseline | ⏸️ Blocked on C7 + C3 | |
 | C9 — production cutover | ⏸️ Blocked on C8 | |
 
 ---
@@ -128,16 +130,22 @@ No code changes needed for the region switch. `RERANK_ENABLED=true` is now safe 
 
 | Secret | Set? | Notes |
 |---|---|---|
-| `PINECONE_API_KEY` | ✅ Saved by user 2026-04-30 (unverified in agent VM yet) | Required for all Pinecone calls |
-| `PINECONE_INDEX_NAME` | Optionally saved as `realyn-rag-dev` | Falls back to `realyn-rag` if unset; setting it explicitly avoids prod/dev collisions |
+| `PINECONE_API_KEY` | ✅ Saved 2026-04-30, **verified end-to-end** by the PR #13 ingest run from a Cursor Cloud Agent VM | Required for all Pinecone calls. Only injected into Cursor Cloud Agent VMs at boot — **not** present in local IDE shells. |
+| `PINECONE_INDEX_NAME` | Optionally saved as `realyn-rag-dev` | Falls back to `realyn-rag` if unset; setting it explicitly avoids prod/dev collisions. |
+
+**Local-vs-Cloud-Agent caveat.** Cursor secrets are only present in Cloud Agent VMs. If you're running as a *local* agent (the user's own IDE, not a Cloud Agent), `echo "${PINECONE_API_KEY:+set}"` will print empty even though the secret is "saved". Two paths:
+
+1. Spin up a Cursor Cloud Agent for any work that needs to call Pinecone (preferred — that's how PR #13's ingest happened).
+2. Have the user export `PINECONE_API_KEY` themselves in their shell before invoking you. Don't suggest pasting it in chat.
 
 **Not in Cursor secrets** (would need user action if you need them):
 
-- `FIREBASE_TOKEN` — would unblock A1 (Firestore index deploy) and C7 (Functions deploy + secrets:set).
-- `GOOGLE_APPLICATION_CREDENTIALS_JSON` — would unblock A2 (Cloud Run env vars), C7 partial, and C3/C8 (read staging disputes for eval baseline).
-- `GH_ADMIN_TOKEN` — would unblock A3 (delete dead Sentry secrets).
+- `FIREBASE_TOKEN` — would unblock A1 (Firestore index deploy) and **C7 (Functions deploy + secrets:set)** ← currently the bottleneck for Phase 1. Note: Firestore *reads* (for C3 baseline) are now reachable via the Firebase MCP server (`plugin-firebase-firebase`) without this token.
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON` — would unblock A2 (Cloud Run env vars) and C7 partial. C3/C8 Firestore reads are unblocked via Firebase MCP instead.
+- `ANTHROPIC_API_KEY` — required for C3 / C8 (the eval pipeline calls Claude end-to-end via `callLLM`). Not in Cursor secrets. Either ask the user to add it to Cursor secrets and run from a Cloud Agent VM, or have them export it locally before invoking you.
 - `STRIPE_SECRET_KEY_TEST` — A4 partial, deliberately deferred (Stripe smoke testing skipped per user).
 - `VOYAGE_API_KEY` — N/A, Voyage was rejected.
+- ~~`GH_ADMIN_TOKEN`~~ — was added briefly to unblock A3 (delete dead Sentry GitHub Actions secrets). **A3 turned out to be a no-op** — verified 2026-05-02 that no `*SENTRY*` secrets exist at the repo Actions / dependabot / codespaces scopes. The PAT has been (or should be) revoked.
 
 If you find you need any of these, **ask the user before suggesting they add it**. The user has been deliberately conservative about credential sprawl.
 
@@ -149,12 +157,14 @@ Things the user has not decided yet. **Don't unilaterally pick.**
 
 ### C2 — Rulebook PDF sourcing
 
-Two paths:
+**Resolved in PR #13.** What actually happened:
 
-1. **You fetch the public Visa Public Rules and Mastercard Chargeback Guide PDFs** via WebFetch / curl. Public, no licensing risk.
-2. **User stages them in a Firebase Storage bucket** and we pull via `gsutil cp`. Cleanest path for the licensed Visa Core Rules and Visa Product/Service Rules if those are wanted.
+- **Visa**: downloaded directly from `https://usa.visa.com/dam/VCOM/download/about-visa/visa-rules-public.pdf` (canonical Visa-hosted URL, public, ~923 pages, version `2026-04-18`). No licensing concern.
+- **Mastercard**: Akamai 403 on every URL variant from the Cursor Cloud Agent VM's IP range. **User downloaded locally** and pushed via a temporary `git add -f` commit (since `data/rulebooks/` is gitignored). That commit (`36bc6bf temp: stage Mastercard Chargeback Guide for ingest`) was reverted in `bd54229` so PR #13 doesn't carry the binary blob.
 
-The user has not picked between these. If you need PDFs to make further progress, ask.
+Phase 1 corpus is therefore the public/merchant-facing edition for both networks. The licensed Visa Core Rules and Visa Product/Service Rules path was not taken — re-open the question if Phase 2 ever needs them.
+
+If you need to re-ingest from a fresh agent VM and the PDFs aren't on disk, the same staging trick works: have the user push them via temporary `git add -f`, ingest, then revert.
 
 ### C3 — Pre-RAG baseline grading
 
@@ -196,10 +206,11 @@ Patterns observed across the conversation. Hold to these unless the user signals
 |---|---|---|---|
 | `cursor/post-hardening-plan-execution-47d1` | [#11](https://github.com/tstoko/realyn-app/pull/11) | Draft, in review | `main` |
 | `cursor/rag-architecture-corrections-47d1` | [#12](https://github.com/tstoko/realyn-app/pull/12) | Draft, in review | `cursor/post-hardening-plan-execution-47d1` |
+| `cursor/rag-phase-1-provisioning-4164` | [#13](https://github.com/tstoko/realyn-app/pull/13) | Draft, in review | `cursor/rag-architecture-corrections-47d1` |
 
-Merge order: #11 → #12. Don't merge them in this session — the user wants to review.
+Merge order: #11 → #12 → #13. Don't merge them in this session — the user wants to review.
 
-If you do RAG provisioning work and need to check it in, **branch off `cursor/rag-architecture-corrections-47d1`** since that has the schema-v2 setup. Suggested branch name: `cursor/rag-phase-1-provisioning-XXXX`.
+If you do follow-up RAG work (C7 binding/deploy, C3 baseline doc, ingest tweaks) and need a new branch, **branch off `cursor/rag-phase-1-provisioning-4164`** — that's the tip of the stack and contains all the bug fixes from PR #13 (sparse parser, pdf-parse@2 API, 429 retry, env-driven cloud/region). Suggested branch name pattern: `cursor/rag-phase-1-cN-<short>-XXXX`.
 
 ---
 
@@ -223,17 +234,20 @@ cd functions && npx tsc --noEmit
 # Run functions tests
 cd functions && npm test
 
-# Provision the Pinecone index (idempotent)
+# Provision the Pinecone index (idempotent — already done in PR #13)
 cd functions && npm run rag:setup
 
-# Smoke-query the index
+# Smoke-query the live populated index — should return real top-K hits, not "no matches"
 cd functions && npm run rag:test
 
-# Ingest rulebooks (when PDFs are staged)
-cd functions && npm run rag:ingest -- --file PATH --network visa --name "Visa Public Rules" --version 2024-04-15
+# Ingest a new / replacement rulebook (idempotent on (network, version, content-hash))
+cd functions && npm run rag:ingest -- --file PATH --network visa --name "Visa Public Rules" --version 2026-04-18
+
+# Dry-run ingestion (parse + chunk + log only — no embed, no upsert)
+cd functions && npm run rag:ingest -- --file PATH --network visa --name "..." --version "..." --dry-run --sample 20
 ```
 
-Running `npm run rag:setup` requires `PINECONE_API_KEY` in env.
+All `rag:*` commands require `PINECONE_API_KEY` in env (only available in Cursor Cloud Agent VMs by default — see [What's in Cursor secrets](#whats-in-cursor-secrets-right-now)).
 
 ---
 
@@ -241,24 +255,36 @@ Running `npm run rag:setup` requires `PINECONE_API_KEY` in env.
 
 If `echo "${PINECONE_API_KEY:+set}"` returns empty:
 
+0. **First, confirm you're actually in a Cloud Agent VM.** Cursor secrets only inject into Cloud Agent VMs, not into local IDE shells. If you're running as a local agent in the user's IDE, empty is expected — go run a Cloud Agent for Pinecone work, or have the user export the key in their shell before invoking you. Don't pursue steps 1–4.
 1. **Confirm the secret is saved at the right scope.** Cursor Dashboard → Cloud Agents → Secrets. Should be either user-account-scoped or `tstoko/realyn-app`-repo-scoped.
 2. **Confirm the exact name.** `PINECONE_API_KEY` — all caps, single underscores. Typos like `PINECONE_KEY` or `PINECONE_API_TOKEN` won't match.
 3. **If your VM started before the secret was saved**, secrets are injected at agent-VM-creation time, not on every command. End the current agent session and start a new one. The new VM will boot with the secrets in env.
-4. **Tell the user if 1–3 don't fix it.** Don't try to work around it by hard-coding keys, asking them to paste in chat, or any other unsafe path.
+4. **Tell the user if 0–3 don't fix it.** Don't try to work around it by hard-coding keys, asking them to paste in chat, or any other unsafe path.
 
 ---
 
-## Files added in PR #11 / #12 worth knowing about
+## Files added / changed across PR #11 / #12 / #13 worth knowing about
 
-- `packages/ai-core/src/services/ragPromptInjection.ts` — the `## REFERENCE MATERIAL` block format and feature-flag gate.
-- `packages/ai-core/src/services/ragService.ts` — retrieval orchestration, hybrid query path.
-- `packages/ai-core/src/services/embeddingService.ts` — Pinecone Inference dense embeddings + L2 normalisation.
-- `packages/ai-core/src/services/sparseEmbeddingService.ts` — sparse encoder + `applyAlpha`.
+**From PR #11 (RAG wiring):**
+- `packages/ai-core/src/services/ragPromptInjection.ts` — the `## REFERENCE MATERIAL` block format and `RAG_RETRIEVAL_ENABLED` feature-flag gate.
+- `packages/ai-core/src/services/ragService.ts` — retrieval orchestration, hybrid query path, `buildFilter` (per-namespace metadata filters).
+
+**From PR #12 (architecture corrections):**
+- `packages/ai-core/src/services/embeddingService.ts` — Pinecone Inference dense embeddings + `l2Normalize` helper (exported).
+- `packages/ai-core/src/services/sparseEmbeddingService.ts` — sparse encoder + `applyAlpha` for client-side hybrid scaling.
 - `packages/ai-core/src/services/rerankService.ts` — `RerankPort` + `maybeRerank` (gated on `RERANK_ENABLED`).
-- `functions/src/services/ai/pineconeVectorStore.ts` — concrete Pinecone-backed adapter.
+- `functions/src/services/ai/pineconeVectorStore.ts` — concrete Pinecone-backed adapter, dual-vector upsert path.
 - `functions/src/services/ai/pineconeRerank.ts` — concrete Pinecone-Inference rerank adapter.
 - `functions/src/scripts/setupPineconeIndex.ts` — `npm run rag:setup` entry point.
 - `functions/src/scripts/ingestRulebooks.ts` — `npm run rag:ingest` entry point.
 - `functions/src/scripts/testRagRetrieval.ts` — `npm run rag:test` entry point.
+
+**From PR #13 (provisioning + bug fixes uncovered by first real ingest):**
+- `packages/ai-core/src/config/ragConfig.ts` — `PINECONE_CLOUD` / `PINECONE_REGION` are now env-driven via `getPineconeCloud()` / `getPineconeRegion()`. Defaults flipped to `aws/us-east-1` for Starter compatibility. The schema-v2 invariants (model, dim, metric, normalisation, alpha, schema version) stay hard-coded — they need to match between ingest and query.
+- `packages/ai-core/src/services/sparseEmbeddingService.ts` — parses Pinecone SDK 7.x flat sparse-embed shape (`sparseValues: number[]` + `sparseIndices: number[]`); old nested `{ indices, values }` shape kept for back-compat. Without this fix, **every hybrid query was silently falling back to dense-only**.
+- `packages/ai-core/src/services/embeddingService.ts` + `sparseEmbeddingService.ts` — shared `embedWithRetry()` helper retries on 429 / `RESOURCE_EXHAUSTED` only, with 30s → 60s → 90s → 120s backoff. Calibrated to Pinecone Inference's rolling-minute token bucket (Starter cap: 250K tokens/min/model/input-type).
+- `functions/src/scripts/ingestRulebooks.ts` — uses `pdf-parse@2` class-based `PDFParse` API (`getText({ pageJoiner: "" })`), always calls `destroy()` in `finally` to release the PDF.js worker between sources. The v1 callable default export was removed in v2.
+- `functions/src/scripts/setupPineconeIndex.ts` — reads cloud + region from the new getters at runtime.
+- `functions/.env.example` — documents the new `PINECONE_CLOUD` / `PINECONE_REGION` override knobs and the immutability constraint (cloud + region can't be changed on an existing index — requires a new index name).
 
 All of these have inline comments explaining the design decisions; read them before refactoring anything.

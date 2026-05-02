@@ -184,10 +184,15 @@ deploy workflow once and confirm no warnings about missing secrets.
 
 **Estimate.** 5 min.
 
-**Status:** [ ]
-*(Requires `gh` CLI authenticated with admin access to the repo's Settings.
-Code-side scan confirms no remaining `SENTRY_*` references in workflow
-files: `rg -n "SENTRY" .github/workflows/` returns nothing. Safe to run.)*
+**Status:** [x] verified — no Sentry secrets exist at any scope
+*(Verified 2026-05-02 from a workstation `gh` session (scope `repo`).
+`gh secret list` at repo Actions, dependabot, and codespaces scopes
+returns zero `*SENTRY*` entries. The named targets
+(`DASHBOARD_VITE_SENTRY_DSN`, `STAGING_VITE_SENTRY_DSN`) are not present
+— either deleted in an earlier sweep or never created. Workflow-side
+scan also clean: `Grep "SENTRY|sentry" .github/workflows/` returns no
+matches. The dedicated `GH_ADMIN_TOKEN` PAT mentioned in the RAG
+handoff doc was not needed in the end and can be revoked.)*
 
 ---
 
