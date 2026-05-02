@@ -4,7 +4,7 @@
 > This is the **first place a fresh agent should read** when picking up RAG work.
 > Updated when state changes — feel free to edit it as you go.
 
-> **Status as of 2026-05-02:** PR #11 in review, PR #12 in review, **PR #13 in review**. The `realyn-rag-dev` Pinecone index is **provisioned and populated** — 2284 vectors in the `rulebooks` namespace (Visa Public Rules + Mastercard Chargeback Guide Merchant Edition). `PINECONE_API_KEY` is saved to Cursor secrets and was used end-to-end for ingest from a Cursor Cloud Agent VM. Pinecone organisation is on the **Starter (free) plan** — index defaults remain `aws/us-east-1` (see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment)). Next unblocked code work is **C7** (bind secret on deployed Functions + deploy) — currently gated on `FIREBASE_TOKEN` in Cursor secrets.
+> **Status as of 2026-05-02 (late evening):** PR #11 in review, PR #12 in review, **PR #13 in review**. The `realyn-rag-dev` Pinecone index is **provisioned and populated** — 2284 vectors in the `rulebooks` namespace (Visa Public Rules + Mastercard Chargeback Guide Merchant Edition). `PINECONE_API_KEY` is saved to Cursor secrets and was used end-to-end for ingest from a Cursor Cloud Agent VM. Pinecone organisation is on the **Starter (free) plan** — index defaults remain `aws/us-east-1` (see [Free-tier vs paid-tier deployment](#free-tier-vs-paid-tier-deployment)). **C3 baseline capture script ran end-to-end but failed: the `sk-ant-…` key the user supplied has zero credit balance, so all Claude calls returned `400 invalid_request_error`.** Pipeline degraded to deterministic fallbacks; the contaminated markdown was deleted (not committed). One real bug surfaced and was fixed: planner write-back failed with `Cannot use "undefined" as a Firestore value` because the *fallback* relevance scorer produces `undefined` nested fields the Firestore Admin SDK rejects by default — committed `50167f2` enables `ignoreUndefinedProperties` on `admin.firestore().settings(...)`. Next unblocked code work is still **C7** (bind secret on deployed Functions + deploy) — currently gated on `FIREBASE_TOKEN` in Cursor secrets. **C3 is gated on the user adding Anthropic API credit at console.anthropic.com** (their Claude.ai Pro/Max subscription does NOT cover API calls — different billing surface). Two unpushed commits on `cursor/rag-phase-1-provisioning-4164`: `2b0d951` (C3 capture script) and `50167f2` (Firestore-undefined fix).
 
 ---
 
@@ -16,7 +16,7 @@ The unglamorous parts (provisioning + ingestion) are done. What's left is mostly
 2. **If you have `PINECONE_API_KEY` reachable in your shell**, sanity-check the live index with `cd functions && npm run rag:test`. You should see real top-K hits (not "no matches"). Sample queries that returned coherent rule excerpts in PR #13: `"What evidence does a merchant need to defend a Visa 13.1 service not provided chargeback?"`, `"Mastercard reason code 4853 cardholder dispute compelling evidence"`. Top scores ~10+, well above the `MIN_RELEVANCE_SCORE=0.35` floor.
 3. **`PINECONE_API_KEY` is only in Cursor Cloud Agent VMs, not in your local IDE shell.** Local agents will see `echo "${PINECONE_API_KEY:+set}"` print empty. That's expected. Don't ask the user to paste it; either run a Cursor Cloud Agent for live-index work, or have the user export it themselves before invoking you on commands that need it.
 4. **The actual next code-side work is C7** — bind `PINECONE_API_KEY` as a Firebase Functions secret and add it to the `secrets: [...]` list on the `planEvidence` / `draftArgument` `onRequest` definitions in `functions/src/handlers/aiDisputeHandlers.ts`, then deploy. **C7 needs `FIREBASE_TOKEN` in Cursor secrets** (or a developer workstation with `firebase` CLI auth). Not currently in Cursor secrets — ask the user before suggesting they add it.
-5. **C3 (pre-RAG baseline) capture is now scripted but un-run.** The eval target is no longer "staging Firestore" (it's empty) — it's 3 demo-org disputes in prod (zipworld / dice / nimax), which are disposable. The capture is `cd functions && npm run rag:eval:baseline` and it needs `ANTHROPIC_API_KEY` in the shell. Reads + writes use the Firebase Admin SDK via ADC, not the Firebase MCP. Output lands in `docs/eval/2026-05-rag-phase1-baseline.md`. Re-run the same script for the C8 post-RAG comparison once C7 has bound `PINECONE_API_KEY` on Functions and `RAG_RETRIEVAL_ENABLED` is left at its default. The C8 script needs to set the file name differently — for now there's only the baseline target.
+5. **C3 (pre-RAG baseline) capture script ran but failed.** The script (`functions/src/scripts/captureRagBaseline.ts`, npm `rag:eval:baseline`) is correct and reaches every pipeline stage, but the user-supplied `sk-ant-…` key has **zero credit balance**, so every Claude call returns `400: Your credit balance is too low`. The pipeline correctly degrades to deterministic fallbacks for each specialist, but a fallback-only baseline isn't useful for C8 comparison (you'd be comparing fallback-vs-RAG, not Claude-vs-Claude+RAG). Two prerequisites for the next attempt: (a) **user adds API credit at console.anthropic.com — their $20/mo Claude.ai Pro subscription does NOT include API access** (they asked); (b) ensure `functions/.env.local` has the funded key. Local capture cost estimate: ~$1.50–2.00 per dispute (default model is `claude-opus-4-6`, ~7–9 calls per dispute). For 3 disputes ≈ $5–6, so ~$25 of API credit covers C3 + C8 + a retry. Same script will also be used for C8 — it reads `RAG_RETRIEVAL_ENABLED` and forces it `false`, so for C8 we'll either flip the env back on inside the script or write a thin C8-specific wrapper. Note the **nimax sample** (`nimax_ticketing` / `duplicate`) failed lookup — production seed of nimax doesn't have a `duplicate` dispute. Either widen the resolver to fall back to other reason categories, or pick a different (org, reason) tuple for that slot before the next run; not blocking the credit issue.
 6. **Don't merge PR #11/#12/#13 in this session.** User wants to review. Merge order is #11 → #12 → #13. Branches are stacked.
 
 ---
@@ -33,7 +33,7 @@ The full plan lives in [`docs/post-hardening-plan.md`](post-hardening-plan.md). 
 | C2 — source rulebook PDFs | ✅ Done | PR #13 — Visa Public Rules (canonical Visa-hosted URL) + Mastercard Chargeback Guide Merchant Edition (user-staged via temp commit, then reverted) |
 | C4 — dry-run ingestion | ✅ Done | PR #13 — chunking heuristics validated on both PDFs |
 | C5 — real ingestion | ✅ Done | PR #13 — 2284 vectors total: Visa 896 chunks + Mastercard 1388 chunks |
-| C3 — pre-RAG baseline grading | 🟡 Capture script ready, awaiting `ANTHROPIC_API_KEY` | `functions/src/scripts/captureRagBaseline.ts` (npm script `rag:eval:baseline`) re-runs the planner + arg generator on 3 demo-org disputes (zipworld product_not_received, dice fraudulent, nimax duplicate) with `RAG_RETRIEVAL_ENABLED=false`, writes `docs/eval/2026-05-rag-phase1-baseline.md`. **Staging is empty — script targets prod (`realyn-app`) demo-org disputes**, which are disposable / re-seedable. Needs `ANTHROPIC_API_KEY` exported in shell + ADC for Firebase Admin SDK. |
+| C3 — pre-RAG baseline grading | 🟡 Script ran end-to-end, **all 3 disputes failed on Anthropic 400 (zero credit balance)** | `functions/src/scripts/captureRagBaseline.ts` (npm `rag:eval:baseline`). Script targets 3 prod demo-org disputes (zipworld product_not_received, dice fraudulent, nimax duplicate) with `RAG_RETRIEVAL_ENABLED=false`. Last run uncovered: (a) user's `sk-ant-…` key has zero balance — Claude.ai subscriptions don't cover API; user must add credit at console.anthropic.com (~$25 covers C3+C8+retry); (b) nimax has no `duplicate` dispute in prod, resolver returns "No dispute found" — pick a different reason or widen the lookup; (c) Firestore-undefined bug fixed in commit `50167f2`. |
 | C7 — bind PINECONE_API_KEY on Cloud Functions, deploy | 🔒 **Next unblocked code work** — needs FIREBASE_TOKEN | Not yet in Cursor secrets. Code change for the `secrets: [...]` list is small and can be staged without deploying. |
 | C8 — re-run eval, compare to baseline | ⏸️ Blocked on C7 + C3 | |
 | C9 — production cutover | ⏸️ Blocked on C8 | |
@@ -142,7 +142,7 @@ No code changes needed for the region switch. `RERANK_ENABLED=true` is now safe 
 
 - `FIREBASE_TOKEN` — would unblock A1 (Firestore index deploy) and **C7 (Functions deploy + secrets:set)** ← currently the bottleneck for Phase 1. Note: Firestore *reads* (for C3 baseline) are now reachable via the Firebase MCP server (`plugin-firebase-firebase`) without this token.
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — would unblock A2 (Cloud Run env vars) and C7 partial. C3/C8 Firestore reads are unblocked via Firebase MCP instead.
-- `ANTHROPIC_API_KEY` — required for C3 / C8 (the eval pipeline calls Claude end-to-end via `callLLM`). Not in Cursor secrets. Either ask the user to add it to Cursor secrets and run from a Cloud Agent VM, or have them export it locally before invoking you.
+- `ANTHROPIC_API_KEY` — required for C3 / C8 (the eval pipeline calls Claude end-to-end via `callLLM`). Not in Cursor secrets. **As of 2026-05-02 the user supplied a key locally via `functions/.env.local` (gitignored), but the underlying account has zero credit balance** — every Claude call returns `400 invalid_request_error`. The pipeline degrades to deterministic fallbacks but a fallback-only baseline is not useful. Before retrying C3, the user must add credit at console.anthropic.com → Plans & Billing. **Note for future agents: Claude.ai Pro/Max ($20/$100 mo) does NOT include API access — separate billing surface.** Estimated cost: ~$1.50–2.00 per dispute on the default `claude-opus-4-6` model, so ~$15–25 of credit covers C3 + C8 + a retry. Cheaper alternative (Sonnet) was rejected because the baseline must match production behavior.
 - `STRIPE_SECRET_KEY_TEST` — A4 partial, deliberately deferred (Stripe smoke testing skipped per user).
 - `VOYAGE_API_KEY` — N/A, Voyage was rejected.
 - ~~`GH_ADMIN_TOKEN`~~ — was added briefly to unblock A3 (delete dead Sentry GitHub Actions secrets). **A3 turned out to be a no-op** — verified 2026-05-02 that no `*SENTRY*` secrets exist at the repo Actions / dependabot / codespaces scopes. The PAT has been (or should be) revoked.
@@ -168,12 +168,15 @@ If you need to re-ingest from a fresh agent VM and the PDFs aren't on disk, the 
 
 ### C3 — Pre-RAG baseline grading
 
-The plan says **DO NOT SKIP**. But this needs:
+The plan says **DO NOT SKIP**. Status as of 2026-05-02:
 
-- 5–10 representative disputes pulled from staging Firestore (needs `GOOGLE_APPLICATION_CREDENTIALS_JSON` — not in secrets).
-- Human grading of the outputs on coverage / accuracy / tone.
+- ✅ Capture script written (`functions/src/scripts/captureRagBaseline.ts`, npm `rag:eval:baseline`).
+- ✅ Firebase Admin SDK + ADC working — Firestore reads/writes against prod (`realyn-app`) confirmed.
+- ✅ Sample resolved to 3 demo-org disputes (zipworld, dice; nimax `duplicate` lookup needs widening).
+- ❌ **Anthropic key has zero credit balance** — every Claude call returns 400. Pipeline degrades to deterministic fallbacks; the resulting markdown was not committed.
+- ❌ Human grading — still pending the credit fix.
 
-You can pre-fill the eval doc structure (`docs/eval/$(date +%Y-%m)-rag-phase1-baseline.md`) but you can't do the grading without the user.
+The next attempt needs: (a) user adds API credit at console.anthropic.com (~$25 covers C3 + C8 + retry), (b) the nimax sample resolved (either pick a different reason for nimax, or widen the resolver to fall back to other reason categories), (c) re-run `cd functions && npm run rag:eval:baseline`, (d) human grading of the output markdown.
 
 ### Whether to deploy RAG at all
 
@@ -206,7 +209,7 @@ Patterns observed across the conversation. Hold to these unless the user signals
 |---|---|---|---|
 | `cursor/post-hardening-plan-execution-47d1` | [#11](https://github.com/tstoko/realyn-app/pull/11) | Draft, in review | `main` |
 | `cursor/rag-architecture-corrections-47d1` | [#12](https://github.com/tstoko/realyn-app/pull/12) | Draft, in review | `cursor/post-hardening-plan-execution-47d1` |
-| `cursor/rag-phase-1-provisioning-4164` | [#13](https://github.com/tstoko/realyn-app/pull/13) | Draft, in review | `cursor/rag-architecture-corrections-47d1` |
+| `cursor/rag-phase-1-provisioning-4164` | [#13](https://github.com/tstoko/realyn-app/pull/13) | Draft, in review. **2 unpushed local commits on top of origin: `2b0d951` (C3 capture script) and `50167f2` (Firestore-undefined fix). Push when ready to update PR #13.** | `cursor/rag-architecture-corrections-47d1` |
 
 Merge order: #11 → #12 → #13. Don't merge them in this session — the user wants to review.
 
@@ -286,8 +289,11 @@ If `echo "${PINECONE_API_KEY:+set}"` returns empty:
 - `functions/src/scripts/ingestRulebooks.ts` — `npm run rag:ingest` entry point.
 - `functions/src/scripts/testRagRetrieval.ts` — `npm run rag:test` entry point.
 
-**From the C3 capture commit (this branch, post-#13):**
+**From the C3 capture commit (this branch, post-#13, `2b0d951`):**
 - `functions/src/scripts/captureRagBaseline.ts` + `rag:eval:baseline` npm script — see commit message for the full design. Single-file, ~500 lines, written to be re-runnable for the C8 post-RAG comparison once `PINECONE_API_KEY` lands on Functions. `RAG_RETRIEVAL_ENABLED=false` is hard-coded as the very first statement in the file (defence-in-depth — even if `PINECONE_API_KEY` is present in the local shell, retrieval will not run during baseline capture).
+
+**From the Firestore-undefined fix (this branch, `50167f2`):**
+- `functions/src/index.ts` — `admin.firestore().settings({ ignoreUndefinedProperties: true })` applied immediately after `admin.initializeApp()`. Same one-liner repeated in `captureRagBaseline.ts`'s `getDb()` (the script doesn't import `index.ts`). Fixes a real production bug — when the AI pipeline's fallback paths kick in (LLM 5xx / 429 / quota-exhausted), they produce nested objects with `undefined` fields that the Firestore Admin SDK rejects by default, breaking the planner write-back. Surfaced today by the zero-credit Anthropic 400s cascading every specialist into its fallback.
 
 **From PR #13 (provisioning + bug fixes uncovered by first real ingest):**
 - `packages/ai-core/src/config/ragConfig.ts` — `PINECONE_CLOUD` / `PINECONE_REGION` are now env-driven via `getPineconeCloud()` / `getPineconeRegion()`. Defaults flipped to `aws/us-east-1` for Starter compatibility. The schema-v2 invariants (model, dim, metric, normalisation, alpha, schema version) stay hard-coded — they need to match between ingest and query.
