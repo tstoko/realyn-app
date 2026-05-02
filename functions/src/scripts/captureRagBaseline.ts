@@ -166,6 +166,11 @@ function getDb(): admin.firestore.Firestore {
       process.env.GCP_PROJECT ||
       "realyn-app";
     admin.initializeApp({ projectId });
+    // Mirror the production Functions setting (see functions/src/index.ts):
+    // the planning pipeline's fallback paths produce nested objects with
+    // undefined fields, which Firestore Admin rejects without this setting.
+    // Must be applied before the first Firestore call.
+    admin.firestore().settings({ ignoreUndefinedProperties: true });
   }
   return admin.firestore();
 }

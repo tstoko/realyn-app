@@ -15,6 +15,17 @@ import { configureTelemetry } from "@realyn/ai-core/telemetry";
 import { cloudLoggingEmitter } from "./lib/cloudLoggingTelemetry";
 
 admin.initializeApp();
+// Ignore undefined fields when writing to Firestore. Required because the
+// AI pipeline's fallback paths (e.g. fallback relevance scorer when the LLM
+// is rate-limited or quota-exhausted) can produce nested objects with
+// `undefined` properties, which the Firestore Admin SDK rejects by default
+// — surfacing as `Cannot use "undefined" as a Firestore value (found in
+// field "cachedRelevanceScores.scores.0.alreadyAvailable")` and breaking
+// the planning pipeline write-back. Treating undefined as "don't write
+// this field" is the firebase-admin equivalent of how the client SDK
+// already behaves with this setting on. Settings must be applied before
+// the first Firestore call, so this lives next to initializeApp().
+admin.firestore().settings({ ignoreUndefinedProperties: true });
 configureTelemetry(cloudLoggingEmitter);
 
 // Define secrets
