@@ -18,6 +18,10 @@
 
 import { Pinecone } from "@pinecone-database/pinecone";
 import { EMBED_BATCH_SIZE, type EmbeddingInputType } from "../config/ragConfig";
+// Reuse the dense service's 429-retry helper so we have one place to tune
+// backoff. The Pinecone Inference token-per-minute cap applies separately to
+// dense + sparse models, but the failure mode is identical.
+import { embedWithRetry as embedWithRetryShared } from "./embeddingService";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -115,11 +119,15 @@ async function sparseEmbedInternal(
 
     for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
       const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
-      const response = await client.inference.embed({
-        model: SPARSE_EMBEDDING_MODEL,
-        inputs: batch,
-        parameters: { inputType, truncate: "END" },
-      });
+      const response = await embedWithRetryShared(
+        () =>
+          client.inference.embed({
+            model: SPARSE_EMBEDDING_MODEL,
+            inputs: batch,
+            parameters: { inputType, truncate: "END" },
+          }),
+        `embed[${SPARSE_EMBEDDING_MODEL}, batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1}/${Math.ceil(texts.length / EMBED_BATCH_SIZE)}]`,
+      );
 
       for (const entry of response.data ?? []) {
         // Pinecone SDK 7.x serves `inference.embed` for sparse models as:
