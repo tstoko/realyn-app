@@ -16,7 +16,7 @@ The unglamorous parts (provisioning + ingestion) are done. What's left is mostly
 2. **If you have `PINECONE_API_KEY` reachable in your shell**, sanity-check the live index with `cd functions && npm run rag:test`. You should see real top-K hits (not "no matches"). Sample queries that returned coherent rule excerpts in PR #13: `"What evidence does a merchant need to defend a Visa 13.1 service not provided chargeback?"`, `"Mastercard reason code 4853 cardholder dispute compelling evidence"`. Top scores ~10+, well above the `MIN_RELEVANCE_SCORE=0.35` floor.
 3. **`PINECONE_API_KEY` is only in Cursor Cloud Agent VMs, not in your local IDE shell.** Local agents will see `echo "${PINECONE_API_KEY:+set}"` print empty. That's expected. Don't ask the user to paste it; either run a Cursor Cloud Agent for live-index work, or have the user export it themselves before invoking you on commands that need it.
 4. **The actual next code-side work is C7** — bind `PINECONE_API_KEY` as a Firebase Functions secret and add it to the `secrets: [...]` list on the `planEvidence` / `draftArgument` `onRequest` definitions in `functions/src/handlers/aiDisputeHandlers.ts`, then deploy. **C7 needs `FIREBASE_TOKEN` in Cursor secrets** (or a developer workstation with `firebase` CLI auth). Not currently in Cursor secrets — ask the user before suggesting they add it.
-5. **C3 (pre-RAG baseline) is still the blocking eval prerequisite.** It can't be backfilled retroactively. If C7 lands and the user wants to do C8, you must do C3 against the *deterministic-pipeline output for the same disputes* before flipping `RAG_RETRIEVAL_ENABLED` on for those disputes' replays. Reading staging disputes needs `GOOGLE_APPLICATION_CREDENTIALS_JSON` (not in Cursor secrets); the eval doc skeleton can be pre-filled without it.
+5. **C3 (pre-RAG baseline) capture is now scripted but un-run.** The eval target is no longer "staging Firestore" (it's empty) — it's 3 demo-org disputes in prod (zipworld / dice / nimax), which are disposable. The capture is `cd functions && npm run rag:eval:baseline` and it needs `ANTHROPIC_API_KEY` in the shell. Reads + writes use the Firebase Admin SDK via ADC, not the Firebase MCP. Output lands in `docs/eval/2026-05-rag-phase1-baseline.md`. Re-run the same script for the C8 post-RAG comparison once C7 has bound `PINECONE_API_KEY` on Functions and `RAG_RETRIEVAL_ENABLED` is left at its default. The C8 script needs to set the file name differently — for now there's only the baseline target.
 6. **Don't merge PR #11/#12/#13 in this session.** User wants to review. Merge order is #11 → #12 → #13. Branches are stacked.
 
 ---
@@ -33,7 +33,7 @@ The full plan lives in [`docs/post-hardening-plan.md`](post-hardening-plan.md). 
 | C2 — source rulebook PDFs | ✅ Done | PR #13 — Visa Public Rules (canonical Visa-hosted URL) + Mastercard Chargeback Guide Merchant Edition (user-staged via temp commit, then reverted) |
 | C4 — dry-run ingestion | ✅ Done | PR #13 — chunking heuristics validated on both PDFs |
 | C5 — real ingestion | ✅ Done | PR #13 — 2284 vectors total: Visa 896 chunks + Mastercard 1388 chunks |
-| C3 — pre-RAG baseline grading | 🔒 Awaiting decision | Needs human grading + `GOOGLE_APPLICATION_CREDENTIALS_JSON` to read staging disputes. Doc skeleton can be pre-filled without creds. |
+| C3 — pre-RAG baseline grading | 🟡 Capture script ready, awaiting `ANTHROPIC_API_KEY` | `functions/src/scripts/captureRagBaseline.ts` (npm script `rag:eval:baseline`) re-runs the planner + arg generator on 3 demo-org disputes (zipworld product_not_received, dice fraudulent, nimax duplicate) with `RAG_RETRIEVAL_ENABLED=false`, writes `docs/eval/2026-05-rag-phase1-baseline.md`. **Staging is empty — script targets prod (`realyn-app`) demo-org disputes**, which are disposable / re-seedable. Needs `ANTHROPIC_API_KEY` exported in shell + ADC for Firebase Admin SDK. |
 | C7 — bind PINECONE_API_KEY on Cloud Functions, deploy | 🔒 **Next unblocked code work** — needs FIREBASE_TOKEN | Not yet in Cursor secrets. Code change for the `secrets: [...]` list is small and can be staged without deploying. |
 | C8 — re-run eval, compare to baseline | ⏸️ Blocked on C7 + C3 | |
 | C9 — production cutover | ⏸️ Blocked on C8 | |
@@ -245,9 +245,16 @@ cd functions && npm run rag:ingest -- --file PATH --network visa --name "Visa Pu
 
 # Dry-run ingestion (parse + chunk + log only — no embed, no upsert)
 cd functions && npm run rag:ingest -- --file PATH --network visa --name "..." --version "..." --dry-run --sample 20
+
+# Capture pre-RAG (C3) or post-RAG (C8) eval baseline for 3 demo-org disputes
+# - Reads + writes prod Firestore (realyn-app) for the demo orgs only
+# - RAG_RETRIEVAL_ENABLED is hard-disabled in the script for the C3 baseline
+# - Needs ANTHROPIC_API_KEY exported in shell + ADC for Firebase Admin SDK
+export ANTHROPIC_API_KEY=sk-ant-...
+cd functions && npm run rag:eval:baseline
 ```
 
-All `rag:*` commands require `PINECONE_API_KEY` in env (only available in Cursor Cloud Agent VMs by default — see [What's in Cursor secrets](#whats-in-cursor-secrets-right-now)).
+`rag:setup` / `rag:test` / `rag:ingest` require `PINECONE_API_KEY` in env (only available in Cursor Cloud Agent VMs by default — see [What's in Cursor secrets](#whats-in-cursor-secrets-right-now)). `rag:eval:baseline` requires `ANTHROPIC_API_KEY` instead (also not in Cursor secrets — user has to provide it).
 
 ---
 
@@ -278,6 +285,9 @@ If `echo "${PINECONE_API_KEY:+set}"` returns empty:
 - `functions/src/scripts/setupPineconeIndex.ts` — `npm run rag:setup` entry point.
 - `functions/src/scripts/ingestRulebooks.ts` — `npm run rag:ingest` entry point.
 - `functions/src/scripts/testRagRetrieval.ts` — `npm run rag:test` entry point.
+
+**From the C3 capture commit (this branch, post-#13):**
+- `functions/src/scripts/captureRagBaseline.ts` + `rag:eval:baseline` npm script — see commit message for the full design. Single-file, ~500 lines, written to be re-runnable for the C8 post-RAG comparison once `PINECONE_API_KEY` lands on Functions. `RAG_RETRIEVAL_ENABLED=false` is hard-coded as the very first statement in the file (defence-in-depth — even if `PINECONE_API_KEY` is present in the local shell, retrieval will not run during baseline capture).
 
 **From PR #13 (provisioning + bug fixes uncovered by first real ingest):**
 - `packages/ai-core/src/config/ragConfig.ts` — `PINECONE_CLOUD` / `PINECONE_REGION` are now env-driven via `getPineconeCloud()` / `getPineconeRegion()`. Defaults flipped to `aws/us-east-1` for Starter compatibility. The schema-v2 invariants (model, dim, metric, normalisation, alpha, schema version) stay hard-coded — they need to match between ingest and query.
