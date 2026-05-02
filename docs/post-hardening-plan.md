@@ -184,10 +184,20 @@ deploy workflow once and confirm no warnings about missing secrets.
 
 **Estimate.** 5 min.
 
-**Status:** [ ]
-*(Requires `gh` CLI authenticated with admin access to the repo's Settings.
-Code-side scan confirms no remaining `SENTRY_*` references in workflow
-files: `rg -n "SENTRY" .github/workflows/` returns nothing. Safe to run.)*
+**Status:** [x] done
+*(Verified on 2026-05-02 against `tstoko/realyn-app` with a fine-grained PAT
+(`GH_ADMIN_TOKEN`) scoped to that repo with `secrets:write`. `gh secret list`
+returned 8 secrets, all of them Firebase — no `*SENTRY*` entries under any
+scope (Actions repo, Dependabot, Codespaces) and no deploy environments
+(`production` / `staging` / `dashboard` / `preview` all returned 404 to
+`GET /repos/.../environments/<name>/secrets`). Confirmed no `secrets.*SENTRY*`
+or `VITE_SENTRY_DSN` references in any of the six
+`.github/workflows/*.yml` files (`ci.yml`, `deploy-dashboard.yml`,
+`deploy-functions.yml`, `deploy-staging.yml`, `deploy-website.yml`,
+`firebase-hosting-pull-request.yml`). The named targets in this section
+(`DASHBOARD_VITE_SENTRY_DSN`, `STAGING_VITE_SENTRY_DSN`) were either removed
+in a prior cleanup or never stored under those exact names. Nothing to
+delete; A3 is closed. `GH_ADMIN_TOKEN` PAT can be revoked in GitHub.)*
 
 ---
 
