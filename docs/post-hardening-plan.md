@@ -1058,6 +1058,67 @@ forgotten and so future-you doesn’t re-discover them as new findings.
 - **Customer support widget, usage analytics, help centre.**
   [`PRODUCTION_READINESS.md`](../PRODUCTION_READINESS.md) Tier 5.
 - **Anomaly detection on webhook volume.** Tier 5.
+- **AI cost / token observability.** Today, per-call cost and latency are
+  emitted from `packages/ai-core/src/services/llmService.ts` via
+  `emitLLMTelemetry` and `cloudLoggingEmitter`, but nothing aggregates the
+  output into a dashboard or alerts on it. Pinecone usage is only visible
+  on the Pinecone web console. The Anthropic credit-balance issue
+  surfaced during the C3 baseline capture (2026-05-02) was discovered by
+  receiving `400 invalid_request_error` responses on every call —  not by a
+  billing alert. Concrete asks:
+  - Wire `emitLLMTelemetry` to a structured sink (BigQuery view from Cloud
+    Logging is the cheapest path; Honeycomb/Datadog if either is already
+    in use). Build a per-dispute cost view (model × stage × org).
+  - Add a "monthly spend > $X" alert on the Anthropic console and a
+    "credit balance < $Y" auto-recharge / alert.
+  - Add a Pinecone QPS + monthly-cost dashboard tile (their API exposes
+    usage via the management plane).
+  - Worth doing before C8 / production cutover so we have at least one
+    full month of cost-per-dispute data before the AI bill compounds.
+- **Multi-vendor LLM resilience.** Today the entire AI pipeline calls
+  `api.anthropic.com` directly via `@anthropic-ai/sdk` with no failover.
+  When Anthropic has an outage, evidence planning and argument drafting
+  go dark across every tenant simultaneously. The "two AI vendors max
+  (Anthropic + Pinecone)" rule documented in
+  `packages/ai-core/src/config/ragConfig.ts` and the RAG handoff doc was
+  a deliberate 2026-Q2 simplification by the user, *not* a permanent
+  posture — it's appropriate for the current scale but it's a single point
+  of failure. Concrete asks:
+  - Define an `LLMProvider` abstraction in `@realyn/ai-core` (the
+    existing `callLLM` / `callLLMWithVision` interface is already close;
+    extract the `client.messages.create` call behind a port).
+  - Add a secondary adapter (AWS Bedrock-Claude is the smallest delta,
+    same model family; Groq-hosted Llama for triage-only is the cheaper
+    fallback — both work).
+  - Wire health-check + automatic failover in `llmService` so a Claude
+    5xx routes to the secondary for the next N seconds. Keep the
+    primary/secondary choice configurable per-tenant for compliance use
+    cases.
+  - Requires explicit user sign-off because it expands the credentials
+    surface, the test matrix, and the SLA story. Right size of decision
+    for an ADR (per the §B3 / cross-references "out of scope" pattern).
+- **Pinecone Standard tier upgrade — delete `embedWithRetry`.** The
+  `embedWithRetry()` helper in `packages/ai-core/src/services/embedding
+  Service.ts` (and its sparse-side twin in `sparseEmbeddingService.ts`)
+  exists exclusively because Pinecone Starter caps Inference at
+  ~250K tokens/min/model/input-type. Without the hand-tuned 30/60/90/120s
+  backoff, the PR #13 Mastercard ingest would have crashed on
+  `RESOURCE_EXHAUSTED` mid-run. This is load-bearing complexity in
+  service of saving roughly Pinecone's Standard base fee (~$70/mo). For a
+  chargeback platform, that's rounding error. Concrete asks:
+  - Upgrade the Pinecone organisation to Standard via the Pinecone
+    console (single-click; same project, same index).
+  - Verify the new throttle on the Pinecone usage dashboard (Standard
+    tier limits are documented at https://docs.pinecone.io/reference/api/limits ;
+    Inference limits are higher and per-org rather than per-input-type).
+  - Delete `embedWithRetry` from both files; collapse callers back to the
+    underlying `pinecone.inference.embed(...)` call.
+  - Update `docs/rag-phase-1-handoff.md` §"Free-tier vs paid-tier
+    deployment" to reflect Standard tier and remove the GCP co-location
+    upgrade recipe (or rewrite it as "consider GCP if Cloud Functions
+    egress becomes a concern").
+  - Worth pairing with the AI cost observability item above so the
+    upgrade's real cost is visible from day one.
 
 ---
 
