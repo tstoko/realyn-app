@@ -180,7 +180,12 @@ export const onEvidencePlanQueued = functions.firestore.onDocumentUpdated(
   {
     document: "disputes/{disputeId}",
     region: "us-central1",
-    secrets: ["ANTHROPIC_API_KEY"],
+    // PINECONE_API_KEY is bound here so the evidence-planning pipeline can
+    // call Pinecone Inference for hybrid retrieval against the rulebooks
+    // namespace. The retrieval path is fail-safe (empty chunks on any
+    // error), so an unset / unbound secret degrades gracefully back to the
+    // pre-RAG deterministic pipeline. See ragPromptInjection.ts.
+    secrets: ["ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
     timeoutSeconds: 540,
     memory: "512MiB",
   },
@@ -543,7 +548,11 @@ export const draftArgument = functions.https.onRequest(
   {
     region: "us-central1",
     cors: ALLOWED_ORIGINS,
-    secrets: ["ANTHROPIC_API_KEY"],
+    // PINECONE_API_KEY is bound here so generateDisputeArgument's RAG path
+    // can call Pinecone Inference for hybrid retrieval against the rulebooks
+    // namespace. Same fail-safe guarantee as onEvidencePlanQueued: empty
+    // chunks on any error, no impact on deterministic argument generation.
+    secrets: ["ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
     timeoutSeconds: 180,
     memory: "512MiB",
   },
