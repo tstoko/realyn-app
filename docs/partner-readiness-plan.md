@@ -526,7 +526,7 @@ Week 6  ┃ W6.1 dashboards         │ W6.2 versioning hardening │ W6.3 DoD a
 ### Phase 0 progress
 
 - **P0.1 — staging provisioning:** ⏸️ Not started. Blocked on `FIREBASE_TOKEN` / ADC in Cursor secrets + GitHub Actions service-account configuration.
-- **P0.2 — deploy RAG to prod (= RAG C7):** 🟡 **Code-side done** on branch `cursor/rag-phase-1-c7-bind-pinecone-secret` (PR #14). `secrets: [..., "PINECONE_API_KEY"]` bound on `onEvidencePlanQueued` and `draftArgument` in `functions/src/handlers/aiDisputeHandlers.ts`; functions Jest 369/369 + ai-core 63/63 green. Remaining: `firebase functions:secrets:set` + `firebase deploy` from a workstation or Cloud Agent with `FIREBASE_TOKEN` / ADC. See `docs/rag-phase-1-handoff.md` "Deploy steps for C7" for exact commands.
+- **P0.2 — deploy RAG to prod (= RAG C7):** 🟡 **Code-side done** on branch `cursor/rag-phase-1-c7-bind-pinecone-secret` (PR #16). `secrets: [..., "PINECONE_API_KEY"]` bound on `onEvidencePlanQueued` and `draftArgument` in `functions/src/handlers/aiDisputeHandlers.ts`; functions Jest 369/369 + ai-core 63/63 green. Remaining: `firebase functions:secrets:set` + `firebase deploy` from a workstation or Cloud Agent with `FIREBASE_TOKEN` / ADC. See `docs/rag-phase-1-handoff.md` "Deploy steps for C7" for exact commands.
 - **P0.3 — `@realyn/ontology` skeleton:** ⏸️ Not started. Fully unblocked from a local agent today; recommended as the next standalone PR off the same branch tip.
 
 ### Recommended next actions
