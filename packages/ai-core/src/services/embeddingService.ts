@@ -3,7 +3,7 @@
  *
  * We use Pinecone's hosted inference API so a single `PINECONE_API_KEY` covers
  * both vector storage and embedding generation. Keeping this behind a narrow
- * interface means we can swap the backend later (Voyage, OpenAI, local model)
+ * interface means we can swap the backend later (Voyage, OpenAI, local model — currently Pinecone-only)
  * without touching callers.
  *
  * Design notes:
@@ -143,9 +143,13 @@ async function embedTextsInternal(
       if (response.usage?.totalTokens) tokensUsed += response.usage.totalTokens;
     }
 
+    // L2-normalise so dotproduct retrieval equals cosine similarity. Required
+    // by the schema-v2 dotproduct index (see ragConfig.PINECONE_METRIC) so
+    // dense + sparse hybrid retrieval can share a single index without the
+    // dense side biasing toward longer-magnitude vectors.
     const result: EmbedResult = {
       success: true,
-      vectors,
+      vectors: vectors.map(l2Normalize),
       model,
       dim: vectors[0]?.length ?? EMBEDDING_DIM,
       tokensUsed,
@@ -200,6 +204,36 @@ export async function embedQuery(
     tokensUsed: result.tokensUsed,
     error: result.error,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Vector normalisation
+// ---------------------------------------------------------------------------
+
+/**
+ * L2-normalise a vector so its magnitude is 1.
+ *
+ * Required for the schema-v2 dotproduct Pinecone index — when both upserted
+ * vectors and query vectors are unit-length, dotproduct similarity is
+ * mathematically identical to cosine similarity. Without this step, dotproduct
+ * over un-normalised dense vectors gives results that are biased toward
+ * longer vectors, which is not what we want for retrieval.
+ *
+ * Returns the input unchanged when the magnitude is zero (no direction to
+ * preserve) so we don't divide by zero. Such vectors won't match anything
+ * usefully anyway.
+ *
+ * Exported so the sparse encoder + applyAlpha helpers in ragService can reuse
+ * the same definition rather than re-implementing it.
+ */
+export function l2Normalize(vector: number[]): number[] {
+  let sumSq = 0;
+  for (const v of vector) sumSq += v * v;
+  if (sumSq === 0) return vector;
+  const norm = Math.sqrt(sumSq);
+  const out = new Array<number>(vector.length);
+  for (let i = 0; i < vector.length; i++) out[i] = vector[i] / norm;
+  return out;
 }
 
 // ---------------------------------------------------------------------------

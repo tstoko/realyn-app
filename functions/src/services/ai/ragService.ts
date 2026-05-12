@@ -11,11 +11,15 @@
  * their own implementation; the last call wins.
  */
 
-import { configureVectorStore } from "@realyn/ai-core";
+import { configureRerankPort, configureVectorStore } from "@realyn/ai-core";
 import { pineconeVectorStore } from "./pineconeVectorStore";
+import { pineconeRerankPort } from "./pineconeRerank";
 
 // Side-effect registration. Safe to run at import time — it only caches the
-// store reference; the underlying Pinecone client is still lazy.
+// store + port references; the underlying Pinecone client is still lazy.
+// The rerank port is registered unconditionally; whether it actually runs
+// is gated by RERANK_ENABLED inside maybeRerank.
 configureVectorStore(pineconeVectorStore);
+configureRerankPort(pineconeRerankPort);
 
 export * from "@realyn/ai-core/services/ragService";

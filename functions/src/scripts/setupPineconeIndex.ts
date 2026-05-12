@@ -19,14 +19,19 @@
 import {
   EMBEDDING_DIM,
   PINECONE_CLOUD,
+  PINECONE_METRIC,
   PINECONE_REGION,
   getPineconeIndexName,
 } from "@realyn/ai-core";
 import { getPineconeClient } from "../services/ai/pineconeVectorStore";
 
-// Pinecone recommends `cosine` for dense retrieval with sentence-style embeddings.
-// `multilingual-e5-large` was trained with cosine similarity as the objective.
-const METRIC = "cosine" as const;
+// `dotproduct` is required for single-index hybrid retrieval (dense + sparse
+// vectors on the same record). We L2-normalise dense vectors at upsert/query
+// time (see embeddingService.l2Normalize) so dotproduct on the dense side is
+// mathematically identical to cosine similarity. Locked-constant — drift
+// here means re-creating the index. See ragConfig.PINECONE_METRIC for the
+// full rationale.
+const METRIC = PINECONE_METRIC;
 
 async function main(): Promise<void> {
   const indexName = getPineconeIndexName();

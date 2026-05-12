@@ -48,6 +48,7 @@ import {
   RulebookMetadataSchema,
   CardNetworkSchema,
   embedDocuments,
+  sparseEmbedDocuments,
 } from "@realyn/ai-core";
 import { upsertRecords } from "../services/ai/pineconeVectorStore";
 import { chunkText } from "./lib/textChunker";
@@ -158,14 +159,35 @@ async function ingestSource(src: SourceArgs, opts: { dryRun: boolean; sample: nu
     return { upserted: 0, skipped: 0 };
   }
 
-  // Embed passages in bulk. embedDocuments batches internally.
-  console.log(`[ingest] embedding ${chunks.length} chunks…`);
-  const emb = await embedDocuments(chunks.map((c) => c.text));
-  if (!emb.success || !emb.vectors) {
-    throw new Error(`Embedding failed: ${emb.error}`);
+  // Embed passages in bulk. Run dense + sparse in parallel — each side is
+  // batched internally by its own service. We keep them in separate calls
+  // (rather than fanning out per chunk) so the network-cost amortises across
+  // batches and a partial failure on one side surfaces a clear error.
+  console.log(`[ingest] embedding ${chunks.length} chunks (dense + sparse)…`);
+  const texts = chunks.map((c) => c.text);
+  const [denseEmb, sparseEmb] = await Promise.all([
+    embedDocuments(texts),
+    sparseEmbedDocuments(texts),
+  ]);
+  if (!denseEmb.success || !denseEmb.vectors) {
+    throw new Error(`Dense embedding failed: ${denseEmb.error}`);
+  }
+  if (!sparseEmb.success || !sparseEmb.vectors) {
+    throw new Error(`Sparse embedding failed: ${sparseEmb.error}`);
+  }
+  if (denseEmb.vectors.length !== chunks.length) {
+    throw new Error(
+      `Dense embedding length mismatch: got ${denseEmb.vectors.length}, expected ${chunks.length}`,
+    );
+  }
+  if (sparseEmb.vectors.length !== chunks.length) {
+    throw new Error(
+      `Sparse embedding length mismatch: got ${sparseEmb.vectors.length}, expected ${chunks.length}`,
+    );
   }
   console.log(
-    `[ingest] embedded ok (dim=${emb.dim}, tokensUsed=${emb.tokensUsed ?? "?"})`,
+    `[ingest] embedded ok (dense dim=${denseEmb.dim}, dense tokens=${denseEmb.tokensUsed ?? "?"}, ` +
+      `sparse tokens=${sparseEmb.tokensUsed ?? "?"})`,
   );
 
   const docSlug = slugify(`${src.network}-${basename(src.file, ".pdf")}-${src.version}`);
@@ -197,7 +219,8 @@ async function ingestSource(src: SourceArgs, opts: { dryRun: boolean; sample: nu
       id,
       text: c.text,
       metadata,
-      vector: emb.vectors![i],
+      vector: denseEmb.vectors![i],
+      sparseVector: sparseEmb.vectors![i],
     };
   });
 

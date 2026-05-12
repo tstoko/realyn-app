@@ -21,10 +21,30 @@
  * Embedding model used for both document ingestion and query embedding.
  * MUST be the same at ingest time and query time or retrieval quality collapses.
  *
- * `multilingual-e5-large` is hosted by Pinecone Inference (no extra API key,
- * no second vendor). 1024 dimensions, tuned for retrieval on mixed-language
+ * `multilingual-e5-large` is hosted by Pinecone Inference (single vendor —
+ * Anthropic for the LLM, Pinecone for vectors + sparse + rerank, no third
+ * vendor account). 1024 dimensions, tuned for retrieval on mixed-language
  * content. We write this value into every record's metadata (`embeddingModel`)
  * so mismatches can be detected in Firestore/Pinecone audits.
+ *
+ * History:
+ *   v1 (RAG_SCHEMA_VERSION=1) — `multilingual-e5-large`, cosine metric,
+ *     dense-only.
+ *   v2 (RAG_SCHEMA_VERSION=2) — same dense model, but the index switched to
+ *     `metric: dotproduct` so dense + sparse hybrid retrieval can share a
+ *     single Pinecone index, dense vectors are L2-normalised at upsert/query
+ *     time, and a sparse encoder (`pinecone-sparse-english-v0`) + cross-
+ *     encoder reranker (`cohere-rerank-3.5`, gated on `RERANK_ENABLED`) are
+ *     bolted on for hybrid + rerank. Vectors from v1 ingestion are NOT
+ *     comparable to v2 (different metric + normalisation + sparse
+ *     companions), so re-ingestion is required when crossing this boundary.
+ *
+ * Domain-tuned alternative considered + rejected: Voyage AI's `voyage-law-2`.
+ * The trade-off was ~5–10 retrieval-quality points on legal text in exchange
+ * for a third vendor account and a third API key. We chose Pinecone-only
+ * (one vendor for embeddings + sparse + rerank) and let hybrid + rerank
+ * carry the precision lift instead. Re-evaluate if post-ingest evals
+ * (§C8 of docs/post-hardening-plan.md) show retrieval is the bottleneck.
  */
 export const EMBEDDING_MODEL = "multilingual-e5-large" as const;
 export type EmbeddingModel = typeof EMBEDDING_MODEL;
@@ -34,7 +54,9 @@ export const EMBEDDING_DIM = 1024 as const;
 
 /**
  * Pinecone Inference distinguishes between passage-style and query-style
- * embedding calls. Passing the wrong one costs ~10% recall.
+ * embedding calls. Passing the wrong one costs ~10% recall, so call sites
+ * use {@link embedDocuments} / {@link embedQuery} rather than picking
+ * `inputType` directly.
  */
 export type EmbeddingInputType = "passage" | "query";
 
@@ -96,6 +118,44 @@ export const CHUNK_MAX_TOKENS = 1200 as const;
 export const MIN_RELEVANCE_SCORE = 0.35 as const;
 
 /**
+ * Hybrid retrieval alpha weight.
+ *
+ * `score = (alpha * dense·dense_query) + ((1 - alpha) * sparse·sparse_query)`.
+ *
+ * - `1.0` → pure dense (semantic) retrieval.
+ * - `0.0` → pure sparse (lexical) retrieval.
+ * - `0.5` → balanced; what we ship by default.
+ *
+ * Implemented client-side via {@link applyAlpha}: Pinecone has no native
+ * alpha flag, so we scale the dense and sparse query vectors before sending.
+ * Tunable per call but pinned here as the default; revisit during the
+ * post-ingest eval (§C8) once we have actual Hit@5/MRR numbers.
+ */
+export const RAG_HYBRID_ALPHA = 0.5 as const;
+
+/**
+ * Reranking model used by `rerankService.maybeRerank` when reranking is
+ * enabled (`RERANK_ENABLED=true`).
+ *
+ * `cohere-rerank-3.5` is Cohere's leading cross-encoder, available via
+ * Pinecone Inference. Open-source alternatives reachable through the same
+ * endpoint: `bge-reranker-v2-m3`, `pinecone-rerank-v0`. Plan-tier and
+ * rate-limit caveats apply — see docs/post-hardening-plan.md §C7
+ * corrections; verify availability at provisioning time (`rag:test`)
+ * before flipping `RERANK_ENABLED=true` in any environment.
+ */
+export const RERANK_MODEL = "cohere-rerank-3.5" as const;
+export type RerankModel = typeof RERANK_MODEL;
+
+/**
+ * Number of candidates to fetch from hybrid retrieval before reranking.
+ * The reranker keeps the best `DEFAULT_TOP_K` of these; pulling more
+ * candidates gives the cross-encoder more variety to choose from at the
+ * cost of latency proportional to this number.
+ */
+export const RERANK_CANDIDATE_K = 20 as const;
+
+/**
  * Default `topK` per namespace. The RAG service can override per call,
  * but these are the sensible defaults for the existing pipeline.
  */
@@ -125,6 +185,29 @@ export const EMBED_BATCH_SIZE = 64 as const;
 /**
  * Version stamped into every record's metadata so future migrations can
  * detect and handle vectors from older ingestion runs. Bump when the
- * chunking strategy, metadata shape, or embedding model changes.
+ * chunking strategy, metadata shape, embedding model, or index metric
+ * changes.
+ *
+ * History:
+ *   v1 — multilingual-e5-large via Pinecone Inference, cosine metric, dense-only.
+ *   v2 — multilingual-e5-large via Pinecone Inference (same as v1), dotproduct
+ *        metric, dense vectors L2-normalised at upsert/query time, hybrid
+ *        retrieval (dense + sparse) on the same index, optional cross-encoder
+ *        rerank gated on RERANK_ENABLED. Re-ingestion required when crossing
+ *        this boundary because vector spaces are not comparable (different
+ *        metric + normalisation + sparse companions).
  */
-export const RAG_SCHEMA_VERSION = 1 as const;
+export const RAG_SCHEMA_VERSION = 2 as const;
+
+/**
+ * Pinecone index distance metric.
+ *
+ * `dotproduct` is required for single-index hybrid retrieval (dense + sparse
+ * vectors on the same record) — Pinecone's hybrid path does not work with
+ * `cosine`. We L2-normalise dense vectors at upsert/query time, which makes
+ * dotproduct on the dense side mathematically identical to cosine similarity,
+ * so the dense retrieval characteristics are preserved while enabling sparse
+ * fusion.
+ */
+export const PINECONE_METRIC = "dotproduct" as const;
+export type PineconeMetric = typeof PINECONE_METRIC;

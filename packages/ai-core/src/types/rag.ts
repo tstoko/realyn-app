@@ -102,8 +102,15 @@ export interface RagRecord {
   id: string;
   text: string;
   metadata: RagMetadata;
-  /** Pre-computed vector. Omit when the upsert path embeds at write time. */
+  /** Pre-computed dense vector. Omit when the upsert path embeds at write time. */
   vector?: number[];
+  /**
+   * Pre-computed sparse vector (`{indices, values}`) for hybrid retrieval.
+   * Omit on indexes that are dense-only or when the upsert path encodes at
+   * write time. Index must use `metric: dotproduct` for sparse upsert to
+   * work — see ragConfig.PINECONE_METRIC.
+   */
+  sparseVector?: { indices: number[]; values: number[] };
 }
 
 /** Output of a retrieval call. Always carries its own source attribution. */

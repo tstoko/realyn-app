@@ -20,6 +20,7 @@ import {
   type VectorStorePort,
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
+import { _resetSparseEmbeddingClientForTests } from "../sparseEmbeddingService";
 import { generateEvidencePlan } from "../evidencePlanner";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase, EvidencePlan } from "../../types/aiDispute";
@@ -77,19 +78,33 @@ jest.mock("@anthropic-ai/sdk", () => {
   };
 });
 
-// Pinecone Inference is what the embedding service uses for embedQuery.
-// Stub it to return a deterministic 1024-dim vector so the embedding step
-// succeeds without a real API call.
+// Pinecone Inference is stubbed via the @pinecone-database/pinecone module
+// mock so dense + sparse embed calls don't reach the network. The mock
+// routes by request `model` so the same fake services both the dense
+// `multilingual-e5-large` calls and the sparse `pinecone-sparse-english-v0`
+// calls.
 jest.mock("@pinecone-database/pinecone", () => ({
   Pinecone: jest.fn().mockImplementation(() => ({
     inference: {
-      embed: jest.fn(async () => ({
-        data: [{ values: new Array(1024).fill(0.01) }],
-        usage: { totalTokens: 5 },
-      })),
+      embed: jest.fn(async (req: { model: string; inputs: string[] }) => {
+        const isSparse = req.model.includes("sparse");
+        if (isSparse) {
+          return {
+            data: req.inputs.map(() => ({
+              sparseValues: { indices: [1, 7], values: [0.4, 0.3] },
+            })),
+            usage: { totalTokens: 7 },
+          };
+        }
+        return {
+          data: req.inputs.map(() => ({ values: new Array(1024).fill(0.01) })),
+          usage: { totalTokens: 5 },
+        };
+      }),
     },
   })),
 }));
+
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -171,14 +186,17 @@ describe("generateEvidencePlan ↔ RAG", () => {
     delete process.env.RAG_RETRIEVAL_ENABLED;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetSparseEmbeddingClientForTests();
     jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetSparseEmbeddingClientForTests();
     jest.restoreAllMocks();
   });
 
