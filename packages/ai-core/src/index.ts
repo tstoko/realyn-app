@@ -220,6 +220,8 @@ export {
   PINECONE_CLOUD,
   PINECONE_METRIC,
   PINECONE_REGION,
+  getPineconeCloud,
+  getPineconeRegion,
   CHUNK_TARGET_TOKENS,
   CHUNK_OVERLAP_TOKENS,
   CHUNK_MAX_TOKENS,
@@ -234,6 +236,7 @@ export type {
   EmbeddingModel as RagEmbeddingModel,
   EmbeddingInputType,
   PineconeMetric,
+  PineconeCloud,
   RerankModel,
   RagNamespace,
 } from "./config/ragConfig";

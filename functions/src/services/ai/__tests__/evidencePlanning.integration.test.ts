@@ -332,6 +332,25 @@ describe("Evidence Planning Pipeline (integration)", () => {
     expect(generateFallbackStrategy).toHaveBeenCalled();
   });
 
+  it("still calls the Strategy Advisor LLM when the dispute deadline is urgent (<24h)", async () => {
+    // Regression test: a previous version of the pipeline skipped the
+    // Strategy Advisor LLM entirely when the dispute deadline was inside
+    // a 24h "urgent" window, falling back to a deterministic generic
+    // strategy. That was backwards — the disputes that most need a
+    // case-specific strategy are the ones with the tightest deadline.
+    // The skip was removed so urgency no longer routes around the LLM.
+    const urgentRespondBy = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6h from now
+    const urgentCase = { ...fakeDisputeCase, respondByDate: urgentRespondBy };
+    (buildDisputeCase as jest.Mock).mockResolvedValue(urgentCase);
+    (sanitizeDisputeCaseWithLog as jest.Mock).mockReturnValue(urgentCase);
+
+    const result = await triggerEvidencePlanning(DISPUTE_ID, ORG_ID);
+
+    expect(result.success).toBe(true);
+    expect(synthesizeStrategy).toHaveBeenCalled();
+    expect(result.strategy).toEqual(fakeStrategy);
+  });
+
   it("continues when evidence analyzer returns null", async () => {
     (analyzeExistingEvidence as jest.Mock).mockResolvedValue(null);
 

@@ -83,7 +83,14 @@ describe("sparseEmbeddingService", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Pinecone Inference mock — sparseEmbed(...) → { data: [{ sparseValues: ... }] }
+// Pinecone Inference mock — inference.embed(...) returns sparse entries as
+// either:
+//   { vectorType: "sparse", sparseValues: number[], sparseIndices: number[] }
+//   (SDK 7.x / 2025-10 inference API; what we hit in production)
+// or:
+//   { sparseValues: { indices: number[], values: number[] } }
+//   (older SDK revs; kept for back-compat)
+// Both shapes must produce the same internal { indices, values } SparseVector.
 // ---------------------------------------------------------------------------
 
 describe("sparseEmbedDocuments / sparseEmbedQuery via mocked Pinecone client", () => {
@@ -112,9 +119,18 @@ describe("sparseEmbedDocuments / sparseEmbedQuery via mocked Pinecone client", (
     jest.restoreAllMocks();
   });
 
-  test("happy path: embeds a query and returns { indices, values }", async () => {
+  test("happy path (SDK 7.x flat shape): sparseValues + sparseIndices arrays", async () => {
+    // Pinecone SDK 7.x and the 2025-10 inference API return sparse embeddings
+    // as two parallel flat arrays. This is the shape we hit in production.
     const embed = jest.fn(async () => ({
-      data: [{ sparseValues: { indices: [1, 5, 9], values: [0.1, 0.5, 0.9] } }],
+      data: [
+        {
+          vectorType: "sparse",
+          sparseValues: [0.1, 0.5, 0.9],
+          sparseIndices: [1, 5, 9],
+          sparseTokens: ["visa", "chargeback", "10_4"],
+        },
+      ],
       usage: { totalTokens: 11 },
     }));
     makeStubbedSdk(() => embed);
@@ -136,11 +152,39 @@ describe("sparseEmbedDocuments / sparseEmbedQuery via mocked Pinecone client", (
     expect(args.parameters.inputType).toBe("query");
   });
 
+  test("happy path (legacy nested shape): sparseValues: { indices, values }", async () => {
+    // Older Pinecone SDK revs nested the indices/values inside sparseValues.
+    // We keep parsing that shape so old fixtures and rolled-back SDKs still
+    // work.
+    const embed = jest.fn(async () => ({
+      data: [{ sparseValues: { indices: [1, 5, 9], values: [0.1, 0.5, 0.9] } }],
+      usage: { totalTokens: 11 },
+    }));
+    makeStubbedSdk(() => embed);
+
+    const { sparseEmbedQuery: q, _resetSparseEmbeddingClientForTests: reset } = await import(
+      "../sparseEmbeddingService"
+    );
+    reset();
+    const r = await q("Visa 10.4 chargeback");
+
+    expect(r.success).toBe(true);
+    expect(r.vector).toEqual({ indices: [1, 5, 9], values: [0.1, 0.5, 0.9] });
+  });
+
   test("happy path: embeds documents with passage input type", async () => {
     const embed = jest.fn(async () => ({
       data: [
-        { sparseValues: { indices: [1, 2], values: [0.1, 0.2] } },
-        { sparseValues: { indices: [3, 4], values: [0.3, 0.4] } },
+        {
+          vectorType: "sparse",
+          sparseValues: [0.1, 0.2],
+          sparseIndices: [1, 2],
+        },
+        {
+          vectorType: "sparse",
+          sparseValues: [0.3, 0.4],
+          sparseIndices: [3, 4],
+        },
       ],
       usage: { totalTokens: 8 },
     }));
@@ -160,7 +204,13 @@ describe("sparseEmbedDocuments / sparseEmbedQuery via mocked Pinecone client", (
 
   test("indices/values length mismatch collapses to success:false", async () => {
     const embed = jest.fn(async () => ({
-      data: [{ sparseValues: { indices: [1, 2], values: [0.1] } }], // mismatch
+      data: [
+        {
+          vectorType: "sparse",
+          sparseValues: [0.1], // 1 value
+          sparseIndices: [1, 2], // 2 indices — mismatch
+        },
+      ],
       usage: { totalTokens: 5 },
     }));
     makeStubbedSdk(() => embed);
@@ -175,7 +225,7 @@ describe("sparseEmbedDocuments / sparseEmbedQuery via mocked Pinecone client", (
     expect(r.error).toMatch(/length mismatch/);
   });
 
-  test("malformed response (no sparseValues) collapses to success:false", async () => {
+  test("malformed response (neither flat nor nested sparseValues) collapses to success:false", async () => {
     const embed = jest.fn(async () => ({
       data: [{ values: [0.1, 0.2] }], // dense response shape; should be sparse
       usage: { totalTokens: 5 },

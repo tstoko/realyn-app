@@ -18,6 +18,10 @@
 
 import { Pinecone } from "@pinecone-database/pinecone";
 import { EMBED_BATCH_SIZE, type EmbeddingInputType } from "../config/ragConfig";
+// Reuse the dense service's 429-retry helper so we have one place to tune
+// backoff. The Pinecone Inference token-per-minute cap applies separately to
+// dense + sparse models, but the failure mode is identical.
+import { embedWithRetry as embedWithRetryShared } from "./embeddingService";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -115,30 +119,63 @@ async function sparseEmbedInternal(
 
     for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
       const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
-      const response = await client.inference.embed({
-        model: SPARSE_EMBEDDING_MODEL,
-        inputs: batch,
-        parameters: { inputType, truncate: "END" },
-      });
+      const response = await embedWithRetryShared(
+        () =>
+          client.inference.embed({
+            model: SPARSE_EMBEDDING_MODEL,
+            inputs: batch,
+            parameters: { inputType, truncate: "END" },
+          }),
+        `embed[${SPARSE_EMBEDDING_MODEL}, batch ${Math.floor(i / EMBED_BATCH_SIZE) + 1}/${Math.ceil(texts.length / EMBED_BATCH_SIZE)}]`,
+      );
 
       for (const entry of response.data ?? []) {
-        // Sparse entries carry `sparseValues: { indices, values }` rather
-        // than the dense `values: number[]`. Defend against either shape so
-        // a Pinecone SDK rev that changes the field name surfaces a clear
-        // error rather than silently producing empty vectors.
-        const sparse = (entry as unknown as { sparseValues?: SparseVector }).sparseValues;
-        if (sparse && Array.isArray(sparse.indices) && Array.isArray(sparse.values)) {
-          if (sparse.indices.length !== sparse.values.length) {
-            throw new Error(
-              `Sparse vector length mismatch: ${sparse.indices.length} indices vs ${sparse.values.length} values`,
-            );
-          }
-          vectors.push({ indices: sparse.indices.slice(), values: sparse.values.slice() });
-        } else {
+        // Pinecone SDK 7.x serves `inference.embed` for sparse models as:
+        //   { vectorType: "sparse", sparseValues: number[], sparseIndices: number[],
+        //     sparseTokens?: string[] }
+        // i.e. two flat parallel arrays, NOT a nested `sparseValues: { indices,
+        // values }` object. (Confirmed against
+        // pinecone-generated-ts-fetch/inference/models/SparseEmbedding.d.ts and
+        // a live `embed` call against pinecone-sparse-english-v0.)
+        //
+        // We also accept the older nested shape `sparseValues: { indices, values }`
+        // for forward/backward compatibility — older SDK revs and some test
+        // fixtures use it. If neither shape is present we surface a clear
+        // error rather than silently producing empty vectors (which would make
+        // hybrid retrieval degrade to dense-only without a loud signal).
+        const e = entry as unknown as {
+          sparseValues?: number[] | SparseVector;
+          sparseIndices?: number[];
+        };
+
+        let sv: SparseVector | null = null;
+
+        if (Array.isArray(e.sparseValues) && Array.isArray(e.sparseIndices)) {
+          sv = { indices: e.sparseIndices.slice(), values: e.sparseValues.slice() };
+        } else if (
+          e.sparseValues &&
+          typeof e.sparseValues === "object" &&
+          !Array.isArray(e.sparseValues) &&
+          Array.isArray(e.sparseValues.indices) &&
+          Array.isArray(e.sparseValues.values)
+        ) {
+          sv = {
+            indices: e.sparseValues.indices.slice(),
+            values: e.sparseValues.values.slice(),
+          };
+        }
+
+        if (!sv) {
           throw new Error(
             `Unexpected sparse embedding response shape for model ${SPARSE_EMBEDDING_MODEL}`,
           );
         }
+        if (sv.indices.length !== sv.values.length) {
+          throw new Error(
+            `Sparse vector length mismatch: ${sv.indices.length} indices vs ${sv.values.length} values`,
+          );
+        }
+        vectors.push(sv);
       }
       if (response.usage?.totalTokens) tokensUsed += response.usage.totalTokens;
     }

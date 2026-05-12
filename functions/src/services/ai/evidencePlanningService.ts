@@ -41,7 +41,7 @@ import { sanitizeDisputeCaseWithLog } from "../../utils/piiSanitizer";
 //   Step 1: Claim Analyst (guaranteed via fallback)
 //   Step 2: Evidence Analyzer (informed by claim)
 //   Step 3: Relevance Scorer (informed by claim + existing evidence)
-//   Step 4: Strategy Advisor (skip if urgent deadline or running low on time)
+//   Step 4: Strategy Advisor (skip ONLY if running low on Cloud Function time)
 //   Step 5-6: Evidence Planner + Quality Checker (revision loop)
 //   Step 7: Save to Firestore
 // ============================================================
@@ -51,8 +51,15 @@ const MAX_REVISION_ATTEMPTS = 2;
 
 // Timeout budget management (in milliseconds)
 const PIPELINE_BUDGET_MS = 240_000; // 4 minutes – leave headroom for the 5-min CF timeout
-const STRATEGY_SKIP_BUDGET_MS = 60_000; // Skip strategy advisor if less than 60s remaining
-const URGENT_DEADLINE_HOURS = 24; // Skip strategy advisor LLM if deadline within 24h
+// Skip the strategy advisor LLM only if there's not enough time remaining in
+// the Cloud Function budget to complete it (the call typically takes 10–30s).
+// We deliberately do NOT skip based on dispute deadline urgency — see the
+// commit history for the reasoning, but in short: the disputes that most
+// need a thoughtful, case-specific strategy are the ones with the tightest
+// deadline, not the loosest. Skipping the strategist on urgent disputes
+// produced a generic fallback exactly when the merchant could least afford
+// to ship a generic argument.
+const STRATEGY_SKIP_BUDGET_MS = 60_000;
 
 export interface PlanningResult {
   success: boolean;
@@ -77,20 +84,6 @@ export interface PlanningResult {
 function hasTimeRemaining(startTime: number, minimumMs: number): boolean {
   const elapsed = Date.now() - startTime;
   return elapsed + minimumMs < PIPELINE_BUDGET_MS;
-}
-
-/**
- * Check if the dispute deadline is within the urgent window.
- */
-function isUrgentDeadline(respondByDate: string | undefined): boolean {
-  if (!respondByDate) return false;
-  try {
-    const deadline = new Date(respondByDate);
-    const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
-    return hoursRemaining < URGENT_DEADLINE_HOURS;
-  } catch {
-    return false;
-  }
 }
 
 export interface PlanningOptions {
@@ -221,15 +214,14 @@ export async function triggerEvidencePlanning(
     }
 
     // ============================================================
-    // STEP 4: Strategy Advisor (skip if deadline < 24h or running low on time)
+    // STEP 4: Strategy Advisor (always runs unless CF time budget is exhausted)
     // ============================================================
     let strategy: DisputeStrategy | null = null;
-    const urgent = isUrgentDeadline(disputeCase.respondByDate);
 
     if (cachedStrategyData && !forceRefresh) {
       console.log(`[EvidencePlanning] Step 4: Using cached Strategy`);
       strategy = cachedStrategyData;
-    } else if (hasTimeRemaining(startTime, STRATEGY_SKIP_BUDGET_MS) && !urgent) {
+    } else if (hasTimeRemaining(startTime, STRATEGY_SKIP_BUDGET_MS)) {
       console.log(`[EvidencePlanning] Step 4: Strategy Advisor${cachedStrategyData ? " (force refresh)" : ""}`);
       strategy = await synthesizeStrategy(
         sanitizedCase,
@@ -241,8 +233,7 @@ export async function triggerEvidencePlanning(
         pmsMatch
       );
     } else {
-      const reason = urgent ? "urgent deadline" : "time budget";
-      console.log(`[EvidencePlanning] Step 4: Skipping Strategy Advisor LLM (${reason}), using fallback`);
+      console.log(`[EvidencePlanning] Step 4: Skipping Strategy Advisor LLM (Cloud Function time budget exhausted), using fallback`);
     }
 
     if (!strategy) {

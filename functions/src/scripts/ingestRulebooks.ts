@@ -36,9 +36,20 @@
 import { readFile } from "fs/promises";
 import { basename } from "path";
 import { createHash } from "crypto";
-// pdf-parse v2 ships as CJS; use require for compatibility with commonjs target.
+// pdf-parse@2 ships a class-based API (`PDFParse`) and is published as a
+// dual CJS/ESM package. From a commonjs build, `require("pdf-parse")` returns
+// the CJS module exports — destructure the `PDFParse` class. (v1 exposed a
+// callable `pdfParse(buf)` default export; v2 does not.)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse: (buf: Buffer) => Promise<{ text: string; numpages?: number }> = require("pdf-parse");
+const { PDFParse } = require("pdf-parse") as {
+  PDFParse: new (options: { data: Uint8Array }) => {
+    getText(params?: {
+      pageJoiner?: string;
+      lineEnforce?: boolean;
+    }): Promise<{ text: string; total: number }>;
+    destroy(): Promise<void>;
+  };
+};
 import {
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
@@ -141,12 +152,23 @@ async function ingestSource(src: SourceArgs, opts: { dryRun: boolean; sample: nu
   CardNetworkSchema.parse(src.network); // fails fast on typos
 
   const buf = await readFile(src.file);
-  const parsed = await pdfParse(buf);
-  const pages = parsed.numpages ?? 0;
-  const chars = parsed.text.length;
+  // pdf-parse@2 owns the PDF.js worker; calling `destroy()` releases it so
+  // the script process exits cleanly between sources.
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
+  let textResult: { text: string; total: number };
+  try {
+    // Suppress the default page-boundary marker (`-- N of M --`) — it adds
+    // noise the chunker would have to filter out anyway. Keep `lineEnforce`
+    // on (default) so the chunker's heading detector sees real line breaks.
+    textResult = await parser.getText({ pageJoiner: "" });
+  } finally {
+    await parser.destroy();
+  }
+  const pages = textResult.total ?? 0;
+  const chars = textResult.text.length;
   console.log(`[ingest] parsed ${pages} pages, ${chars.toLocaleString()} chars`);
 
-  let chunks = chunkText(parsed.text);
+  let chunks = chunkText(textResult.text);
   console.log(`[ingest] produced ${chunks.length} chunks`);
 
   if (opts.sample) {

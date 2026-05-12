@@ -74,11 +74,70 @@ export function getPineconeIndexName(): string {
 }
 
 /**
- * Pinecone cloud + region for Serverless indexes. We default to GCP `us-central1`
- * to match the Cloud Functions region and minimise cross-region latency.
+ * Pinecone cloud + region for Serverless indexes.
+ *
+ * Overridable via `PINECONE_CLOUD` and `PINECONE_REGION` env vars so the same
+ * code can target free-tier accounts (Starter plan only allows
+ * `aws/us-east-1`) and paid accounts (Standard/Enterprise unlock GCP +
+ * Azure regions including `gcp/us-central1` which co-locates with Firebase
+ * Cloud Functions).
+ *
+ * Defaults: `aws/us-east-1`. This is the only region the Pinecone Starter
+ * (free) plan supports, and it's what `rag:setup` will create unless the
+ * env vars are set. It introduces a few tens of ms of cross-region RTT on
+ * each retrieval call from `us-central1` Cloud Functions — measurable but
+ * not catastrophic for a non-realtime LLM pipeline.
+ *
+ * To upgrade later (paid plan, GCP co-location):
+ *   1. Upgrade the Pinecone organisation to Standard or Enterprise.
+ *   2. Set `PINECONE_CLOUD=gcp` and `PINECONE_REGION=us-central1` in the
+ *      Cloud Functions env (and any local `.env` used for ingestion).
+ *   3. Set a new `PINECONE_INDEX_NAME` (e.g. `realyn-rag-gcp`) so the old
+ *      AWS index is not touched. Pinecone serverless cloud+region are
+ *      immutable on an existing index — a region change always requires a
+ *      new index.
+ *   4. Re-run `rag:setup` (creates the new index) and `rag:ingest` for each
+ *      rulebook (re-ingests into the new index).
+ *   5. Once retrieval looks healthy on the new index, retire the old one.
+ *
+ * Embedding models, sparse encoder, and rerank models are all served from
+ * Pinecone Inference (a separate, region-agnostic control plane), so the
+ * data-region change does not affect anything except the vector index
+ * itself.
+ *
+ * Note on rerank availability (Starter plan): `cohere-rerank-3.5` is
+ * **not available** on Starter — Pinecone's docs list it as paid-plan only.
+ * Free-tier alternatives reachable via the same Inference endpoint are
+ * `bge-reranker-v2-m3` and `pinecone-rerank-v0` (each 500 reqs/month). This
+ * is fine today because `RERANK_ENABLED` defaults OFF; if rerank is ever
+ * flipped on while still on Starter, swap `RERANK_MODEL` to a free-tier
+ * model in the same commit.
  */
-export const PINECONE_CLOUD = "gcp" as const;
-export const PINECONE_REGION = "us-central1" as const;
+export type PineconeCloud = "aws" | "gcp" | "azure";
+
+export function getPineconeCloud(): PineconeCloud {
+  const raw = process.env.PINECONE_CLOUD?.trim().toLowerCase();
+  if (raw === "aws" || raw === "gcp" || raw === "azure") return raw;
+  return "aws";
+}
+
+export function getPineconeRegion(): string {
+  return process.env.PINECONE_REGION?.trim() || "us-east-1";
+}
+
+/**
+ * @deprecated Use {@link getPineconeCloud} so env overrides are honoured.
+ * Kept for backwards compatibility with code that imported the constant
+ * directly. Reflects the default value, not any env override.
+ */
+export const PINECONE_CLOUD: PineconeCloud = "aws";
+
+/**
+ * @deprecated Use {@link getPineconeRegion} so env overrides are honoured.
+ * Kept for backwards compatibility with code that imported the constant
+ * directly. Reflects the default value, not any env override.
+ */
+export const PINECONE_REGION = "us-east-1" as const;
 
 /**
  * Namespaces isolate different content types inside a single index. Queries
