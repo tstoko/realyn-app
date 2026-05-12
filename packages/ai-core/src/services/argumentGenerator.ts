@@ -22,6 +22,11 @@ import {
   sanitizeDisputeCaseWithLog, 
   sanitizePdfContent 
 } from "../utils/piiSanitizer";
+import {
+  buildReferenceMaterialBlock,
+  lookupReasonCodeDescription,
+  retrieveRulebookForPrompt,
+} from "./ragPromptInjection";
 
 // ============================================================
 // Argument Generator
@@ -89,15 +94,32 @@ export async function generateDisputeArgument(
     
     console.log(`[ArgumentGenerator] PII sanitization applied to dispute case and evidence content`);
 
+    // Retrieve scheme-rulebook context for argument grounding. We pass the
+    // sanitized case so no PII makes it into the embedding call. The retrieval
+    // is fail-safe: empty chunks on any error means we generate the same
+    // pre-RAG argument shape.
+    const ragResult = await retrieveRulebookForPrompt({
+      disputeCase: sanitizedCase,
+      stage: "argument_generation",
+      reasonCodeDescription: lookupReasonCodeDescription(sanitizedCase),
+    });
+    const referenceMaterialBlock = buildReferenceMaterialBlock(ragResult.chunks);
+
     // Build image inputs for Claude vision
     const imageInputs: ImageInput[] = evidenceWithImages.map(e => ({
       url: e.imageUrl!,
       description: `${e.requirement.label}: ${e.file?.fileName || 'Document'}`,
     }));
 
-    // Build the comprehensive prompt with sanitized data
-    // Uses sanitized case and evidence to prevent PII from being sent to third-party AI
-    const prompt = buildArgumentPrompt(sanitizedCase, evidencePlan, sanitizedEvidence, context);
+    // Build the comprehensive prompt with sanitized data + RAG.
+    // Uses sanitized case and evidence to prevent PII from being sent to third-party AI.
+    const prompt = buildArgumentPrompt(
+      sanitizedCase,
+      evidencePlan,
+      sanitizedEvidence,
+      context,
+      referenceMaterialBlock,
+    );
 
     // Call the LLM with vision capabilities
     const result = await callLLMWithVision(prompt, DisputeArgumentSchema, {
@@ -208,6 +230,7 @@ function buildArgumentPrompt(
   evidencePlan: EvidencePlan,
   enrichedEvidence: EnrichedEvidence[],
   context?: ArgumentGeneratorContext,
+  referenceMaterialBlock: string = "",
 ): string {
   const parts: string[] = [];
 
@@ -438,6 +461,16 @@ function buildArgumentPrompt(
     if (disputeCase.paymentData.cvvMatch !== undefined) parts.push(`- CVV Match: ${disputeCase.paymentData.cvvMatch ? "✓ Yes" : "✗ No"}`);
     if (disputeCase.paymentData.threeDSecure !== undefined) parts.push(`- 3D Secure: ${disputeCase.paymentData.threeDSecure ? "✓ Yes" : "✗ No"}`);
     parts.push("");
+  }
+
+  // ==========================================================
+  // SCHEME RULEBOOK REFERENCE MATERIAL (RAG-injected)
+  // ==========================================================
+  // Injected after the deterministic dispute/payment facts and before the
+  // evidence section so the LLM treats it as authoritative ground truth. When
+  // retrieval returned no chunks the block is empty and this is a no-op.
+  if (referenceMaterialBlock) {
+    parts.push(referenceMaterialBlock);
   }
 
   // ==========================================================

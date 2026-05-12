@@ -277,3 +277,13 @@ export {
 } from "./services/ragService";
 
 export type { VectorStorePort, VectorQuery, VectorMatch } from "./services/ragService";
+
+export {
+  buildReferenceMaterialBlock,
+  buildRulebookRetrievalQuery,
+  isRagRetrievalEnabled,
+  lookupReasonCodeDescription,
+  retrieveRulebookForPrompt,
+} from "./services/ragPromptInjection";
+
+export type { RagStage, RulebookRagResult } from "./services/ragPromptInjection";

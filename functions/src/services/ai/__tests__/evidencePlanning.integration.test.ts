@@ -25,7 +25,16 @@ const mockDoc = jest.fn(() => ({
   get: mockGet,
   update: mockUpdate,
 }));
-const mockCollection = jest.fn(() => ({ doc: mockDoc }));
+/** Supports KB queries: collection().where().get() and chained .where().where().get() */
+const mockWhereChain: { where: jest.Mock; get: jest.Mock } = {
+  where: jest.fn(),
+  get: jest.fn().mockResolvedValue({ empty: true, docs: [] }),
+};
+mockWhereChain.where.mockImplementation(() => mockWhereChain);
+const mockCollection = jest.fn(() => ({
+  doc: mockDoc,
+  where: jest.fn(() => mockWhereChain),
+}));
 
 jest.mock("firebase-admin", () => {
   const firestoreFn = () => ({ collection: mockCollection });
