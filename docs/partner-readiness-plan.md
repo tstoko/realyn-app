@@ -523,9 +523,16 @@ Week 6  ┃ W6.1 dashboards         │ W6.2 versioning hardening │ W6.3 DoD a
 - **Owner:** TBD (the engineer who will lead the 6-week effort)
 - **Branch:** `cursor/rag-phase-1-provisioning-4164` (this doc lives in the same stacked-PR chain as the RAG work)
 
+### Phase 0 progress
+
+- **P0.1 — staging provisioning:** ⏸️ Not started. Blocked on `FIREBASE_TOKEN` / ADC in Cursor secrets + GitHub Actions service-account configuration.
+- **P0.2 — deploy RAG to prod (= RAG C7):** 🟡 **Code-side done** on branch `cursor/rag-phase-1-c7-bind-pinecone-secret` (PR #16). `secrets: [..., "PINECONE_API_KEY"]` bound on `onEvidencePlanQueued` and `draftArgument` in `functions/src/handlers/aiDisputeHandlers.ts`; functions Jest 369/369 + ai-core 63/63 green. Remaining: `firebase functions:secrets:set` + `firebase deploy` from a workstation or Cloud Agent with `FIREBASE_TOKEN` / ADC. See `docs/rag-phase-1-handoff.md` "Deploy steps for C7" for exact commands.
+- **P0.3 — `@realyn/ontology` skeleton:** ⏸️ Not started. Fully unblocked from a local agent today; recommended as the next standalone PR off the same branch tip.
+
 ### Recommended next actions
 
 1. Review this plan; flag any items to cut, defer, or expand
 2. Greenlight Phase 0 (P0.1 staging + P0.2 RAG deploy + P0.3 ontology skeleton) — these are unblocking, low-risk, run in parallel
-3. Draft ADRs 0001 (ontology-first) and 0002 (ontology versioning) before Week 1 code lands
-4. Track progress in this doc; update §10 status as items move from `[ ]` to `[x]` in the Definition of Done
+3. Add `FIREBASE_TOKEN` (or `GOOGLE_APPLICATION_CREDENTIALS_JSON`) to Cursor secrets to unblock the P0.2 deploy step and the P0.1 staging provisioning
+4. Draft ADRs 0001 (ontology-first) and 0002 (ontology versioning) before Week 1 code lands
+5. Track progress in this doc; update §10 status as items move from `[ ]` to `[x]` in the Definition of Done
