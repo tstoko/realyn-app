@@ -17,7 +17,9 @@
 import {
   DEFAULT_TOP_K,
   MIN_RELEVANCE_SCORE,
+  RAG_HYBRID_ALPHA,
   RAG_NAMESPACES,
+  RERANK_CANDIDATE_K,
   type RagNamespace,
 } from "../config/ragConfig";
 import {
@@ -30,6 +32,12 @@ import {
   type PolicyQueryFilter,
 } from "../types/rag";
 import { embedQuery } from "./embeddingService";
+import {
+  applyAlpha,
+  sparseEmbedQuery,
+  type SparseVector,
+} from "./sparseEmbeddingService";
+import { isRerankEnabled, maybeRerank } from "./rerankService";
 import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
 
 // ---------------------------------------------------------------------------
@@ -38,9 +46,17 @@ import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
 
 export interface VectorQuery {
   namespace: RagNamespace;
+  /** Dense query vector. L2-normalised so dotproduct ≡ cosine. */
   vector: number[];
   topK: number;
   filter?: Record<string, unknown>;
+  /**
+   * Optional sparse query vector. When present together with `vector`, the
+   * adapter performs hybrid (dense + sparse) retrieval against a single
+   * `metric: dotproduct` Pinecone index. Both vectors are expected to be
+   * pre-scaled per {@link applyAlpha} — the adapter does no further weighting.
+   */
+  sparseVector?: SparseVector;
 }
 
 export interface VectorMatch {
@@ -102,9 +118,37 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
     ? { disputeId: query.disputeId, stage: query.stage ?? "rag_retrieve" }
     : undefined;
 
-  const embedResult = await embedQuery(query.queryText, { telemetry });
-  if (!embedResult.success || !embedResult.vector) {
+  // Embed the query in parallel — dense via Pinecone Inference's
+  // `multilingual-e5-large`, sparse via Pinecone Inference's
+  // `pinecone-sparse-english-v0`. We treat a sparse failure as non-fatal
+  // (partial:true) so dense-only retrieval still happens; the inverse (dense
+  // fail, sparse OK) is fatal because dense covers semantic matches sparse
+  // can't.
+  const [denseResult, sparseResult] = await Promise.all([
+    embedQuery(query.queryText, { telemetry }),
+    sparseEmbedQuery(query.queryText),
+  ]);
+
+  if (!denseResult.success || !denseResult.vector) {
     return { ...EMPTY_RAG_RESULT, partial: true, latencyMs: Date.now() - startMs };
+  }
+
+  // Apply hybrid alpha weighting client-side. If sparse failed, fall back to
+  // pure-dense retrieval (alpha=1) so the request still produces results,
+  // but mark partial so callers / telemetry can see the degraded mode.
+  let denseQueryVector = denseResult.vector;
+  let sparseQueryVector: SparseVector | undefined;
+  let degradedToDenseOnly = false;
+  if (sparseResult.success && sparseResult.vector) {
+    const scaled = applyAlpha(denseResult.vector, sparseResult.vector, RAG_HYBRID_ALPHA);
+    denseQueryVector = scaled.dense;
+    sparseQueryVector = scaled.sparse;
+  } else {
+    console.warn(
+      `[rag] sparse query embed failed (${sparseResult.error ?? "unknown"}); ` +
+        `falling back to dense-only retrieval`,
+    );
+    degradedToDenseOnly = true;
   }
 
   const minScore = query.minScore ?? MIN_RELEVANCE_SCORE;
@@ -115,10 +159,12 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
   ];
 
   const requests = namespaces.map((ns) =>
-    queryNamespace(store, ns, embedResult.vector!, query, minScore).catch((err) => {
-      console.warn(`[rag] ${ns} retrieval failed:`, err?.message ?? err);
-      return null as RetrievedChunk[] | null;
-    }),
+    queryNamespace(store, ns, denseQueryVector, sparseQueryVector, query, minScore).catch(
+      (err) => {
+        console.warn(`[rag] ${ns} retrieval failed:`, err?.message ?? err);
+        return null as RetrievedChunk[] | null;
+      },
+    ),
   );
 
   const settled = await Promise.all(requests);
@@ -127,7 +173,7 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
     rulebooks: [],
     cases: [],
     policies: [],
-    partial: false,
+    partial: degradedToDenseOnly,
     latencyMs: Date.now() - startMs,
   };
 
@@ -222,18 +268,41 @@ async function queryNamespace(
   store: VectorStorePort,
   namespace: RagNamespace,
   vector: number[],
+  sparseVector: SparseVector | undefined,
   query: RagQuery,
   minScore: number,
 ): Promise<RetrievedChunk[]> {
-  const topK = query.topK?.[namespace] ?? DEFAULT_TOP_K[namespace];
+  const finalTopK = query.topK?.[namespace] ?? DEFAULT_TOP_K[namespace];
+  // When reranking is enabled, fetch a wider candidate pool so the cross-
+  // encoder has more variety to choose from. Reranker keeps the top
+  // `finalTopK` of `RERANK_CANDIDATE_K` candidates.
+  const candidateTopK = isRerankEnabled() ? Math.max(RERANK_CANDIDATE_K, finalTopK) : finalTopK;
   const filter = buildFilter(namespace, query);
 
-  const matches = await store.query({ namespace, vector, topK, filter });
+  const matches = await store.query({
+    namespace,
+    vector,
+    sparseVector,
+    topK: candidateTopK,
+    filter,
+  });
 
-  return matches
-    .filter((m) => m.score >= minScore && m.metadata)
+  const candidates = matches
+    .filter((m) => m.metadata)
     .map((m) => toRetrievedChunk(m))
     .filter((c): c is RetrievedChunk => c !== null);
+
+  // Rerank (no-op when disabled or no port configured) then drop chunks
+  // below `minScore`. The order matters: reranking against low-quality
+  // candidates is wasted but harmless; filtering before rerank can starve
+  // the cross-encoder of variety.
+  const reranked = await maybeRerank({
+    query: query.queryText,
+    chunks: candidates,
+    topN: finalTopK,
+  });
+
+  return reranked.filter((c) => c.score >= minScore);
 }
 
 function buildFilter(namespace: RagNamespace, query: RagQuery): Record<string, unknown> | undefined {

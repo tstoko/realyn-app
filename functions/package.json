@@ -25,7 +25,8 @@
     "seed:attractionworld:emulator": "npm run build && node --env-file=.env.emulator.seed lib/scripts/seedAttractionworldDemo.js",
     "rag:setup": "npm run build && node --env-file=.env lib/scripts/setupPineconeIndex.js",
     "rag:ingest": "npm run build && node --env-file=.env lib/scripts/ingestRulebooks.js",
-    "rag:test": "npm run build && node --env-file=.env lib/scripts/testRagRetrieval.js"
+    "rag:test": "npm run build && node --env-file=.env lib/scripts/testRagRetrieval.js",
+    "rag:eval:baseline": "npm run build && node lib/scripts/captureRagBaseline.js"
   },
   "engines": {
     "node": "20"

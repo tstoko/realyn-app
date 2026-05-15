@@ -29,6 +29,7 @@ import {
   type VectorMatch,
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
+import { _resetSparseEmbeddingClientForTests } from "../sparseEmbeddingService";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase } from "../../types/aiDispute";
 
@@ -95,21 +96,40 @@ function makeFailingStore(message: string): VectorStorePort {
 }
 
 // ---------------------------------------------------------------------------
-// Stub Pinecone Inference embedQuery via direct mock of the embedding client
+// Stub the dense-embedding path. Both providers live behind embedQuery; the
+// `EMBEDDING_PROVIDER` constant decides which is hit at runtime, and we stub
+// both so swapping the provider in `ragConfig.ts` doesn't break this suite.
 // ---------------------------------------------------------------------------
 
+// Pinecone Inference mock — handles both the dense embed call (e5-large /
+// any model returning a dense `values` array) and the sparse embed call
+// (pinecone-sparse-english-v0 returning a `sparseValues` object). Routing
+// keys off the `model` field of the request so the same mock services both
+// providers without test churn.
 jest.mock("@pinecone-database/pinecone", () => {
   return {
     Pinecone: jest.fn().mockImplementation(() => ({
       inference: {
-        embed: jest.fn(async () => ({
-          data: [{ values: new Array(1024).fill(0.01) }],
-          usage: { totalTokens: 5 },
-        })),
+        embed: jest.fn(async (req: { model: string; inputs: string[] }) => {
+          const isSparse = req.model.includes("sparse");
+          if (isSparse) {
+            return {
+              data: req.inputs.map(() => ({
+                sparseValues: { indices: [1, 7, 42], values: [0.4, 0.3, 0.2] },
+              })),
+              usage: { totalTokens: 7 },
+            };
+          }
+          return {
+            data: req.inputs.map(() => ({ values: new Array(1024).fill(0.01) })),
+            usage: { totalTokens: 5 },
+          };
+        }),
       },
     })),
   };
 });
+
 
 // ---------------------------------------------------------------------------
 // Suite
@@ -124,14 +144,17 @@ describe("ragPromptInjection", () => {
     delete process.env.RAG_RETRIEVAL_ENABLED;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetSparseEmbeddingClientForTests();
     logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
+    _resetSparseEmbeddingClientForTests();
     jest.restoreAllMocks();
   });
 
@@ -364,6 +387,28 @@ describe("ragPromptInjection", () => {
       const call = queryFn.mock.calls[0][0];
       expect(call.namespace).toBe(RAG_NAMESPACES.rulebooks);
       expect(call.filter).toEqual({ network: { $eq: "visa" } });
+    });
+
+    test("forwards a sparseVector to the store when both dense and sparse embed succeed", async () => {
+      const queryFn: jest.Mock = jest.fn(async () => [] as VectorMatch[]);
+      configureVectorStore({ query: queryFn });
+
+      // Default fetch + Pinecone stubs from beforeEach return non-empty embeddings,
+      // so the hybrid path should fire.
+      await retrieveRulebookForPrompt({
+        disputeCase: buildDispute({ pspReasonCode: "10.4" }),
+        stage: "evidence_planning",
+      });
+
+      expect(queryFn).toHaveBeenCalledTimes(1);
+      const call = queryFn.mock.calls[0][0];
+      expect(call.sparseVector).toBeDefined();
+      expect(Array.isArray(call.sparseVector!.indices)).toBe(true);
+      expect(Array.isArray(call.sparseVector!.values)).toBe(true);
+      expect(call.sparseVector!.indices.length).toBe(call.sparseVector!.values.length);
+      // Dense vector also present
+      expect(Array.isArray(call.vector)).toBe(true);
+      expect(call.vector.length).toBeGreaterThan(0);
     });
 
     test("emits a structured [rag] log line on success", async () => {

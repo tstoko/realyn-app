@@ -214,8 +214,14 @@ export {
   EMBEDDING_DIM,
   RAG_NAMESPACES,
   RAG_SCHEMA_VERSION,
+  RAG_HYBRID_ALPHA,
+  RERANK_MODEL,
+  RERANK_CANDIDATE_K,
   PINECONE_CLOUD,
+  PINECONE_METRIC,
   PINECONE_REGION,
+  getPineconeCloud,
+  getPineconeRegion,
   CHUNK_TARGET_TOKENS,
   CHUNK_OVERLAP_TOKENS,
   CHUNK_MAX_TOKENS,
@@ -229,6 +235,9 @@ export {
 export type {
   EmbeddingModel as RagEmbeddingModel,
   EmbeddingInputType,
+  PineconeMetric,
+  PineconeCloud,
+  RerankModel,
   RagNamespace,
 } from "./config/ragConfig";
 
@@ -262,9 +271,38 @@ export {
   embedQuery,
   isEmbeddingAvailable,
   getEmbeddingInitError,
+  l2Normalize,
 } from "./services/embeddingService";
 
 export type { EmbedOptions, EmbedResult, EmbedQueryResult } from "./services/embeddingService";
+
+export {
+  sparseEmbedDocuments,
+  sparseEmbedQuery,
+  isSparseEmbeddingAvailable,
+  getSparseEmbeddingInitError,
+  applyAlpha,
+  SPARSE_EMBEDDING_MODEL,
+} from "./services/sparseEmbeddingService";
+
+export type {
+  SparseVector,
+  SparseEmbedResult,
+  SparseEmbeddingModel,
+} from "./services/sparseEmbeddingService";
+
+export {
+  configureRerankPort,
+  getRerankPort,
+  isRerankEnabled,
+  maybeRerank,
+} from "./services/rerankService";
+
+export type {
+  RerankPort,
+  RerankRequest,
+  RerankResultEntry,
+} from "./services/rerankService";
 
 export {
   retrieveRagContext,
