@@ -13,15 +13,35 @@ on:
 # Rollback: firebase functions:delete <functionName> --project realyn-app
 # Or redeploy previous commit: git revert + push to main
 #
-# NOTE: `storage` is intentionally excluded from the deploy targets below
-# because FIREBASE_SERVICE_ACCOUNT_REALYN_APP currently lacks the
-# `firebasestorage.defaultBucket.get` permission, which causes the entire
-# deploy to abort with a 403 before functions are even uploaded. Add the
-# `Firebase Storage Admin` role (roles/firebasestorage.admin) — or a custom
-# role that grants `firebasestorage.defaultBucket.get` — to the service
-# account in GCP IAM, then re-add `,storage` to the args. Storage rules
-# haven't changed since 2026-04-09 (commit 0d88b08), so dropping the target
-# does not regress prod rules.
+# IAM NOTE: FIREBASE_SERVICE_ACCOUNT_REALYN_APP currently only has the
+# permissions needed to deploy Cloud Functions. Bundling other Firebase
+# targets into the same `firebase deploy` invocation makes the entire
+# job abort on the first permission check that fails.
+#
+# Excluded targets and what to grant before re-adding each:
+#
+#   storage         — needs `firebasestorage.defaultBucket.get`
+#                     (roles/firebasestorage.admin or custom role)
+#
+#   firestore:rules — needs `firebaserules.releases.test`
+#                     (roles/firebaserules.admin or custom role)
+#
+#   firestore:indexes — bundled with firestore:rules; same blast radius
+#                       (roles/datastore.indexAdmin)
+#
+# After granting the IAM roles, re-add the targets to the `--only` flag.
+# Until then, rule/index/storage changes must be deployed separately by
+# a human with broader credentials (e.g.
+#   `firebase deploy --only firestore:rules --project realyn-app`
+# from a workstation with ADC for an owner-level account).
+#
+# Pending undeployed rule changes since the last successful prod deploy
+# (2026-03-26, draftargument-00017-nez):
+#   a9306b8 — ticketing evidence copy, read-only disputes
+#   0d88b08 — Release rollout
+#   2af21f9 — RAG groundwork
+#   eb337f8 — winPatterns rule decision
+# None of these block RAG running; they tighten the rule schema.
 
 jobs:
   deploy:
@@ -65,6 +85,6 @@ jobs:
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:
-          args: deploy --only functions,firestore:rules,firestore:indexes --project realyn-app
+          args: deploy --only functions --project realyn-app
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP }}
