@@ -47,13 +47,13 @@ These three are blocking-prerequisites that unlock the rest. Do them first.
 
 **Acceptance:** Staging dashboard loads at staging URL, you can sign up, see the onboarding wizard, generate a fake AI plan in staging without touching prod.
 
-### P0.2 — Deploy RAG to production (C7) ✅ **DONE 2026-05-17**
+### P0.2 — Deploy RAG to production (C7) ✅ **DONE 2026-05-17** (after PR #23 follow-up)
 
 **Goal:** RAG retrieval is live in prod functions.
 
-**Outcome:** `draftargument-00018-quk` (2026-05-17T18:35) and new `onevidenceplanqueued-00001-faj` (2026-05-17T18:47) both have `ANTHROPIC_API_KEY` + `PINECONE_API_KEY` bound from Secret Manager and `PINECONE_INDEX_NAME=realyn-rag-dev` from `functions/.env.realyn-app`. Eventarc trigger created in `eur3` for the Firestore-trigger function. Took longer than the "half day" estimate — see `docs/rag-phase-1-handoff.md` §Actual deploy story for the full archaeology.
+**Outcome:** `draftargument-00018-quk` (2026-05-17T18:35) and `onevidenceplanqueued-00002-kub` (2026-05-17T19:23 — second revision after the PR #23 fix) bind `ANTHROPIC_API_KEY` + `PINECONE_API_KEY` from Secret Manager and `PINECONE_INDEX_NAME=realyn-rag-dev` from `functions/.env.realyn-app`. Eventarc trigger created in `eur3` for the Firestore-trigger function. End-to-end retrieval verified: `[rag] disputeId=SJlJAYLlpv7cd8pLxSSs chunksReturned=5 topScore=9.45` for dice (Visa 12.6 duplicate), `chunksReturned=5 topScore=6.86` for zipworld. Took longer than the "half day" estimate — see `docs/rag-phase-1-handoff.md` §Actual deploy story for the full archaeology (deploy itself + the silent-vector-store-registration bug fix in PR #23).
 
-**Acceptance check (still pending real-world data):** A dispute generated in prod after 2026-05-17T18:47 should show `[Visa Rule X.Y.Z]`-style citations in the argument draft, and function logs should show `[rag] disputeId=… stage=evidence_planning chunksReturned=…` with non-zero counts. This is the C8 work item — re-run `npm run rag:eval:baseline` once enough disputes have flowed through and write the delta summary.
+**Acceptance achieved at infra layer.** RAG retrieval is firing in prod. Citations in argument output (the C8 work item) are still pending because the Anthropic account is at $0 credit — every specialist LLM call falls back to deterministic templates that don't consume the retrieved chunks. Top up Anthropic credit, then re-run `npm run rag:eval:baseline` for the post-RAG delta against `docs/eval/2026-05-rag-phase1-baseline.md`.
 
 ### P0.3 — `@realyn/ontology` package skeleton (~1 day)
 
@@ -522,7 +522,7 @@ Week 6  ┃ W6.1 dashboards         │ W6.2 versioning hardening │ W6.3 DoD a
 ### Phase 0 progress
 
 - **P0.1 — staging provisioning:** ⏸️ Not started. Blocked on `FIREBASE_TOKEN` / ADC in Cursor secrets + GitHub Actions service-account configuration.
-- **P0.2 — deploy RAG to prod (= RAG C7):** ✅ **DONE 2026-05-17.** New revisions: `draftargument-00018-quk` (HTTP handler for argument generation) and `onevidenceplanqueued-00001-faj` (Firestore trigger for evidence planning). Both bind `ANTHROPIC_API_KEY` + `PINECONE_API_KEY`; `PINECONE_INDEX_NAME=realyn-rag-dev` set via `functions/.env.realyn-app`. Deploy went through GitHub Actions (`.github/workflows/deploy-functions.yml`) and required 4 follow-up PRs (#19, #20, #21, plus an env-file commit) and ~10 IAM grants on the deploy SA + service agents — full archaeology in `docs/rag-phase-1-handoff.md` §Actual deploy story. **Open follow-up:** the workflow currently skips `storage.rules` and `firestore.rules,indexes` deploys; closing the IAM gaps to re-enable those is documented in the workflow header.
+- **P0.2 — deploy RAG to prod (= RAG C7):** ✅ **DONE 2026-05-17** (after PR #23 follow-up fix). End-state revisions: `draftargument-00018-quk` and `onevidenceplanqueued-00002-kub`. Both bind `ANTHROPIC_API_KEY` + `PINECONE_API_KEY`; `PINECONE_INDEX_NAME=realyn-rag-dev` set via `functions/.env.realyn-app`. End-to-end retrieval **verified working** — smoke tests on dice + zipworld both returned 5 chunks at top scores 9.45 / 6.86. Deploy went through GitHub Actions and required 5 follow-up PRs (#18 env file, #19 root `npm ci` in CI, #20 drop `storage` from deploy targets, #21 drop `firestore:rules`/`indexes`, **#23 the silent-vector-store-registration fix that's the real "RAG actually fires" PR**) and ~10 IAM grants on the deploy SA + service agents — full archaeology in `docs/rag-phase-1-handoff.md` §Actual deploy story. **Open follow-ups:** (a) Anthropic credit is at $0 so the deployed planner falls back to deterministic templates for every LLM call — RAG context is retrieved but never consumed; topping up credit unblocks meaningful C8 delta. (b) The workflow currently skips `storage.rules` and `firestore.rules,indexes` deploys; closing the IAM gaps to re-enable those is documented in the workflow header.
 - **P0.3 — `@realyn/ontology` skeleton:** ⏸️ Not started. Fully unblocked from a local agent today; recommended as the next standalone PR off the same branch tip.
 
 ### Recommended next actions
