@@ -23,14 +23,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: Install function dependencies
+      # Install root workspace deps first so packages/ai-core has node_modules
+      # (typescript, zod, @anthropic-ai/sdk, @pinecone-database/pinecone, etc.).
+      # Without this, `npm run build` in packages/ai-core fails with a flood of
+      # TS2304/TS2307/TS2591/TS2584 errors and the whole deploy aborts.
+      # Mirrors the working order in deploy-staging.yml.
+      - name: Install root workspace dependencies
         run: npm ci
-        working-directory: functions
 
       - name: Build AI Core
         run: npm run build
         working-directory: packages/ai-core
+
+      - name: Install function dependencies
+        run: npm ci
+        working-directory: functions
 
       - name: Build Functions
         run: npm run build
