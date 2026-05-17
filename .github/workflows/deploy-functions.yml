@@ -12,6 +12,16 @@ on:
 
 # Rollback: firebase functions:delete <functionName> --project realyn-app
 # Or redeploy previous commit: git revert + push to main
+#
+# NOTE: `storage` is intentionally excluded from the deploy targets below
+# because FIREBASE_SERVICE_ACCOUNT_REALYN_APP currently lacks the
+# `firebasestorage.defaultBucket.get` permission, which causes the entire
+# deploy to abort with a 403 before functions are even uploaded. Add the
+# `Firebase Storage Admin` role (roles/firebasestorage.admin) — or a custom
+# role that grants `firebasestorage.defaultBucket.get` — to the service
+# account in GCP IAM, then re-add `,storage` to the args. Storage rules
+# haven't changed since 2026-04-09 (commit 0d88b08), so dropping the target
+# does not regress prod rules.
 
 jobs:
   deploy:
@@ -55,6 +65,6 @@ jobs:
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:
-          args: deploy --only functions,firestore:rules,firestore:indexes,storage --project realyn-app
+          args: deploy --only functions,firestore:rules,firestore:indexes --project realyn-app
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP }}
