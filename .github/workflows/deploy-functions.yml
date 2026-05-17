@@ -13,35 +13,22 @@ on:
 # Rollback: firebase functions:delete <functionName> --project realyn-app
 # Or redeploy previous commit: git revert + push to main
 #
-# IAM NOTE: FIREBASE_SERVICE_ACCOUNT_REALYN_APP currently only has the
-# permissions needed to deploy Cloud Functions. Bundling other Firebase
-# targets into the same `firebase deploy` invocation makes the entire
-# job abort on the first permission check that fails.
+# IAM history (kept for context if a future deploy regresses on permissions):
+# FIREBASE_SERVICE_ACCOUNT_REALYN_APP previously only had Cloud-Functions-level
+# permissions, so PR #20 and #21 stripped `storage` and `firestore:rules`/
+# `firestore:indexes` from the `--only` flag. Without the IAM grants below,
+# bundling those targets makes the whole deploy abort on the first 403.
 #
-# Excluded targets and what to grant before re-adding each:
+# Re-enabled 2026-05-17 after granting the following roles to
+# github-action-1093841209@realyn-app.iam.gserviceaccount.com:
+#   - roles/firebasestorage.admin   (firebasestorage.defaultBucket.get + write)
+#   - roles/firebaserules.admin     (firebaserules.releases.test/update)
+#   - roles/datastore.viewer        (already present; needed for index reads)
 #
-#   storage         — needs `firebasestorage.defaultBucket.get`
-#                     (roles/firebasestorage.admin or custom role)
-#
-#   firestore:rules — needs `firebaserules.releases.test`
-#                     (roles/firebaserules.admin or custom role)
-#
-#   firestore:indexes — bundled with firestore:rules; same blast radius
-#                       (roles/datastore.indexAdmin)
-#
-# After granting the IAM roles, re-add the targets to the `--only` flag.
-# Until then, rule/index/storage changes must be deployed separately by
-# a human with broader credentials (e.g.
-#   `firebase deploy --only firestore:rules --project realyn-app`
-# from a workstation with ADC for an owner-level account).
-#
-# Pending undeployed rule changes since the last successful prod deploy
-# (2026-03-26, draftargument-00017-nez):
-#   a9306b8 — ticketing evidence copy, read-only disputes
-#   0d88b08 — Release rollout
-#   2af21f9 — RAG groundwork
-#   eb337f8 — winPatterns rule decision
-# None of these block RAG running; they tighten the rule schema.
+# If a future deploy starts failing on rule/storage IAM again, the fastest
+# diagnostic is `gcloud projects get-iam-policy realyn-app --flatten='bindings[].members'
+# --filter='bindings.members:github-action-1093841209@realyn-app.iam.gserviceaccount.com'`
+# — confirm the three roles above are still bound.
 
 jobs:
   deploy:
@@ -85,6 +72,6 @@ jobs:
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:
-          args: deploy --only functions --project realyn-app
+          args: deploy --only functions,firestore:rules,firestore:indexes,storage --project realyn-app
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP }}
