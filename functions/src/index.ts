@@ -13,6 +13,15 @@ import { sendInternalError } from "./utils/httpErrorResponse";
 
 import { configureTelemetry } from "@realyn/ai-core/telemetry";
 import { cloudLoggingEmitter } from "./lib/cloudLoggingTelemetry";
+// Side-effect import: registers the Pinecone-backed VectorStorePort + rerank
+// port via `configureVectorStore` / `configureRerankPort` so the ai-core
+// retrieval path has a live backend in every deployed function (and not just
+// in the scripts that explicitly import this module). Without this line, every
+// invocation of `retrieveRagContext` short-circuits to EMPTY_RAG_RESULT
+// silently because `_store` in ai-core's ragService is null — the bug that
+// made the first C7 deploy log `[rag] chunksReturned=0` despite the index
+// having 2284 vectors and the query being valid.
+import "./services/ai/ragService";
 
 admin.initializeApp();
 // Ignore undefined fields when writing to Firestore. Required because the

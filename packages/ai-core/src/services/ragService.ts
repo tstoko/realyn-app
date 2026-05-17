@@ -90,6 +90,22 @@ export function getVectorStore(): VectorStorePort | null {
 /** Test helper — reset the module cache. */
 export function _resetVectorStoreForTests(): void {
   _store = null;
+  _storeMissingLogged = false;
+}
+
+// Tracks whether we've already logged the "store missing" warning so high-
+// throughput functions don't spam logs on every request once the misconfig
+// is identified. The flag resets on cold start, which is the cadence we want.
+let _storeMissingLogged = false;
+
+function _logStoreMissing(disputeId?: string, stage?: string): void {
+  if (_storeMissingLogged) return;
+  _storeMissingLogged = true;
+  console.warn(
+    `[rag] vector store not configured — call configureVectorStore() at app ` +
+      `startup. All retrieval calls will return EMPTY_RAG_RESULT until fixed. ` +
+      `(first miss: disputeId=${disputeId ?? "unknown"}, stage=${stage ?? "unknown"})`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +122,12 @@ export async function retrieveRagContext(query: RagQuery): Promise<RagResult> {
 
   const store = _store;
   if (!store) {
-    // Not configured — treat as disabled rather than an error.
+    // Vector store never registered — the consuming app forgot to call
+    // `configureVectorStore` at startup (e.g. missing side-effect import of
+    // the local Pinecone wire-up). Logging once per cold-start makes this
+    // visible in production logs instead of silently degrading to "no
+    // retrieval". `_logStoreMissing` self-debounces so we don't spam.
+    _logStoreMissing(query.disputeId, query.stage);
     return EMPTY_RAG_RESULT;
   }
 
