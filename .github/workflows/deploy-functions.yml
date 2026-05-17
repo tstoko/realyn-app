@@ -25,6 +25,16 @@ on:
 #   - roles/firebaserules.admin     (firebaserules.releases.test/update)
 #   - roles/datastore.viewer        (already present; needed for index reads)
 #
+# `storage` is still deliberately excluded from `--only` until Firebase Storage
+# is initialised on the realyn-app project. Today the project has no default
+# bucket, so `firebase deploy --only storage` aborts with:
+#   "Firebase Storage has not been set up on project 'realyn-app'.
+#    Go to https://console.firebase.google.com/project/realyn-app/storage
+#    and click 'Get Started' to set up Firebase Storage."
+# This is a one-time, human-only action (the console flow forces a region
+# pick). Once it's done, add `,storage` back to the `--only` flag in the deploy
+# step below — the IAM grants above are already sufficient.
+#
 # If a future deploy starts failing on rule/storage IAM again, the fastest
 # diagnostic is `gcloud projects get-iam-policy realyn-app --flatten='bindings[].members'
 # --filter='bindings.members:github-action-1093841209@realyn-app.iam.gserviceaccount.com'`
@@ -72,6 +82,6 @@ jobs:
       - name: Deploy to Firebase
         uses: w9jds/firebase-action@v15.15.0
         with:
-          args: deploy --only functions,firestore:rules,firestore:indexes,storage --project realyn-app
+          args: deploy --only functions,firestore:rules,firestore:indexes --project realyn-app
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_REALYN_APP }}
