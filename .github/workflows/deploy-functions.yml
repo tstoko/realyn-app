@@ -24,6 +24,11 @@ on:
 #   - roles/firebasestorage.admin   (firebasestorage.defaultBucket.get + write)
 #   - roles/firebaserules.admin     (firebaserules.releases.test/update)
 #   - roles/datastore.viewer        (already present; needed for index reads)
+#   - roles/datastore.indexAdmin    (firestore.indexes write — the
+#                                    `datastore.viewer` grant only covers
+#                                    reads, so the first deploy with
+#                                    indexes in --only 403'd on the
+#                                    indexes endpoint)
 #
 # `storage` is still deliberately excluded from `--only` until Firebase Storage
 # is initialised on the realyn-app project. Today the project has no default
