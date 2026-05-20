@@ -610,6 +610,16 @@ export interface SpecialistContext {
   evidenceRequirements?: import("../types/knowledgeBase").EvidenceRequirementRule | null;
   pspFormats?: import("../types/knowledgeBase").PSPFormatRule[];
   winPatterns?: import("../types/knowledgeBase").WinPattern[];
+  /**
+   * Pre-resolved scheme-rulebook RAG result. When the orchestrator runs a
+   * revision loop, it should resolve retrieval ONCE before the loop and pass
+   * the result here so subsequent attempts within the same dispute do not
+   * re-issue Pinecone reads (the query is deterministic per disputeId/stage/
+   * reasonCode and does not change between revisions). The planner falls
+   * back to live retrieval when this is undefined, preserving the
+   * back-compat single-call contract.
+   */
+  rulebookRagResult?: import("../services/ragPromptInjection").RulebookRagResult;
 }
 
 /**

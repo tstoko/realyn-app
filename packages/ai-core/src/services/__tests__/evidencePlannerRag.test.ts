@@ -256,4 +256,77 @@ describe("generateEvidencePlan ↔ RAG", () => {
     // Plan still got generated from the deterministic + LLM path
     expect(plan?.requirements.length).toBeGreaterThan(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // Orchestrator-supplied RAG result: caching across revision attempts
+  // ---------------------------------------------------------------------------
+  //
+  // When the evidence-planning orchestrator runs its revision loop, it resolves
+  // retrieval once before the loop and passes the result via
+  // `SpecialistContext.rulebookRagResult`. The planner MUST consume that
+  // cached result and MUST NOT issue a fresh vector-store call. Without this
+  // contract, every revision attempt fans out another Pinecone read with an
+  // identical deterministic query — the smell observed in prod logs
+  // (`[rag] chunksReturned=5 topScore=6.864` ×3 per dispute).
+
+  test("uses context.rulebookRagResult and skips live retrieval when supplied", async () => {
+    const queryFn = jest.fn(async () => [
+      rulebookMatch("ignored", 0.99, "this store should never be queried", "ignored source"),
+    ]);
+    configureVectorStore({ query: queryFn });
+
+    const cachedChunk = {
+      id: "cached-1",
+      text:
+        "Section 11.4 (orchestrator-cached): merchant must prove 3D Secure authentication.",
+      score: 0.95,
+      source: "Visa Public Rules v2024, §11.4 (cached)",
+      metadata: {
+        namespace: RAG_NAMESPACES.rulebooks,
+        schemaVersion: RAG_SCHEMA_VERSION,
+        embeddingModel: EMBEDDING_MODEL,
+        tokenCount: 80,
+        indexedAt: "2026-04-15T00:00:00Z",
+        text:
+          "Section 11.4 (orchestrator-cached): merchant must prove 3D Secure authentication.",
+        chunkIndex: 0,
+        source: "Visa Public Rules v2024, §11.4 (cached)",
+        network: "visa" as const,
+        documentName: "Visa Public Rules",
+        documentVersion: "2024-04-15",
+        reasonCodes: [],
+      },
+    };
+
+    const plan = await generateEvidencePlan(dispute(), {
+      rulebookRagResult: {
+        chunks: [cachedChunk],
+        topScore: 0.95,
+        disabled: false,
+      },
+    });
+
+    expect(plan).not.toBeNull();
+    expect(queryFn).not.toHaveBeenCalled();
+
+    const prompt = capturedPrompts[0];
+    expect(prompt).toContain("## REFERENCE MATERIAL");
+    expect(prompt).toContain("orchestrator-cached");
+    expect(prompt).toContain("Visa Public Rules v2024, §11.4 (cached)");
+  });
+
+  test("uses an empty context.rulebookRagResult to suppress the section without hitting Pinecone", async () => {
+    const queryFn = jest.fn(async () => [
+      rulebookMatch("ignored", 0.99, "shouldn't be reached", "ignored source"),
+    ]);
+    configureVectorStore({ query: queryFn });
+
+    const plan = await generateEvidencePlan(dispute(), {
+      rulebookRagResult: { chunks: [], topScore: 0, disabled: false },
+    });
+
+    expect(plan).not.toBeNull();
+    expect(queryFn).not.toHaveBeenCalled();
+    expect(capturedPrompts[0]).not.toContain("## REFERENCE MATERIAL");
+  });
 });
