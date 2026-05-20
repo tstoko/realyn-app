@@ -31,6 +31,7 @@ import {
   generateFallbackStrategy,
 } from "./specialists";
 import { sanitizeDisputeCaseWithLog } from "../../utils/piiSanitizer";
+import { retrieveRulebookForPrompt } from "@realyn/ai-core/services/ragPromptInjection";
 
 // ============================================================
 // Evidence Planning Service
@@ -250,6 +251,20 @@ export async function triggerEvidencePlanning(
     // ============================================================
     console.log(`[EvidencePlanning] Steps 5-6: Plan generation with quality loop`);
 
+    // Pre-resolve scheme-rulebook RAG retrieval ONCE, outside the revision
+    // loop. The retrieval query is deterministic per (disputeId, stage,
+    // reasonCode); none of those change between revision attempts, so
+    // calling it per attempt just multiplied Pinecone reads (observed in
+    // prod: 3 identical `[rag] chunksReturned=5 topScore=6.864` log lines
+    // per dispute, one per attempt). Passed to the planner via
+    // SpecialistContext.rulebookRagResult; the planner falls back to
+    // live retrieval when this is absent, preserving single-shot callers.
+    const rulebookRagResult = await retrieveRulebookForPrompt({
+      disputeCase: sanitizedCase,
+      stage: "evidence_planning",
+      reasonCodeDescription: codeInfo?.description,
+    });
+
     let plan: EvidencePlan | null = null;
     let revisionFeedback: RevisionInstructions | undefined;
     let qualityScore = 0;
@@ -279,6 +294,7 @@ export async function triggerEvidencePlanning(
         respondByDate: disputeCase.respondByDate,
         pmsMatch,
         merchantVertical: disputeCase.merchantVertical,
+        rulebookRagResult,
       };
 
       // Generate the plan (planner receives sanitizedCase)

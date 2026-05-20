@@ -80,11 +80,21 @@ export async function generateEvidencePlan(
     // Retrieve scheme-rulebook context for prompt injection. Always returns
     // (possibly empty) — failures in retrieval must never block evidence
     // planning. See `ragPromptInjection.retrieveRulebookForPrompt`.
-    const ragResult = await retrieveRulebookForPrompt({
-      disputeCase,
-      stage: "evidence_planning",
-      reasonCodeDescription: codeInfo?.description,
-    });
+    //
+    // When the orchestrator runs a revision loop it pre-resolves retrieval
+    // once and passes the result via `context.rulebookRagResult`. The query
+    // is deterministic per (disputeId, stage, reasonCode) so calling it on
+    // every attempt would just burn Pinecone reads. Fall back to live
+    // retrieval when the orchestrator did not supply a cached result, which
+    // keeps the planner usable in single-shot test paths and back-compat for
+    // callers that don't know about the cache.
+    const ragResult =
+      context?.rulebookRagResult ??
+      (await retrieveRulebookForPrompt({
+        disputeCase,
+        stage: "evidence_planning",
+        reasonCodeDescription: codeInfo?.description,
+      }));
     const referenceMaterialBlock = buildReferenceMaterialBlock(ragResult.chunks);
 
     // Build the prompt for the LLM (now with specialist context + RAG)
