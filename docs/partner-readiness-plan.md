@@ -76,21 +76,23 @@ These three are blocking-prerequisites that unlock the rest. Do them first.
 
 ### Week 1: Ontology + Connector Interface
 
-#### W1.1 — Complete the ontology package (~2 days)
+#### W1.1 — Complete the ontology package (~2 days) — **IN PROGRESS 2026-05-21**
 
 Building on P0.3. Everything Tier 1 depends on knowing the canonical types are stable.
 
-**Deliverables:**
-- `packages/ontology/src/dispute.ts` — `DisputeSchema`, `DisputeStatus` enum (`pending` → `evidence_collecting` → `ai_planning` → `argument_review` → `submitted` → `won|lost|expired`), `DisputeReasonCode`
-- `packages/ontology/src/evidence.ts` — `EvidenceItemSchema`, `EvidenceCategory`, `EvidenceSource`, `EvidenceFulfillmentState`
-- `packages/ontology/src/org.ts` — extended `OrgSchema` with `vertical`, `evidenceSources`, `promptOverrides`, `mode` (`sandbox|live`), `ontologyVersion`
-- `packages/ontology/src/audit.ts` — `AuditEventSchema`
-- `packages/ontology/src/tenant.ts` — `TenantContext` type (`{orgId, userId, mode, vertical, locale, requestId}`)
-- `packages/ontology/src/version.ts` — `ONTOLOGY_VERSION = "1.0.0"`, migration helpers
-- All schemas use zod with `.strict()` (no extra properties allowed)
-- ADR-0002: "Versioning the ontology — semver for data shapes"
+**Progress 2026-05-21 (this PR):**
+- `packages/ontology/src/tenant.ts` — `TenantContext` + `TenantMode` + `TenantVertical` (strict zod) ✅
+- `packages/ontology/src/audit.ts` — hardened `AuditEvent` (strict, discriminated-union actor, append-only contract) ✅
+- `packages/ontology/src/outcome.ts` — hardened `Outcome` with refinement guards (`recoveredAmount` only on `won`, currency required when amount set) ✅
+- `packages/ontology/src/dispute.ts` — added canonical `disputeWorkflowStatusSchema` enum (`pending` → `evidence_collecting` → `ai_planning` → `argument_review` → `submitted` → `won|lost|expired`); additive, alongside existing `automationStatus`/`lifecycleStatus`/`internalStatus` ✅
+- `packages/ontology/src/version.ts` — bumped `ONTOLOGY_VERSION` to `0.2.0`; documented bumping policy ✅
+- Jest setup + 50 tests across 5 suites (round-trip, schema rejection, strict-mode, refinement guards, version-bump assertion) ✅
+- ADR-0002 "Versioning the ontology — semver for data shapes" — adopted; defines Tier A (strict, no historical data) vs Tier B (permissive, awaiting W2.3 migration) ✅
 
-**Tests:** `packages/ontology/__tests__/` — round-trip serialization, schema rejection of malformed inputs, version bump assertions.
+**Deferred to follow-up PR (W1.1 continuation):**
+- `.strict()` on `userSchema` / `disputeSchema` / `organizationSchema` / cached AI pipeline schemas (Tier B per ADR-0002) — graduates after the W2.3 data-audit + migration scripts exist
+- Extended `OrgSchema` with `vertical`, `evidenceSources`, `promptOverrides`, `mode`, `ontologyVersion` — this is W2.3 territory (per-tenant config + Secret Manager refs); deliberately not landed in the ontology PR alone so the schema and the migration script land together
+- `EvidenceSource`, `EvidenceFulfillmentState` — these belong with the W1.2 Connector pattern, not the ontology surface alone
 
 #### W1.2 — `EvidenceSourceClient` generalization (~3 days)
 
