@@ -122,6 +122,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
     "@pinecone-database/pinecone": "^7.2.0",
+    "openai": "^6.39.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

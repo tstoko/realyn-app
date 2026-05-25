@@ -89,7 +89,7 @@ const demoDisputes = [
  * - Pre-generates arguments for some disputes
  */
 export const seedDemoData = onRequest(
-  { cors: ALLOWED_ORIGINS, secrets: ["ANTHROPIC_API_KEY"] },
+  { cors: ALLOWED_ORIGINS, secrets: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] },
   async (req: Request, res: Response) => {
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed. Use POST." });
