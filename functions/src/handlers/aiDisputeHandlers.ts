@@ -185,7 +185,15 @@ export const onEvidencePlanQueued = functions.firestore.onDocumentUpdated(
     // namespace. The retrieval path is fail-safe (empty chunks on any
     // error), so an unset / unbound secret degrades gracefully back to the
     // pre-RAG deterministic pipeline. See ragPromptInjection.ts.
-    secrets: ["ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
+    //
+    // Both OPENAI_API_KEY and ANTHROPIC_API_KEY are bound so the LLM
+    // provider can be switched at runtime via the LLM_PROVIDER env var
+    // (see packages/ai-core/src/services/llm/factory.ts) without a
+    // code change or redeploy. The non-active provider's secret is
+    // bound but unused — Cloud Functions doesn't bill for unused
+    // bindings, and binding both removes the need to redeploy the
+    // function to flip providers.
+    secrets: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
     timeoutSeconds: 540,
     memory: "512MiB",
   },
@@ -552,7 +560,9 @@ export const draftArgument = functions.https.onRequest(
     // can call Pinecone Inference for hybrid retrieval against the rulebooks
     // namespace. Same fail-safe guarantee as onEvidencePlanQueued: empty
     // chunks on any error, no impact on deterministic argument generation.
-    secrets: ["ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
+    // OPENAI_API_KEY + ANTHROPIC_API_KEY both bound — see the analogous
+    // comment on the evidence-planning handler above for the rationale.
+    secrets: ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PINECONE_API_KEY"],
     timeoutSeconds: 180,
     memory: "512MiB",
   },

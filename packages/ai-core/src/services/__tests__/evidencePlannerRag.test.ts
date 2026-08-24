@@ -21,6 +21,7 @@ import {
 } from "../ragService";
 import { _resetEmbeddingClientForTests } from "../embeddingService";
 import { _resetSparseEmbeddingClientForTests } from "../sparseEmbeddingService";
+import { _resetProviderForTests as _resetLlmProviderForTests } from "../llm/factory";
 import { generateEvidencePlan } from "../evidencePlanner";
 import { RAG_NAMESPACES, RAG_SCHEMA_VERSION, EMBEDDING_MODEL } from "../../config/ragConfig";
 import type { DisputeCase, EvidencePlan } from "../../types/aiDispute";
@@ -180,10 +181,15 @@ describe("generateEvidencePlan ↔ RAG", () => {
     capturedPrompts.length = 0;
     process.env = {
       ...ORIGINAL_ENV,
+      // Force Anthropic provider so this test's @anthropic-ai/sdk mock
+      // is the one exercised. Production default is OpenAI as of the
+      // LLM provider abstraction PR (see services/llm/factory.ts).
+      LLM_PROVIDER: "anthropic",
       ANTHROPIC_API_KEY: "sk-ant-test",
       PINECONE_API_KEY: "pcsk-test",
     };
     delete process.env.RAG_RETRIEVAL_ENABLED;
+    _resetLlmProviderForTests();
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
     _resetSparseEmbeddingClientForTests();
@@ -194,6 +200,7 @@ describe("generateEvidencePlan ↔ RAG", () => {
 
   afterEach(() => {
     process.env = ORIGINAL_ENV;
+    _resetLlmProviderForTests();
     _resetVectorStoreForTests();
     _resetEmbeddingClientForTests();
     _resetSparseEmbeddingClientForTests();

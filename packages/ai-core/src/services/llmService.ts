@@ -1,449 +1,133 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { getTelemetryEmitter, type TelemetryContext } from "../telemetry";
+
+import { getLlmProvider } from "./llm/factory";
+import type {
+  LlmCallOptions,
+  LlmCallResult,
+  LlmImageInput,
+  LlmTextOptions,
+  LlmTextResult,
+  LlmVisionCallOptions,
+} from "./llm/types";
 
 // ============================================================
-// LLM Service - Anthropic Claude Integration
+// LLM Service — provider-agnostic facade
 // ============================================================
+//
+// Pre-2026-05 this module spoke directly to the Anthropic SDK. After
+// the Anthropic credit-block incident, the implementation was lifted
+// behind an `LlmProvider` interface (see `./llm/`). The public surface
+// — names, parameter shapes, return shapes — is preserved verbatim so
+// existing call sites (planner, argument generator, specialists,
+// captureRagBaseline) didn't change.
+//
+// To switch providers at runtime, set the `LLM_PROVIDER` env var on the
+// Cloud Function (or the equivalent shell env when running locally).
+// Valid values: `openai` (default), `anthropic`. See
+// `./llm/factory.ts` for the resolution rules.
 
-let anthropicClient: Anthropic | null = null;
-let clientInitError: string | null = null;
+// ------------------------------------------------------------
+// Re-exported types (back-compat aliases to the new shared types)
+// ------------------------------------------------------------
 
-function getAnthropicClient(): Anthropic | null {
-  if (clientInitError) {
-    return null;
-  }
+export type LLMCallOptions = LlmCallOptions;
+export type ImageInput = LlmImageInput;
+export type LLMVisionCallOptions = LlmVisionCallOptions;
+export type LLMCallResult<T> = LlmCallResult<T>;
 
-  if (!anthropicClient) {
-    try {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        clientInitError = "ANTHROPIC_API_KEY environment variable is not set";
-        console.warn(`Anthropic client initialization failed: ${clientInitError}`);
-        return null;
-      }
-      anthropicClient = new Anthropic({ apiKey });
-    } catch (error) {
-      clientInitError = error instanceof Error ? error.message : String(error);
-      console.warn(`Anthropic client initialization failed: ${clientInitError}`);
-      return null;
-    }
-  }
-  return anthropicClient;
-}
+// ------------------------------------------------------------
+// Availability helpers
+// ------------------------------------------------------------
 
 export function isLLMAvailable(): boolean {
-  return getAnthropicClient() !== null;
+  return getLlmProvider().isAvailable();
 }
 
 export function getLLMInitError(): string | null {
-  return clientInitError;
+  return getLlmProvider().initError();
 }
 
-// ============================================================
-// Types
-// ============================================================
-
-export interface LLMCallOptions {
-  model?: string;
-  temperature?: number;
-  maxTokens?: number;
-  systemPrompt?: string;
-  retries?: number;
-  retryDelay?: number;
-  /** When set, the service emits an AITelemetryEvent on completion. */
-  telemetry?: TelemetryContext;
-}
-
-export interface ImageInput {
-  url: string;
-  description?: string;
-}
-
-export interface LLMVisionCallOptions extends LLMCallOptions {
-  images?: ImageInput[];
-}
-
-export interface LLMCallResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  rawResponse?: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-}
-
-const DEFAULT_OPTIONS: Required<Omit<LLMCallOptions, "telemetry">> = {
-  model: "claude-opus-4-6",
-  temperature: 0.2,
-  maxTokens: 8192,
-  systemPrompt: "You are a helpful assistant that responds in JSON format.",
-  retries: 2,
-  retryDelay: 1000,
-};
-
-// ============================================================
-// Main LLM Call Function
-// ============================================================
+// ------------------------------------------------------------
+// Main entry points
+// ------------------------------------------------------------
 
 /**
- * Call Anthropic API with structured JSON output and Zod validation
+ * Call the configured LLM provider with a prompt + zod schema for
+ * structured output. The provider applies its native
+ * structured-output mechanism (OpenAI: `response_format: json_schema`;
+ * Anthropic: JSON-instructed prompt + retry on parse failure).
  *
- * @param prompt - The user prompt to send to the LLM
- * @param schema - Zod schema to validate the response
- * @param options - Optional configuration
- * @returns Validated response or error
+ * @param prompt   - The user prompt to send to the LLM.
+ * @param schema   - Zod schema to validate the response.
+ * @param options  - Optional configuration.
  */
 export async function callLLM<T>(
   prompt: string,
   schema: z.ZodSchema<T>,
-  options?: LLMCallOptions
-): Promise<LLMCallResult<T>> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const startMs = Date.now();
-
-  const client = getAnthropicClient();
-  if (!client) {
-    const initError = getLLMInitError() || "Anthropic client not available";
-    console.warn(`LLM call skipped: ${initError}. Fallback plan will be used.`);
-    emitLLMTelemetry(opts, { success: false, error: initError }, startMs);
-    return {
-      success: false,
-      error: initError,
-    };
-  }
-
-  let lastError: Error | null = null;
-  let rawResponse: string | undefined;
-
-  for (let attempt = 0; attempt <= opts.retries; attempt++) {
-    try {
-      const response = await client.messages.create({
-        model: opts.model,
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        system: opts.systemPrompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown fences, no explanation outside the JSON object.",
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
-
-      const textBlock = response.content.find((block) => block.type === "text");
-      const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
-      rawResponse = content || undefined;
-
-      if (!content) {
-        throw new Error("Empty response from Anthropic");
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (parseError) {
-        throw new Error(`Failed to parse JSON response: ${content.substring(0, 200)}...`);
-      }
-
-      const validated = schema.safeParse(parsed);
-      if (!validated.success) {
-        const errors = validated.error.errors
-          .map((e) => `${e.path.join(".")}: ${e.message}`)
-          .join(", ");
-        throw new Error(`Response validation failed: ${errors}`);
-      }
-
-      const result: LLMCallResult<T> = {
-        success: true,
-        data: validated.data,
-        rawResponse,
-        usage: response.usage
-          ? {
-              promptTokens: response.usage.input_tokens,
-              completionTokens: response.usage.output_tokens,
-              totalTokens: response.usage.input_tokens + response.usage.output_tokens,
-            }
-          : undefined,
-      };
-      emitLLMTelemetry(opts, result, startMs);
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`LLM call attempt ${attempt + 1} failed:`, lastError.message);
-
-      if (attempt < opts.retries) {
-        await sleep(opts.retryDelay * (attempt + 1));
-      }
-    }
-  }
-
-  const failResult: LLMCallResult<T> = {
-    success: false,
-    error: lastError?.message || "Unknown error",
-    rawResponse,
-  };
-  emitLLMTelemetry(opts, failResult, startMs);
-  return failResult;
+  options?: LlmCallOptions,
+): Promise<LlmCallResult<T>> {
+  return getLlmProvider().call(prompt, schema, options);
 }
 
-// ============================================================
-// Vision-Enabled LLM Call Function
-// ============================================================
-
 /**
- * Call Anthropic API with vision capabilities - can process images.
- * Uses Claude's native multimodal support for document analysis.
- *
- * @param prompt - The user prompt to send to the LLM
- * @param schema - Zod schema to validate the response
- * @param options - Optional configuration including images
- * @returns Validated response or error
+ * Call the configured LLM provider with vision support. Images are
+ * inlined into the user message in whatever shape the provider's API
+ * expects.
  */
 export async function callLLMWithVision<T>(
   prompt: string,
   schema: z.ZodSchema<T>,
-  options?: LLMVisionCallOptions
-): Promise<LLMCallResult<T>> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const images = options?.images || [];
-  const startMs = Date.now();
-
-  const client = getAnthropicClient();
-  if (!client) {
-    const initError = getLLMInitError() || "Anthropic client not available";
-    console.warn(`LLM vision call skipped: ${initError}. Fallback will be used.`);
-    emitLLMTelemetry(opts, { success: false, error: initError }, startMs);
-    return {
-      success: false,
-      error: initError,
-    };
-  }
-
-  const userContent: Anthropic.MessageCreateParams["messages"][0]["content"] = [
-    { type: "text", text: prompt },
-  ];
-
-  for (const image of images) {
-    (userContent as any[]).push({
-      type: "image",
-      source: {
-        type: "url",
-        url: image.url,
-      },
-    });
-
-    if (image.description) {
-      (userContent as any[]).push({
-        type: "text",
-        text: `[The above image is: ${image.description}]`,
-      });
-    }
-  }
-
-  let lastError: Error | null = null;
-  let rawResponse: string | undefined;
-
-  console.log(`[Vision API] Calling Anthropic with model: ${opts.model}, ${images.length} images`);
-
-  for (let attempt = 0; attempt <= opts.retries; attempt++) {
-    try {
-      const response = await client.messages.create({
-        model: opts.model,
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        system: opts.systemPrompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No markdown fences, no explanation outside the JSON object.",
-        messages: [
-          {
-            role: "user",
-            content: userContent,
-          },
-        ],
-      });
-
-      console.log(`[Vision API] Response received, model used: ${response.model || "not specified"}`);
-
-      const textBlock = response.content.find((block) => block.type === "text");
-      const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
-      rawResponse = content || undefined;
-
-      if (!content) {
-        throw new Error("Empty response from Anthropic");
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content);
-      } catch (parseError) {
-        throw new Error(`Failed to parse JSON response: ${content.substring(0, 200)}...`);
-      }
-
-      const validated = schema.safeParse(parsed);
-      if (!validated.success) {
-        const errors = validated.error.errors
-          .map((e) => `${e.path.join(".")}: ${e.message}`)
-          .join(", ");
-        throw new Error(`Response validation failed: ${errors}`);
-      }
-
-      if ((parsed as any)?.model) {
-        console.log(`[Vision API] WARNING: Parsed JSON includes model field: ${(parsed as any).model}`);
-      }
-
-      const result: LLMCallResult<T> = {
-        success: true,
-        data: validated.data,
-        rawResponse,
-        usage: response.usage
-          ? {
-              promptTokens: response.usage.input_tokens,
-              completionTokens: response.usage.output_tokens,
-              totalTokens: response.usage.input_tokens + response.usage.output_tokens,
-            }
-          : undefined,
-      };
-      emitLLMTelemetry(opts, result, startMs);
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`LLM vision call attempt ${attempt + 1} failed:`, lastError.message);
-
-      if (attempt < opts.retries) {
-        await sleep(opts.retryDelay * (attempt + 1));
-      }
-    }
-  }
-
-  const failResult: LLMCallResult<T> = {
-    success: false,
-    error: lastError?.message || "Unknown error",
-    rawResponse,
-  };
-  emitLLMTelemetry(opts, failResult, startMs);
-  return failResult;
+  options?: LlmVisionCallOptions,
+): Promise<LlmCallResult<T>> {
+  return getLlmProvider().callWithVision(prompt, schema, options);
 }
 
-// ============================================================
-// Specialized LLM Functions
-// ============================================================
-
 /**
- * Call LLM with a pre-formatted prompt template
+ * Call the LLM with a pre-formatted prompt template. Variables are
+ * substituted by `{{name}}` placeholders.
  */
 export async function callLLMWithTemplate<T>(
   template: string,
   variables: Record<string, string | number | boolean | null | undefined>,
   schema: z.ZodSchema<T>,
-  options?: LLMCallOptions
-): Promise<LLMCallResult<T>> {
+  options?: LlmCallOptions,
+): Promise<LlmCallResult<T>> {
   let prompt = template;
   for (const [key, value] of Object.entries(variables)) {
     const placeholder = `{{${key}}}`;
     prompt = prompt.replace(new RegExp(placeholder, "g"), String(value ?? ""));
   }
-
   return callLLM(prompt, schema, options);
 }
 
 /**
- * Simple text completion (no schema validation)
+ * Plain text completion (no schema). Used by minor pipeline paths that
+ * need a string back, not a structured object.
  */
 export async function getTextCompletion(
   prompt: string,
-  options?: Omit<LLMCallOptions, "systemPrompt">
-): Promise<{ success: boolean; text?: string; error?: string }> {
-  const opts = {
-    ...DEFAULT_OPTIONS,
-    ...options,
-    systemPrompt: "You are a helpful assistant. Respond with plain text.",
-  };
-
-  const client = getAnthropicClient();
-  if (!client) {
-    const initError = getLLMInitError() || "Anthropic client not available";
-    return { success: false, error: initError };
-  }
-
-  try {
-    const response = await client.messages.create({
-      model: opts.model,
-      temperature: opts.temperature,
-      max_tokens: opts.maxTokens,
-      system: opts.systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    });
-
-    const textBlock = response.content.find((block) => block.type === "text");
-    const content = textBlock && textBlock.type === "text" ? textBlock.text : null;
-    if (!content) {
-      return { success: false, error: "Empty response" };
-    }
-
-    return { success: true, text: content };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { success: false, error: message };
-  }
+  options?: LlmTextOptions,
+): Promise<LlmTextResult> {
+  return getLlmProvider().getTextCompletion(prompt, options);
 }
 
-// ============================================================
-// Telemetry Helper
-// ============================================================
-
-function emitLLMTelemetry<T>(
-  opts: Required<Omit<LLMCallOptions, "telemetry">> & Pick<LLMCallOptions, "telemetry">,
-  result: LLMCallResult<T>,
-  startMs: number,
-): void {
-  if (!opts.telemetry) return;
-  try {
-    getTelemetryEmitter().emit({
-      type: "llm_call",
-      disputeId: opts.telemetry.disputeId,
-      stage: opts.telemetry.stage,
-      model: opts.model,
-      tokensIn: result.usage?.promptTokens,
-      tokensOut: result.usage?.completionTokens,
-      latencyMs: Date.now() - startMs,
-      success: result.success,
-      error: result.error,
-    });
-  } catch {
-    // Telemetry must never break the pipeline.
-  }
-}
-
-// ============================================================
-// Helper Functions
-// ============================================================
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// ------------------------------------------------------------
+// Helper utilities (kept on the public surface for back-compat)
+// ------------------------------------------------------------
 
 /**
- * Estimate token count for a string (rough approximation)
- * ~4 characters per token on average for English text
+ * Estimate token count for a string (rough approximation).
+ * ~4 characters per token on average for English text.
  */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
 /**
- * Truncate text to approximate token limit
+ * Truncate text to approximate token limit.
  */
 export function truncateToTokenLimit(text: string, maxTokens: number): string {
   const estimatedChars = maxTokens * 4;
-  if (text.length <= estimatedChars) {
-    return text;
-  }
+  if (text.length <= estimatedChars) return text;
   return text.substring(0, estimatedChars) + "... [truncated]";
 }
