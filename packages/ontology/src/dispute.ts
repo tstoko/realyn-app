@@ -72,6 +72,47 @@ export const internalStatusSchema = z.enum([
 export type InternalStatus = z.infer<typeof internalStatusSchema>;
 
 /**
+ * Canonical pipeline status enum the partner-readiness plan targets
+ * (§W1.1). Replaces the union of `automationStatus`,
+ * `lifecycleStatus`, and `internalStatus` once handlers are migrated to
+ * the Action framework (§W2.1).
+ *
+ * Today's three status fields each track a slightly different axis:
+ *   - `automationStatus`: AI pipeline progress (`auditing`, `responding`, …)
+ *   - `lifecycleStatus`:  end-user-facing stage (`new`, `plan_ready`, …)
+ *   - `internalStatus`:   operator review state (`needs_review`, …)
+ *
+ * The three accreted organically as features landed. This new enum is
+ * the consolidated state machine. It is **additive** in W1.1 — no
+ * existing code reads or writes it yet. Wiring is W2.1 (Actions emit
+ * transitions) plus the dashboard refactor that follows.
+ *
+ * The transitions, in order:
+ *
+ *   pending
+ *     → evidence_collecting
+ *     → ai_planning
+ *     → argument_review
+ *     → submitted
+ *     → won | lost | expired
+ *
+ * `expired` is terminal — the merchant ran past the PSP respond-by
+ * deadline without submitting. `won` and `lost` are recorded from the
+ * PSP outcome webhook (or the sandbox `simulateOutcome` endpoint).
+ */
+export const disputeWorkflowStatusSchema = z.enum([
+  "pending",
+  "evidence_collecting",
+  "ai_planning",
+  "argument_review",
+  "submitted",
+  "won",
+  "lost",
+  "expired",
+]);
+export type DisputeWorkflowStatus = z.infer<typeof disputeWorkflowStatusSchema>;
+
+/**
  * Free-form note attached to a Dispute by an operator. Kept ordered by
  * `timestamp` ascending.
  */

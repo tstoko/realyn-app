@@ -1,17 +1,21 @@
 {
   "name": "@realyn/ontology",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Canonical types and schemas for the Realyn platform. Single source of truth for Dispute, Evidence, Organization, and related domain objects across dashboard, ai-core, and functions.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.5.0"
   },
   "engines": {

@@ -60,6 +60,7 @@ export type {
   AutomationStatus,
   DisputeLifecycleStatus,
   InternalStatus,
+  DisputeWorkflowStatus,
   Note,
   AuditTrailCategory,
   AutomationStep,
@@ -72,6 +73,7 @@ export {
   automationStatusSchema,
   disputeLifecycleStatusSchema,
   internalStatusSchema,
+  disputeWorkflowStatusSchema,
   auditTrailCategorySchema,
   disputeSchema,
 } from "./dispute";
@@ -115,8 +117,19 @@ export {
   isSubscriptionActive,
 } from "./billing";
 
-export type { Outcome } from "./outcome";
-export { outcomeSchema } from "./outcome";
+export type { Outcome, OutcomeResult } from "./outcome";
+export { outcomeSchema, outcomeResultSchema } from "./outcome";
 
-export type { AuditEvent } from "./audit";
+export type { AuditEvent, AuditActor } from "./audit";
 export { auditEventSchema } from "./audit";
+
+export type {
+  TenantContext,
+  TenantMode,
+  TenantVertical,
+} from "./tenant";
+export {
+  tenantContextSchema,
+  tenantModeSchema,
+  tenantVerticalSchema,
+} from "./tenant";
