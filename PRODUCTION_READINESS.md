@@ -1,6 +1,6 @@
-# Production Readiness Roadmap
+# Historical commercial roadmap
 
-> **Status:** Not yet ready to sell. The core product logic is solid — dispute ingestion, AI evidence planning, multi-PSP support, dashboard UI — but critical security, commercial infrastructure, and hardening work remains.
+> This is an earlier planning record from the project's commercial exploration. Realyn is now presented as an experimental side project. The checkmarks, deadlines, security statements, and estimates below have not been revalidated; they do not describe verified deployment status or current commitments. Start with [project status](docs/PROJECT_STATUS.md) and the [README](README.md).
 
 ---
 
@@ -227,3 +227,4 @@ Workflow files: [`.github/workflows/deploy-dashboard.yml`](.github/workflows/dep
 **Critical path to first revenue:** Security lockdown (1-6) → Staging env (11) → Onboarding (15) → Billing (16)
 
 **Estimated timeline to minimum viable commercial product:** 4-6 focused weeks assuming full-time effort.
+
