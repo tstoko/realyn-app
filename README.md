@@ -8,6 +8,9 @@
 <h1 align="center">Realyn</h1>
 <p align="center">A side project exploring payment disputes, evidence workflows, and AI-assisted drafting.</p>
 <p align="center">
+  <a href="#workflow">Workflow</a> ·
+  <a href="#ontology">Ontology</a> ·
+  <a href="#architecture">Architecture</a> ·
   <a href="#getting-started">Run locally</a> ·
   <a href="docs/PROJECT_STATUS.md">Project status</a> ·
   <a href="#inside-the-repo">Code map</a> ·
@@ -31,6 +34,57 @@ The project combines a React dashboard, Firebase backend, and a separate TypeScr
 - **Shared domain models:** TypeScript schemas for disputes, evidence, organizations, and audit events.
 
 Retrieval, embeddings, and reranking code also live in the AI package. These need configuration, reference content, and evaluation; their presence does not mean every draft uses retrieved sources. See [project status](docs/PROJECT_STATUS.md) for the boundaries and source links.
+
+## Workflow
+
+The workflow being explored is **ingest → classify → assemble → review → submit**: bring a dispute into the workspace, understand what evidence it needs, and prepare a response someone can inspect before sending.
+
+```mermaid
+flowchart LR
+  I["Ingest<br/>Webhooks, sync, imports"] --> C["Classify<br/>Reason code and case context"]
+  C --> A["Assemble<br/>Evidence plan and draft"]
+  A --> R["Review<br/>Check sources and edit"]
+  R --> S["Submit<br/>Processor-specific response"]
+```
+
+1. **Ingest:** processor adapters and import paths bring payment and operational records into the backend.
+2. **Classify:** reason-code mappings and hospitality or ticketing configurations help determine relevant evidence requirements.
+3. **Assemble:** combine available records and uploaded documents with AI-assisted planning and drafting. Retrieval can add reference context when configured.
+4. **Review:** inspect the evidence, correct the draft, and decide how to respond. AI suggestions are starting points for this work.
+5. **Submit:** Stripe and Adyen handlers map responses to processor APIs; successful submission is separate from the eventual dispute outcome.
+
+This describes the intended flow through the project. How much is automated depends on the integration and configuration; it is not a claim that every path has been validated end to end.
+
+## Ontology
+
+The architectural idea behind Realyn is to give the workflow a shared vocabulary. A processor dispute, a booking record, an evidence item, and a drafted argument describe different parts of the same case. **`@realyn/ontology` defines the TypeScript types and Zod schemas intended to connect those parts.**
+
+- **Disputes and organizations** describe the case and its ownership.
+- **Evidence requirements, items, and plans** describe what is needed and what has been collected.
+- **Arguments and versions** represent the response being prepared.
+- **Audit events and outcomes** provide shapes for recording actions and results.
+- **Tenant context** models the organization, user, sandbox/live mode, vertical, locale, and request context.
+
+The package also defines a canonical workflow status enum, alongside the older status fields still used by existing code. The ontology is a work in progress: some newer schemas are strict, existing document schemas remain permissive, and adoption across handlers is incremental.
+
+Explore the [ontology source](packages/ontology/src/index.ts), [design rationale](docs/adr/0001-ontology.md), and [versioning and migration policy](docs/adr/0002-ontology-versioning.md).
+
+## Architecture
+
+```mermaid
+flowchart TB
+  SOURCES["Stripe / Adyen<br/>Operational records and uploads"] --> FN["Firebase Functions<br/>Adapters and workflow handlers"]
+  FN --> DATA["Firestore and Storage"]
+  DASH["React dashboard<br/>Case and evidence workspace"] <--> DATA
+  DASH --> FN
+  FN --> AI["@realyn/ai-core<br/>Planning, specialists, drafting"]
+  AI -. "when configured" .-> EXT["LLM providers and Pinecone retrieval"]
+  MODEL["@realyn/ontology<br/>Shared domain types and schemas"] -. "domain model" .-> FN
+  MODEL -. "domain model" .-> DASH
+  MODEL -. "domain model" .-> AI
+```
+
+The separation is the interesting experiment: adapters handle external formats, the ontology describes the domain, and the AI package focuses on planning and drafting. Dashed ontology links show the architectural role of the shared model; migration to it is still underway. Firebase Auth handles dashboard authentication.
 
 ## Getting started
 
