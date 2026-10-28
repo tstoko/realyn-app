@@ -1,6 +1,6 @@
 # Evaluation Artifacts
 
-Small, human-readable records of what the AI pipeline produced at a given point in time. The purpose is narrow: when we change the pipeline (add RAG, swap models, tune prompts), we want a before/after comparison grounded in real disputes rather than gut feel.
+Small, human-readable records of what the AI pipeline produced at a given point in time. The purpose is narrow: when we change the pipeline (add RAG, swap models, tune prompts), we want a before/after comparison grounded in repeatable dispute examples rather than gut feel.
 
 ## Directory convention
 
@@ -20,11 +20,11 @@ Naming: `{YYYY-MM}-{change-id}-{baseline|after}.md`. Keep each run to <10 disput
 1. **5–10 representative disputes** across the reason codes you care about (13.1, 10.4, 4853, etc.), mixed across verticals (hospitality, ticketing).
 2. **Same inputs each time.** Lock the dispute IDs in the markdown so the "after" run uses identical data. If the input data itself changes, start a new baseline.
 3. **Structured rubric.** See `rag-baseline-template.md`. Each dispute gets graded on a handful of dimensions rather than a single "good/bad" feel.
-4. **Link to the generated outputs.** Paste the argument text or attach Firestore `disputeId`s — the point is reproducibility, not a summary.
+4. **Link to the generated outputs.** Include sanitized argument text and fixture identifiers — the point is reproducibility, not a summary.
 
 ## Workflow
 
-1. Pick the disputes. Document their IDs + a one-line description of each.
+1. Pick synthetic or explicitly approved, de-identified disputes. Never commit personal records or raw production outputs. Document their IDs + a one-line description of each.
 2. Run the current pipeline end-to-end. Save outputs (argument text, evidence plan, claim analysis) somewhere persistent (Firestore already does this; record the `disputeId` + `draftVersion`).
 3. Grade each dispute on the rubric. Be honest — if it's bad, say so.
 4. Make the pipeline change.
@@ -44,6 +44,7 @@ These are a starting point, not a hard standard. Edit the template to match what
 
 ## What this is not
 
-- Not a replacement for automated tests. Critical logic paths live in Jest/Vitest suites — see `packages/core/src/__tests__/` and `packages/dashboard/src/__tests__/`.
+- Not a replacement for automated tests. Critical logic paths live in Jest/Vitest suites — see `packages/ai-core/src/services/__tests__/`, `functions/src/`, and `packages/dashboard/src/__tests__/`.
 - Not a customer-facing metric. These evals are internal, qualitative, and meant to be argued over.
 - Not a substitute for a real offline-eval harness. When dispute volume grows, move to structured scoring (win/loss prediction, citation-precision scoring against held-out chargeback outcomes) and retire the markdown approach.
+
